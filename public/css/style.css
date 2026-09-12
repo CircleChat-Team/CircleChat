@@ -1148,6 +1148,8 @@ body {
   .chat-actions { gap: 6px; }
   .logout-btn span { display: none; } /* 移动端只留图标 */
   .logout-btn { padding: 8px; }
+  .admin-entry span { display: none; }
+  .admin-entry { padding: 8px; }
 
   .msg-body { max-width: 82%; }
   .msg-list { padding: 16px 12px 20px; }
@@ -1221,7 +1223,25 @@ body {
   color: var(--muted);
 }
 
-.admin-send { display: flex; align-items: flex-end; gap: 8px; }
+/* 顶栏「用户管理」入口：仅管理员可见，用主色按钮保证一眼能看到 */
+.admin-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  color: #fff;
+  background: var(--primary);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .2s var(--ease), transform .15s var(--ease);
+}
+.admin-entry .icon { width: 16px; height: 16px; }
+.admin-entry:hover  { background: var(--primary-dark); }
+.admin-entry:active { transform: scale(.96); }
 
 .admin-add {
   display: flex;
@@ -1262,25 +1282,20 @@ body {
 .admin-btn:hover  { background: var(--primary-dark); }
 .admin-btn:active { transform: scale(.97); }
 
-.admin-user-list,
-.admin-msg-list {
+.admin-user-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 210px;
+  max-height: 300px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(128, 128, 128, .4) transparent;
 }
-.admin-user-list::-webkit-scrollbar,
-.admin-msg-list::-webkit-scrollbar       { width: 6px; }
-.admin-user-list::-webkit-scrollbar-track,
-.admin-msg-list::-webkit-scrollbar-track { background: transparent; }
-.admin-user-list::-webkit-scrollbar-thumb,
-.admin-msg-list::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, .4); border-radius: 8px; }
+.admin-user-list::-webkit-scrollbar       { width: 6px; }
+.admin-user-list::-webkit-scrollbar-track { background: transparent; }
+.admin-user-list::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, .4); border-radius: 8px; }
 
-.admin-user,
-.admin-msg {
+.admin-user {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1290,18 +1305,16 @@ body {
   border-radius: 10px;
 }
 
-.admin-user .u-name,
-.admin-msg .m-text {
+.admin-user .u-name {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  font-weight: 500;
 }
-.admin-user .u-name { font-weight: 500; }
 .admin-user .u-role { flex: 0 0 auto; font-size: 11px; color: var(--primary); }
 .admin-user .u-state { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
-.admin-msg .m-from { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
 
 .admin-act {
   flex: 0 0 auto;

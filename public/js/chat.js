@@ -573,7 +573,6 @@
         }
         old.parentNode.replaceChild(tip, old);
         if (nearBottom) scrollToBottom();
-        refreshAdminMsgs(); // 面板打开时同步刷新消息列表
     }
 
     // 懒加载：向前追加更早的一批历史，并保持滚动位置不跳动
@@ -1138,51 +1137,6 @@
         return row;
     }
 
-    // 消息列表：撤回任意人的消息
-    function refreshAdminMsgs() {
-        var box = $('adminMsgList');
-        if (!box) return;
-        var list = historyAll.slice(-50).reverse();
-        if (!list.length) { adminEmpty(box, '暂无消息'); return; }
-        box.innerHTML = '';
-        list.forEach(function (m) {
-            var row = document.createElement('div');
-            row.className = 'admin-msg';
-
-            var text = document.createElement('span');
-            text.className = 'm-text';
-            text.textContent = m.type === 'text' ? m.content
-                : (m.type === 'image' ? '[图片]' : '[文件] ' + (m.name || ''));
-            row.appendChild(text);
-
-            var from = document.createElement('span');
-            from.className = 'm-from';
-            from.textContent = m.from;
-            row.appendChild(from);
-
-            var rb = document.createElement('button');
-            rb.type = 'button';
-            rb.className = 'admin-act';
-            rb.textContent = '撤回';
-            rb.addEventListener('click', function () {
-                if (!window.confirm('确定撤回 ' + m.from + ' 的这条消息吗？')) return;
-                sendWs({ type: 'recall', data: { idx: m.idx } });
-            });
-            row.appendChild(rb);
-
-            box.appendChild(row);
-        });
-    }
-
-    function adminSend() {
-        var input = $('adminMsgInput');
-        var val = input.value.trim();
-        if (!val) return;
-        if (!sendWs({ type: 'msg', data: { type: 'text', content: val } })) return;
-        input.value = '';
-        toast('已发送');
-    }
-
     function adminAddUser() {
         var n = $('adminNewName');
         var p = $('adminNewPass');
@@ -1201,8 +1155,7 @@
     function openAdminPanel() {
         $('adminModal').classList.remove('hidden');
         refreshAdminUsers();
-        refreshAdminMsgs();
-        setTimeout(function () { $('adminMsgInput').focus(); }, 60);
+        setTimeout(function () { $('adminNewName').focus(); }, 60);
     }
 
     function closeAdminPanel() {
@@ -1217,10 +1170,9 @@
             if (e.target.hasAttribute('data-close')) closeAdminPanel();
         });
         $('adminAddBtn').addEventListener('click', adminAddUser);
-        $('adminSendBtn').addEventListener('click', adminSend);
-        $('adminMsgInput').addEventListener('keydown', function (e) {
+        $('adminNewPass').addEventListener('keydown', function (e) {
             if (e.isComposing || e.keyCode === 229) return;
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); adminSend(); }
+            if (e.key === 'Enter') { e.preventDefault(); adminAddUser(); }
         });
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' && !$('adminModal').classList.contains('hidden')) closeAdminPanel();
