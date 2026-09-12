@@ -733,6 +733,71 @@ body {
 .msg-tool:hover { color: var(--primary); background: var(--fill); }
 .msg-tool.danger:hover { color: #e5484d; }
 
+/* ---------- 表情回应 ---------- */
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+  background: var(--fill);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color .15s var(--ease), background .15s var(--ease), transform .12s var(--ease);
+}
+.reaction:hover  { border-color: var(--primary); }
+.reaction:active { transform: scale(.94); }
+/* 自己回应过的加高亮 */
+.reaction.mine {
+  color: var(--primary);
+  background: rgba(7, 193, 96, .12);
+  border-color: rgba(7, 193, 96, .35);
+}
+.reaction .r-count { font-size: 11px; font-variant-numeric: tabular-nums; }
+
+/* 快速表情选择器 */
+.react-picker {
+  position: absolute;
+  top: -38px;
+  z-index: 6;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+  animation: slideUp .15s var(--ease) both;
+}
+.msg.other .react-picker { left: 0; }
+.msg.self  .react-picker { right: 0; }
+
+.react-pick {
+  width: 30px;
+  height: 30px;
+  font-size: 17px;
+  line-height: 1;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s var(--ease), transform .12s var(--ease);
+}
+.react-pick:hover  { background: var(--fill); }
+.react-pick:active { transform: scale(.9); }
+.react-pick.mine   { background: rgba(7, 193, 96, .15); }
+
 /* ---------- 轻量 Markdown 渲染样式 ---------- */
 .md-text { margin: 0; }
 .md-text:empty { display: none; }

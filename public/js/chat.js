@@ -632,10 +632,27 @@
         }
     }
 
-    // 消息操作条（悬停时显现）：复制 / 撤回
-    function buildMsgTools(m) {
+    // 消息操作条（悬停时显现）：回应 / 复制 / 撤回
+    function buildMsgTools(m, body) {
         var tools = document.createElement('span');
         tools.className = 'msg-tools';
+
+        if (m.idx != null && !m.recalled) {
+            var rc = document.createElement('button');
+            rc.type = 'button';
+            rc.className = 'msg-tool';
+            rc.textContent = '回应';
+            rc.addEventListener('click', function (ev) {
+                ev.stopPropagation();
+                if (reactPickerIdx === m.idx) { closeReactPicker(); return; }
+                var mine = [];
+                (m.reactions || []).forEach(function (r) {
+                    if (r.users.indexOf(ME) !== -1) mine.push(r.emoji);
+                });
+                openReactPicker(body, m.idx, mine);
+            });
+            tools.appendChild(rc);
+        }
 
         if (m.type === 'text' && m.content) {
             var cp = document.createElement('button');
@@ -662,6 +679,86 @@
         }
 
         return tools.childNodes.length ? tools : null;
+    }
+
+    // ---------- 表情回应 ----------
+
+    var QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👀'];
+    var reactPicker = null;
+    var reactPickerIdx = null;
+
+    function closeReactPicker() {
+        if (reactPicker && reactPicker.parentNode) reactPicker.parentNode.removeChild(reactPicker);
+        reactPicker = null;
+        reactPickerIdx = null;
+    }
+
+    function openReactPicker(body, idx, mine) {
+        closeReactPicker();
+        var box = document.createElement('div');
+        box.className = 'react-picker';
+        QUICK_EMOJIS.forEach(function (e) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'react-pick' + (mine.indexOf(e) !== -1 ? ' mine' : '');
+            b.textContent = e;
+            b.title = e;
+            b.addEventListener('click', function (ev) {
+                ev.stopPropagation();
+                sendWs({ type: 'react', data: { idx: idx, emoji: e } });
+                closeReactPicker();
+            });
+            box.appendChild(b);
+        });
+        body.appendChild(box);
+        reactPicker = box;
+        reactPickerIdx = idx;
+    }
+
+    // 气泡下方的回应条
+    function buildReactions(idx, reactions) {
+        if (!reactions || !reactions.length) return null;
+        var bar = document.createElement('div');
+        bar.className = 'reactions';
+        reactions.forEach(function (r) {
+            var chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'reaction' + (r.users.indexOf(ME) !== -1 ? ' mine' : '');
+            chip.title = (r.users || []).join('、');
+            var e = document.createElement('span');
+            e.className = 'r-emoji';
+            e.textContent = r.emoji;
+            var n = document.createElement('span');
+            n.className = 'r-count';
+            n.textContent = r.count;
+            chip.appendChild(e);
+            chip.appendChild(n);
+            chip.addEventListener('click', function () {
+                sendWs({ type: 'react', data: { idx: idx, emoji: r.emoji } });
+            });
+            bar.appendChild(chip);
+        });
+        return bar;
+    }
+
+    // 回应变化：更新本地数据与对应消息的回应条
+    function handleReaction(data) {
+        if (!data || data.idx == null) return;
+        for (var i = 0; i < historyAll.length; i++) {
+            if (historyAll[i].idx === data.idx) { historyAll[i].reactions = data.reactions; break; }
+        }
+        var wrap = msgList.querySelector('.msg[data-idx="' + data.idx + '"]');
+        if (!wrap) return;
+        var body = wrap.querySelector('.msg-body');
+        if (!body) return;
+        var old = body.querySelector('.reactions');
+        var next = buildReactions(data.idx, data.reactions);
+        if (old) {
+            if (next) body.replaceChild(next, old);
+            else body.removeChild(old);
+        } else if (next) {
+            body.appendChild(next);
+        }
     }
 
     // 同一人 5 分钟内连发视为一组，第二条起隐藏头像与昵称
@@ -727,7 +824,7 @@
             contentEl = bubble;
         }
 
-        var tools = buildMsgTools(m);
+        var tools = buildMsgTools(m, body);
 
         // 时间/昵称行：分组消息不显示文案，且无可用操作时整行省略，保证同一组紧凑
         if (!grouped || tools) {
@@ -744,6 +841,9 @@
         }
 
         body.appendChild(contentEl);
+
+        var reactions = buildReactions(m.idx, m.reactions);
+        if (reactions) body.appendChild(reactions);
 
         var avatar = makeAvatarEl(m.from, 'msg-avatar');
 
@@ -963,6 +1063,7 @@
             if (obj.type === 'msg') { renderMsg(obj.data); showNotify(obj.data); }
             else if (obj.type === 'recall') { handleRecall(obj.data); }
             else if (obj.type === 'typing') { if (obj.from && obj.from !== ME) showTyping(obj.from); }
+            else if (obj.type === 'reaction') { handleReaction(obj.data); }
             else if (obj.type === 'presence') {
                 onlineUsers = obj.users || [];
                 renderUsers();
@@ -1500,6 +1601,13 @@
       });
 
       bindDropUpload(); // 拖拽 / 粘贴上传
+
+      // 点击表情选择器以外区域时收起
+      document.addEventListener('click', function (e) {
+        if (!reactPicker) return;
+        if (e.target.closest && (e.target.closest('.react-picker') || e.target.closest('.msg-tool'))) return;
+        closeReactPicker();
+      });
 
       // 管理员显示「用户管理」入口（跳转独立管理页 /admin.html）
       if (IS_ADMIN) $('adminBtn').classList.remove('hidden');
