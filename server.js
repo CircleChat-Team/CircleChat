@@ -39,39 +39,8 @@ const USERNAME_RE = /^[\w\u4e00-\u9fa5\-.]{2,20}$/;
 const MIN_PASS_LEN = 6;
 const MAX_PASS_LEN = 64;
 
-// 允许的图片扩展名
+// 图片扩展名（仅用于「扩展名伪装成图片但内容不是图片」时降级处理）
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
-// 允许的文件扩展名（白名单）
-// 图片单独由 IMAGE_EXTS + 魔数校验处理，避免上传伪装文件。
-// 说明：.html/.svg/.xml 等可被浏览器渲染的类型也允许上传，但 serveStatic 会把
-//       上传目录里的非图片文件一律以附件（application/octet-stream）下发，
-//       因此它们只会被下载，不会以本站同源页面身份执行。
-const FILE_EXTS = new Set([
-  // 文档与文本
-  '.txt', '.md', '.markdown', '.csv', '.json', '.log', '.rtf', '.ics', '.vcf',
-  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-  '.odt', '.ods', '.odp', '.epub',
-  // 压缩包
-  '.zip', '.rar', '.7z', '.tar', '.tgz', '.gz', '.bz2', '.xz',
-  // 音视频与字幕
-  '.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.opus',
-  '.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.flv', '.wmv',
-  '.srt', '.ass', '.vtt',
-  // 安装包与种子
-  '.apk', '.ipa', '.exe', '.msi', '.dmg', '.pkg', '.deb', '.rpm', '.torrent',
-  // 代码：脚本与前端
-  '.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.vue', '.svelte', '.dart',
-  '.py', '.pyw', '.rb', '.php', '.pl', '.lua', '.r', '.jl', '.ipynb',
-  '.html', '.htm', '.xhtml', '.xml', '.xsl', '.xslt', '.svg',
-  '.css', '.scss', '.sass', '.less', '.styl',
-  // 代码：后端与系统级
-  '.java', '.kt', '.kts', '.scala', '.groovy', '.cs', '.go', '.rs', '.swift',
-  '.c', '.h', '.cpp', '.cc', '.cxx', '.hpp', '.hxx', '.m', '.mm', '.asm', '.s',
-  '.sh', '.bash', '.zsh', '.fish', '.bat', '.cmd', '.ps1',
-  // 配置与数据描述
-  '.sql', '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf', '.properties',
-  '.env', '.gradle', '.cmake', '.mk', '.tex', '.bib', '.proto', '.graphql', '.gql'
-]);
 
 // ---------- 工具函数 ----------
 
@@ -605,20 +574,22 @@ function handleApi(req, res, urlObj, pathname, ip) {
       const origName = partFilename(filePart.header) || 'file';
       const ext = path.extname(origName).toLowerCase();
 
-      // 类型判定：图片需扩展名白名单 + 魔数校验；其他按文件扩展名白名单
+      // 不限文件类型，一律接收。
+      // 是否为图片只按文件内容（魔数）判断，与文件名无关。
       const sniffed = sniffImage(buf);
-      let kind = null;
-      if (IMAGE_EXTS.has(ext) && sniffed) kind = 'image';
-      else if (FILE_EXTS.has(ext)) kind = 'file';
-      if (!kind) {
-        sendJSON(res, 400, {
-          ok: false,
-          error: '不支持的文件类型「' + (ext || '无扩展名') + '」，支持文档 / 压缩包 / 音视频 / 图片等常见格式'
-        });
-        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
-        return;
+      const kind = sniffed ? 'image' : 'file';
+
+      // 落盘扩展名：
+      //   图片 -> 用嗅探出的真实格式，保证能被正确内联显示（改名成 .png 的假图片也会被识破）；
+      //   其它 -> 保留原扩展名（仅保留安全字符），扩展名伪装成图片但内容不是则降级为 .bin。
+      let saveExt;
+      if (sniffed) {
+        saveExt = '.' + sniffed;
+      } else {
+        const safeExt = /^\.[a-z0-9]{1,8}$/i.test(ext) ? ext.toLowerCase() : '.bin';
+        saveExt = IMAGE_EXTS.has(safeExt) ? '.bin' : safeExt;
       }
-      const saveName = crypto.randomBytes(8).toString('hex') + ext;
+      const saveName = crypto.randomBytes(8).toString('hex') + saveExt;
       const savePath = path.join(UPLOAD_DIR, saveName);
       fs.mkdirSync(UPLOAD_DIR, { recursive: true });
       fs.writeFileSync(savePath, buf);

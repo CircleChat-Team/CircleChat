@@ -1015,6 +1015,9 @@ body {
 .tool-btn:hover .icon { color: var(--primary); }
 .tool-btn:active { transform: scale(.9); }
 
+/* 独立「图片」按钮只在移动端保留；桌面端点「文件」即可选图片，服务端按内容自动识别 */
+#imageBtn { display: none; }
+
 .text-input {
   flex: 1;
   min-width: 0;
@@ -1150,6 +1153,8 @@ body {
   .logout-btn { padding: 8px; }
   .admin-entry span { display: none; }
   .admin-entry { padding: 8px; }
+  /* 移动端保留独立的图片按钮，便于直接调起相册 */
+  #imageBtn { display: flex; }
 
   .msg-body { max-width: 82%; }
   .msg-list { padding: 16px 12px 20px; }

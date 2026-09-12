@@ -19,15 +19,15 @@ const ROOT = __dirname;
 
 // MD5 完整性清单（与各源文件内容一一对应）
 const MANIFEST = {
-  'server.js': '1e08a99867f31fddda46cf549f5720aa',
+  'server.js': '6b2460eb6a10dcc68cefd3fd67917fcb',
   'lib/auth.js': 'fdd38af5eb243f31e5236fa77cb69277',
   'lib/store.js': 'b585a8e075818bd6185a97da6c08781b',
   'lib/ws.js': '8eb09d11bc20e592e092b5955b498f1e',
   'lib/log.js': 'cf6a98065b2452eb57b15a6f5db2fd76',
   'public/index.html': '07ea987fcca27049710284d88491f308',
-  'public/css/style.css': 'ef9776aa64207fd04ba1500d3a28443a',
+  'public/css/style.css': 'e0dc5d6997e9bfd1995ffd237f5ef993',
   'public/login.html': 'c4d568859aadf229e4fbb894abf25e55',
-  'public/chat.html': '8a48ed11fcde3bba86414ae3a491a9f8',
+  'public/chat.html': 'c1d74482f850bdc1d01b03867dd5a099',
   'public/admin.html': '566a7d1faf14eac6220fa9698ddb9096',
   'public/js/config.js': '29e316e77c56cadc01e3850c87a5b7d1',
   'public/js/login.js': '6d114faaf6462e9691a5a9374e6d3d3c',
