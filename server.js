@@ -208,6 +208,7 @@ function sniffImage(buf) {
 // ---------- WebSocket 客户端管理 ----------
 
 const clients = new Set(); // 所有在线 WS 连接
+const typingLast = new Map(); // 用户名 -> 上次转发「正在输入」的时间（节流用）
 
 function clientId(c) {
   return c.user.username;
@@ -283,6 +284,7 @@ function handleWsUpgrade(req, socket, head) {
 function shutdownClient(client, reason) {
   if (!clients.has(client)) return;
   clients.delete(client);
+  typingLast.delete(client.user.username);
   try {
     // 先发送 Close 帧再 FIN，确保对端能收到
     client.socket.write(wsproto.encodeClose(1000));
@@ -299,6 +301,20 @@ function handleWsText(client, text) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.type === 'ping') {
     client.sendText(JSON.stringify({ type: 'pong', ts: Date.now() }));
+    return;
+  }
+  if (msg.type === 'typing') {
+    // 正在输入：服务端再节流一次（同一用户 2 秒内只转发一次），且不回显给发起者
+    const u = client.user.username;
+    const now = Date.now();
+    if (now - (typingLast.get(u) || 0) > 2000) {
+      typingLast.set(u, now);
+      const frame = wsproto.encodeText(JSON.stringify({ type: 'typing', from: u }));
+      for (const c of clients) {
+        if (c === client) continue;
+        try { c.socket.write(frame); } catch (e) { /* 忽略 */ }
+      }
+    }
     return;
   }
   if (msg.type === 'msg') {

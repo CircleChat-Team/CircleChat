@@ -137,6 +137,47 @@
         document.addEventListener('keydown', once);
     }
 
+    // ---------- 正在输入提示 ----------
+
+    var typingHideTimer = null;
+    var typingSentAt = 0;                       // 上次发送时间（客户端节流）
+    var TYPING_SEND_GAP = 2000;                 // 打字过程中每 2 秒最多发一次
+    var TYPING_HIDE_MS = 3500;                  // 对方停止后多久隐藏
+    var typingWho = '';                         // 当前正在输入的人
+
+    function sendTyping() {
+        var now = Date.now();
+        if (now - typingSentAt < TYPING_SEND_GAP) return;
+        typingSentAt = now;
+        sendWs({ type: 'typing' });
+    }
+
+    function hideTyping() {
+        var bar = $('typingBar');
+        typingWho = '';
+        if (bar) bar.classList.add('hidden');
+        clearTimeout(typingHideTimer);
+    }
+
+    function showTyping(name) {
+        var bar = $('typingBar');
+        if (!bar || !name) return;
+        if (typingWho !== name) {
+            bar.textContent = '';
+            var label = document.createElement('span');
+            label.textContent = name + ' 正在输入';
+            var dots = document.createElement('span');
+            dots.className = 'typing-dots';
+            for (var i = 0; i < 3; i++) dots.appendChild(document.createElement('i'));
+            bar.appendChild(label);
+            bar.appendChild(dots);
+            typingWho = name;
+        }
+        bar.classList.remove('hidden');
+        clearTimeout(typingHideTimer);
+        typingHideTimer = setTimeout(hideTyping, TYPING_HIDE_MS);
+    }
+
     // ---------- 工具 ----------
 
     function toast(msg, ms) {
@@ -676,8 +717,11 @@
         historyAll.push(m); // 与历史合并，保证一致性
         msgList.appendChild(wrap);
         if (nearBottom) scrollToBottom();
-        // 收到他人消息时播放提示音（自己发的不回放）
-        if (m.from !== ME) playNotifySound();
+        // 收到他人消息时播放提示音（自己发的不回放）；对方已发出消息则收起输入提示
+        if (m.from !== ME) {
+            playNotifySound();
+            if (typingWho && typingWho === m.from) hideTyping();
+        }
     }
 
     // 撤回提示文案：实时事件与历史渲染共用，保证刷新前后文案一致
@@ -858,6 +902,7 @@
             if (!obj || typeof obj !== 'object') return;
             if (obj.type === 'msg') { renderMsg(obj.data); showNotify(obj.data); }
             else if (obj.type === 'recall') { handleRecall(obj.data); }
+            else if (obj.type === 'typing') { if (obj.from && obj.from !== ME) showTyping(obj.from); }
             else if (obj.type === 'presence') {
                 onlineUsers = obj.users || [];
                 renderUsers();
@@ -1257,6 +1302,7 @@
       textInput.addEventListener('input', function () {
         autoGrow();
         updateMentionPanel();
+        sendTyping();
       });
       textInput.addEventListener('blur', hideMentionPanel);
       textInput.addEventListener('compositionstart', function () {
