@@ -269,6 +269,98 @@
         return null;
     }
 
+    // ---------- 轻量 Markdown 渲染（仅 ```代码块``` / `行内代码` / **粗体** / *斜体*） ----------
+    var FENCE_RE = /```([a-zA-Z0-9_+\-.]*)[ \t]*\n([\s\S]*?)```/g;
+
+    function emphasisMD(escaped) {
+        // 粗体 **...** 优先，再处理斜体 *...*（避免误伤 **）
+        return escaped
+            .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+    }
+
+    function renderInlineMD(escaped) {
+        // 先抽出行内代码，避免其内部被加粗/斜体处理
+        var out = '';
+        var re = /`([^`]+)`/g;
+        var last = 0, m;
+        while ((m = re.exec(escaped)) !== null) {
+            out += emphasisMD(escaped.slice(last, m.index));
+            out += '<code class="inline-code">' + m[1] + '</code>';
+            last = m.index + m[0].length;
+        }
+        out += emphasisMD(escaped.slice(last));
+        return out;
+    }
+
+    function buildCodeBlockHTML(lang, code) {
+        if (code.length && code.charAt(code.length - 1) === '\n') code = code.slice(0, -1);
+        var lines = code.split('\n');
+        var gutter = '';
+        for (var i = 1; i <= lines.length; i++) gutter += i + '\n';
+        var langLabel = lang ? esc(lang) : '代码';
+        return '<div class="code-block">' +
+            '<div class="code-head"><span class="code-lang">' + langLabel + '</span>' +
+            '<button type="button" class="code-copy">复制</button></div>' +
+            '<div class="code-body"><span class="code-gutter">' + gutter + '</span>' +
+            '<pre class="code-pre"><code>' + code + '</code></pre></div>' +
+            '</div>';
+    }
+
+    function renderTextContent(bubble, text) {
+        var escaped = esc(text);
+        var html = '';
+        var last = 0, m;
+        FENCE_RE.lastIndex = 0;
+        while ((m = FENCE_RE.exec(escaped)) !== null) {
+            var before = escaped.slice(last, m.index);
+            if (before.trim().length) html += '<p class="md-text">' + renderInlineMD(before) + '</p>';
+            else if (before.length) html += renderInlineMD(before);
+            html += buildCodeBlockHTML(m[1], m[2]);
+            last = m.index + m[0].length;
+        }
+        var after = escaped.slice(last);
+        if (after.trim().length) html += '<p class="md-text">' + renderInlineMD(after) + '</p>';
+        else if (after.length) html += renderInlineMD(after);
+        if (!html) html = '<p class="md-text"></p>';
+        bubble.innerHTML = html;
+        bubble.querySelectorAll('.code-copy').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var block = btn.closest('.code-block');
+                var codeEl = block && block.querySelector('.code-pre code');
+                if (codeEl) copyCodeBlock(codeEl.textContent, btn);
+            });
+        });
+    }
+
+    function copyCodeBlock(text, btn) {
+        function done() {
+            if (!btn) return;
+            var old = btn.textContent;
+            btn.textContent = '已复制';
+            setTimeout(function () { btn.textContent = old; }, 1200);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
+        } else {
+            fallbackCopy(text, done);
+        }
+    }
+
+    function fallbackCopy(text, cb) {
+        try {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            if (cb) cb();
+        } catch (e) { /* 忽略 */ }
+    }
+
     // 构建单条消息 DOM（不插入、不滚动），返回 wrap 或 null（非法资源）
     function buildMsg(m) {
         var wrap = document.createElement('div');
@@ -305,7 +397,7 @@
             a.innerHTML = '<span style="font-size:20px">📄</span><span><span class="fname">' + esc(m.name || '文件') + '</span><br><span class="fsize">' + fmtSize(m.size) + ' · 点击下载</span></span>';
             bubble.appendChild(a);
         } else {
-            bubble.textContent = m.content;
+            renderTextContent(bubble, m.content);
         }
 
         var meta = document.createElement('div');
