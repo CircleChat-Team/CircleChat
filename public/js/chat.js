@@ -628,11 +628,12 @@
 
       // 侧边栏：桌面端折叠 / 移动端展开-收起
       $('sidebarToggle').addEventListener('click', function () {
-        chatView.classList.add('sidebar-open');
+        if (isMobile()) chatView.classList.add('sidebar-open');
+        else chatView.classList.toggle('sidebar-collapsed');
       });
       $('sidebarCollapse').addEventListener('click', function () {
         if (isMobile()) chatView.classList.remove('sidebar-open');
-        else chatView.classList.toggle('sidebar-collapsed');
+        else chatView.classList.add('sidebar-collapsed');
       });
       $('sidebarBackdrop').addEventListener('click', function () {
         chatView.classList.remove('sidebar-open');

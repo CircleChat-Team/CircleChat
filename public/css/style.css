@@ -436,8 +436,9 @@ body {
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
-/* 移动端头部不显示侧边栏折叠按钮（用汉堡展开），桌面端不显示汉堡 */
+/* 桌面端：侧边栏展开时隐藏汉堡，折叠后才显示（用于重新展开）；移动端始终显示 */
 .sidebar-toggle { display: none; }
+.chat-view.sidebar-collapsed .sidebar-toggle { display: inline-flex; }
 
 .chat-title {
   flex-shrink: 0;
