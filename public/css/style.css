@@ -548,7 +548,7 @@ body {
 .msg {
   display: flex;
   gap: 10px;
-  align-items: flex-end;
+  align-items: flex-start;
   animation: pop .3s var(--ease) both;
 }
 .msg.self  { flex-direction: row-reverse; }
@@ -617,7 +617,7 @@ body {
 }
 
 .msg .meta {
-  margin-top: 5px;
+  margin-bottom: 5px;
   padding: 0 6px;
   font-size: 11px;
   letter-spacing: .2px;

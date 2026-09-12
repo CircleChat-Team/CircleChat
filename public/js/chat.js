@@ -287,12 +287,12 @@
             bubble.textContent = m.content;
         }
 
-        body.appendChild(bubble);
-
         var meta = document.createElement('div');
         meta.className = 'meta';
         meta.textContent = (m.from === ME ? '' : m.from + ' · ') + fmtTime(m.ts);
+
         body.appendChild(meta);
+        body.appendChild(bubble);
 
         var avatar = makeAvatarEl(m.from, 'msg-avatar');
 
