@@ -21,6 +21,7 @@ const crypto = require('crypto');
 
 const auth = require('./lib/auth');
 const store = require('./lib/store');
+const groups = require('./lib/groups');
 const audit = require('./lib/audit');
 const wsproto = require('./lib/ws');
 const logger = require('./lib/log');
@@ -225,6 +226,23 @@ function broadcast(obj) {
   }
 }
 
+function sendTo(client, obj) {
+  try { client.sendText(JSON.stringify(obj)); } catch (e) { /* 忽略 */ }
+}
+
+// 推送给某群的在线成员
+function broadcastGid(gid, obj) {
+  for (const c of clients) {
+    if (groups.isMember(gid, c.user.username)) sendTo(c, obj);
+  }
+}
+
+// 按房间推送：gid=null 为公共聊天（全量），否则仅推群成员
+function broadcastRoom(gid, obj) {
+  if (gid == null) broadcast(obj);
+  else broadcastGid(gid, obj);
+}
+
 function broadcastPresence() {
   const users = [...new Set([...clients].map(clientId))].sort();
   broadcast({ type: 'presence', users });
@@ -328,6 +346,12 @@ function handleWsText(client, text) {
     const d = msg.data || {};
     const type = d.type === 'image' || d.type === 'file' ? d.type : 'text';
     let content = String(d.content || '').slice(0, type === 'text' ? MAX_TEXT_LEN : 300);
+    // 目标房间：null 为公共聊天；否则必须为本群成员才可发送
+    let gid = d.gid != null ? String(d.gid) : null;
+    if (gid !== null) {
+      if (gid.length > 64) return;
+      if (!groups.isMember(gid, client.user.username)) return;
+    }
     // 防注入：image/file 的 content 必须是本服务器上传目录的合法文件（防 javascript: 等伪造链接）
     if (type === 'text') {
       if (!content.trim()) return;
@@ -351,18 +375,19 @@ function handleWsText(client, text) {
       content,
       name: d.name,
       size: d.size,
-      replyTo
+      replyTo,
+      gid
     });
     audit.add({
       actor: client.user.username,
-      action: 'msg',
-      target: record.idx,
+      action: gid == null ? 'msg' : 'group.msg',
+      target: gid == null ? record.idx : gid,
       detail: type === 'text'
         ? '文本：' + content.slice(0, 40)
         : (type === 'image' ? '图片：' : '文件：') + String(d.name || '未命名'),
       ip: client.user.ip
     });
-    broadcast({ type: 'msg', data: record });
+    broadcastRoom(gid, { type: 'msg', data: record });
   }
   if (msg.type === 'react') {
     const d = msg.data || {};
@@ -385,20 +410,21 @@ function handleWsText(client, text) {
     if (!Number.isInteger(idx) || idx <= 0) return;
     const target = store.get(idx);
     if (!target || target.recalled) return; // 不存在或已撤回
+    const room = target.gid != null ? String(target.gid) : null;
     const admin = auth.isAdmin(client.user.username);
     // 只能撤回自己的消息；管理员可撤回任意人的消息
     if (target.from !== client.user.username && !admin) return;
     if (!store.recall(idx, client.user.username)) return;
     audit.add({
       actor: client.user.username,
-      action: 'recall',
+      action: room == null ? 'recall' : 'group.recall',
       target: idx,
       detail: target.from === client.user.username
         ? '撤回了自己的消息'
         : '以管理员身份撤回了 ' + target.from + ' 的消息',
       ip: client.user.ip
     });
-    broadcast({
+    broadcastRoom(room, {
       type: 'recall',
       data: {
         idx,
@@ -414,6 +440,32 @@ function handleWsText(client, text) {
 
 function handleApi(req, res, urlObj, pathname, ip) {
   const t0 = Date.now();
+
+  // POST /api/register —— 提交注册申请（开放注册，需管理员审核通过后才可登录）
+  if (pathname === '/api/register' && req.method === 'POST') {
+    readBody(req, 8192).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+      const pass = o && typeof o.password === 'string' ? o.password : '';
+      if (!USERNAME_RE.test(name) || pass.length < MIN_PASS_LEN || pass.length > MAX_PASS_LEN) {
+        sendJSON(res, 400, { ok: false, error: '用户名需 2-20 位字母/数字/下划线/中文，密码至少 6 位' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      if (!auth.submitRegistration(name, pass)) {
+        sendJSON(res, 409, { ok: false, error: '该用户名已被注册' });
+        logger.write({ ip, method: req.method, url: pathname, status: 409, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      audit.add({ actor: name, action: 'register', detail: '提交注册申请（待审核）：' + name, ip });
+      sendJSON(res, 200, { ok: true, message: '注册申请已提交，请等待管理员审核通过后登录' });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
 
   // POST /api/login
   if (pathname === '/api/login' && req.method === 'POST') {
@@ -438,6 +490,13 @@ function handleApi(req, res, urlObj, pathname, ip) {
         audit.add({ actor: u.trim(), action: 'login.fail', detail: '账号或密码错误', ip });
         sendJSON(res, 401, { ok: false, error: '账号或密码错误' });
         logger.write({ ip, method: req.method, url: pathname, status: 401, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      // 未激活账号禁止登录（管理员审核通过前不可用）
+      if (user.status !== auth.STATUS.ACTIVE) {
+        audit.add({ actor: u.trim(), action: 'login.fail', detail: user.status === auth.STATUS.PENDING ? '登录被拦截：账号待审核' : '登录被拦截：账号被拒绝', ip });
+        sendJSON(res, 403, { ok: false, error: user.status === auth.STATUS.PENDING ? '账号待管理员审核，通过后才能登录' : '账号已被拒绝，无法登录' });
+        logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
       const token = auth.createSession(user.username, ip);
@@ -573,12 +632,60 @@ function handleApi(req, res, urlObj, pathname, ip) {
       const users = Object.keys(raw).sort().map((name) => ({
         name,
         role: raw[name].role === 'admin' ? 'admin' : 'user',
+        status: raw[name].status || auth.STATUS.ACTIVE,
         created: raw[name].created || null,
         image: raw[name].image || null,
         online: online.has(name)
       }));
       sendJSON(res, 200, { ok: true, users });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // GET /api/admin/approvals —— 待审核注册申请列表
+    if (pathname === '/api/admin/approvals' && req.method === 'GET') {
+      sendJSON(res, 200, { ok: true, approvals: auth.reviewList() });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // POST /api/admin/review/approve —— 通过注册申请 {name}
+    if (pathname === '/api/admin/review/approve' && req.method === 'POST') {
+      readBody(req, 2048).then((body) => {
+        let o = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+        if (!name) { sendJSON(res, 400, { ok: false, error: '参数错误' }); return; }
+        if (!auth.reviewApprove(name)) {
+          sendJSON(res, 404, { ok: false, error: '该申请不存在或已被处理' });
+          return;
+        }
+        audit.add({ actor: me.username, action: 'admin.review.approve', target: name, detail: '通过注册申请：' + name, ip });
+        sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+      });
+      return;
+    }
+
+    // POST /api/admin/review/reject —— 拒绝注册申请 {name}
+    if (pathname === '/api/admin/review/reject' && req.method === 'POST') {
+      readBody(req, 2048).then((body) => {
+        let o = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+        if (!name) { sendJSON(res, 400, { ok: false, error: '参数错误' }); return; }
+        if (!auth.reviewReject(name)) {
+          sendJSON(res, 404, { ok: false, error: '该申请不存在或已被处理' });
+          return;
+        }
+        audit.add({ actor: me.username, action: 'admin.review.reject', target: name, detail: '拒绝注册申请：' + name, ip });
+        sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+      });
       return;
     }
 
@@ -630,6 +737,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         if (name === me.username) { sendJSON(res, 400, { ok: false, error: '不能删除当前登录账号' }); return; }
         if (name === 'admin') { sendJSON(res, 400, { ok: false, error: '内置管理员账号不可删除' }); return; }
         if (!auth.deleteUser(name)) { sendJSON(res, 404, { ok: false, error: '用户不存在' }); return; }
+        groups.removeUserAll(name); // 清理该用户在各群的全部成员关系，避免遗留孤儿
         audit.add({ actor: me.username, action: 'admin.user.del', target: name, detail: '删除账号：' + name, ip });
         // 立即断开该用户的所有在线连接
         for (const c of [...clients]) {
@@ -672,9 +780,153 @@ function handleApi(req, res, urlObj, pathname, ip) {
     return;
   }
 
-  // GET /api/messages
+  // ---------- 群组接口（需登录） ----------
+
+  // /api/groups/:action 辅助：按路径段分派 join / leave / rename
+  // GET /api/groups —— 我的群列表
+  if (pathname === '/api/groups' && req.method === 'GET') {
+    sendJSON(res, 200, { ok: true, groups: groups.listGroupsOf(me.username) });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/groups —— 创建群 {name}
+  if (pathname === '/api/groups' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+      const safeName = /^[\w\u4e00-\u9fa5\-.]{1,24}$/.test(name);
+      if (!safeName) {
+        sendJSON(res, 400, { ok: false, error: '群名需 1-24 位字母/数字/下划线/中文/点/横线' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      const g = groups.createGroup(name, me.username);
+      audit.add({ actor: me.username, action: 'group.create', target: g.id, detail: '创建群：' + g.name, ip });
+      sendJSON(res, 200, { ok: true, id: g.id, name: g.name, owner: g.owner });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // DELETE /api/groups —— 解散群 {gid}（群主或管理员）
+  if (pathname === '/api/groups' && req.method === 'DELETE') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const g = groups.getGroup(gid);
+      if (!g) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
+      const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
+      if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权解散该群' }); return; }
+      store.dissolveMessages(gid);
+      groups.dissolveGroup(gid);
+      audit.add({ actor: me.username, action: 'group.dissolve', target: gid, detail: '解散群：' + g.name, ip });
+      broadcastGid(gid, { type: 'groups.changed', data: { gid } });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // GET /api/groups/members?gid= —— 群成员列表（成员/群主/管理员可见）
+  if (pathname === '/api/groups/members' && req.method === 'GET') {
+    const gid = (urlObj.searchParams.get('gid') || '').trim() || '';
+    if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
+    if (!(groups.isMember(gid, me.username) || groups.isOwner(gid, me.username) || auth.isAdmin(me.username))) {
+      sendJSON(res, 403, { ok: false, error: '无权查看该群' });
+      return;
+    }
+    sendJSON(res, 200, { ok: true, gid, members: groups.groupMembers(gid) });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/groups/join —— 加入群 {gid}
+  if (pathname === '/api/groups/join' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      if (gid.length > 64 || !groups.getGroup(gid)) {
+        sendJSON(res, 404, { ok: false, error: '群不存在' });
+        return;
+      }
+      groups.addMember(gid, me.username);
+      audit.add({ actor: me.username, action: 'group.join', target: gid, detail: '加入群', ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // POST /api/groups/leave —— 退出群 {gid}（群主不可退群）
+  if (pathname === '/api/groups/leave' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      if (groups.isOwner(gid, me.username)) {
+        sendJSON(res, 400, { ok: false, error: '群主不能退群，可选择解散群' });
+        return;
+      }
+      if (!groups.removeMember(gid, me.username)) {
+        sendJSON(res, 404, { ok: false, error: '不在该群中或群不存在' });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'group.leave', target: gid, detail: '退出群', ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // POST /api/groups/rename —— 重命名群 {gid, name}（群主或管理员）
+  if (pathname === '/api/groups/rename' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+      const g = groups.getGroup(gid);
+      if (!g) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
+      const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
+      if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权重命名该群' }); return; }
+      if (!/^[\w\u4e00-\u9fa5\-.]{1,24}$/.test(name)) {
+        sendJSON(res, 400, { ok: false, error: '群名需 1-24 位合法字符' });
+        return;
+      }
+      groups.renameGroup(gid, name);
+      audit.add({ actor: me.username, action: 'group.rename', target: gid, detail: '群改名：' + name, ip });
+      broadcastGid(gid, { type: 'groups.changed', data: { gid } });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // GET /api/messages（可带 ?gid= 指定群房间；缺省返回公共聊天）
   if (pathname === '/api/messages' && req.method === 'GET') {
-    sendJSON(res, 200, { ok: true, messages: store.all(), max: store.MAX_MESSAGES });
+    const gid = (urlObj.searchParams.get('gid') || '').trim() || null;
+    if (gid !== null) {
+      if (gid.length > 64 || !groups.isMember(gid, me.username)) {
+        sendJSON(res, 403, { ok: false, error: '无权查看该群消息' });
+        logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+    }
+    sendJSON(res, 200, { ok: true, messages: store.all(gid), max: store.MAX_MESSAGES });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }

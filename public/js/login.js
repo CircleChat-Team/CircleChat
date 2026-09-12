@@ -62,6 +62,76 @@
       .catch(function () { setLoading(false); $('loginErr').textContent = '网络错误，请重试'; });
   }
 
+  function doLogout() {
+    fetch(api('/api/logout'), { method: 'POST', credentials: 'same-origin' })
+        .catch(function () { /* 忽略 */ });
+    location.replace('/login.html');
+  }
+
+  // 显示 / 隐藏注册表单，并切换标题提示文案
+  function toggleRegister(show) {
+    var loginForm = $('loginForm');
+    var regForm = $('registerForm');
+    var toggleBtn = $('toggleRegister');
+    var hint = $('registerHint');
+    if (show) {
+      loginForm.classList.add('hidden');
+      regForm.classList.remove('hidden');
+      hint.classList.add('hidden');
+      toggleBtn.textContent = '返回登录';
+      $('regUser').focus();
+    } else {
+      regForm.classList.add('hidden');
+      loginForm.classList.remove('hidden');
+      hint.classList.add('hidden');
+      toggleBtn.textContent = '没有账号？申请注册（需管理员审核）';
+      $('loginUser').focus();
+    }
+    $('loginErr').textContent = '';
+  }
+
+  function doRegister() {
+    var u = $('regUser').value.trim();
+    var p = $('regPass').value;
+    var p2 = $('regPass2').value;
+    $('registerHint').classList.add('hidden');
+    if (!u || !p) { $('registerHint').textContent = '请填写账号和密码'; $('registerHint').classList.remove('hidden'); return; }
+    if (p.length < 6) { $('registerHint').textContent = '密码至少 6 位'; $('registerHint').classList.remove('hidden'); return; }
+    if (p !== p2) { $('registerHint').textContent = '两次输入的密码不一致'; $('registerHint').classList.remove('hidden'); return; }
+    var btn = $('regBtn');
+    var txt = $('regBtnText');
+    btn.disabled = true;
+    txt.innerHTML = '<span class="spinner"></span>';
+    fetch(api('/api/register'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ name: u, password: p })
+    }).then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+      .then(function (res) {
+        btn.disabled = false;
+        txt.textContent = '提交注册申请';
+        if (res.body.ok) {
+          $('regUser').value = '';
+          $('regPass').value = '';
+          $('regPass2').value = '';
+          $('registerHint').textContent = res.body.message || '注册申请已提交，请等待管理员审核';
+          $('registerHint').classList.remove('hidden');
+          $('loginUser').value = u; // 方便审核通过后直接输入密码登录
+          toggleRegister(false);
+        } else {
+          $('registerHint').textContent = res.body.error || '注册失败';
+          $('registerHint').classList.remove('hidden');
+        }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        txt.textContent = '提交注册申请';
+        $('registerHint').textContent = '网络错误，请重试';
+        $('registerHint').classList.remove('hidden');
+      });
+  }
+
   function init() {
     // 应用深色模式（跟随本地存储 / 系统偏好，登录页仅应用不提供切换）
     var saved;
@@ -79,6 +149,16 @@
       if (!u || !p) { $('loginErr').textContent = '请输入账号和密码'; return; }
       doLogin(u, p);
     });
+
+    // 注册表单切换与提交
+    $('toggleRegister').addEventListener('click', function () {
+      toggleRegister($('registerForm').classList.contains('hidden'));
+    });
+    $('registerForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      doRegister();
+    });
+    $('loginForm').classList.remove('hidden');
 
     // 密码显隐切换
     var passInput = $('loginPass');

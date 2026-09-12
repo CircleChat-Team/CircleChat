@@ -44,6 +44,14 @@
     <main class="admin-main">
 
       <section class="admin-card">
+        <div class="admin-card-title log-title">
+          <span>待审核注册申请<span id="approvalCount" class="admin-count"></span></span>
+          <button id="approvalRefresh" class="admin-act" type="button">刷新</button>
+        </div>
+        <div id="approvalList" class="admin-user-list"></div>
+      </section>
+
+      <section class="admin-card">
         <div class="admin-card-title">新建账号</div>
         <div class="admin-add">
           <input id="adminNewName" class="admin-input" type="text" maxlength="20" placeholder="用户名（2-20 位）">

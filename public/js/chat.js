@@ -17,6 +17,8 @@
     var userImages = {};    // 用户名 -> 头像图片地址（来自用户配置，未配置则为 null）
     var usersReady = null;  // 账号列表首次加载 Promise（历史渲染前等待，确保 @ 高亮可用）
     var IS_ADMIN = false;   // 是否管理员：显示管理面板入口、可撤回任意人的消息
+    var activeGid = null;   // 当前会话房间：null=公共聊天，否则为群 id
+    var myGroups = [];      // 当前用户加入的群列表 [{id,name,owner}]
 
     // ---------- @ 提及状态 ----------
     var mentionPanel = null;          // @ 自动补全面板
@@ -1209,6 +1211,101 @@
       });
     }
 
+    // ---------- 群组 / 会话 ----------
+
+    function sameRoom(a, b) {
+        if (a == null && b == null) return true;
+        return String(a) === String(b);
+    }
+
+    // 我的群列表（初次加载 / 群变更后重拉）
+    function loadGroups() {
+        return fetch(api('/api/groups'), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (j.ok) { myGroups = j.groups || []; renderGroupList(); }
+            })
+            .catch(function () { /* 忽略 */ });
+    }
+
+    // 渲染侧栏会话区（公共 + 各群），并按当前 activeGid 高亮
+    function renderGroupList() {
+        var list = $('groupList');
+        if (!list) return;
+        list.innerHTML = '';
+
+        var pub = $('roomPublic');
+        pub.classList.toggle('active', activeGid == null);
+
+        myGroups.forEach(function (g) {
+            var item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'group-item' + (activeGid === String(g.id) ? ' active' : '');
+            item.title = '群主：' + g.owner;
+            var name = document.createElement('span');
+            name.className = 'group-name';
+            name.textContent = g.name + (g.owner === ME ? '（我）' : '');
+            item.appendChild(name);
+            item.addEventListener('click', function () {
+                switchRoom(String(g.id), g.name);
+            });
+            list.appendChild(item);
+        });
+    }
+
+    function onCreateGroup() {
+        var name = prompt('输入群名（1-24 位字母/数字/下划线/中文/点/横线）：');
+        if (name == null) return;
+        name = name.trim();
+        if (!name) return;
+        fetch(api('/api/groups'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ name: name })
+        }).then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+        .then(function (res) {
+            if (!res.body.ok) { toast(res.body.error || '创建失败'); return; }
+            toast('群已创建');
+            loadGroups().then(function () { switchRoom(res.body.id, name); });
+        })
+        .catch(function () { toast('创建群失败，请重试'); });
+    }
+
+    function onJoinGroup() {
+        var gid = prompt('输入要加入的群 id：');
+        if (gid == null || !gid.trim()) return;
+        fetch(api('/api/groups/join'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ gid: gid.trim() })
+        }).then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+        .then(function (res) {
+            if (!res.body.ok) { toast(res.body.error || '加入失败'); return; }
+            toast('已加入群');
+            loadGroups();
+        })
+        .catch(function () { toast('加入群失败，请重试'); });
+    }
+
+    // 切换当前会话房间并加载对应历史
+    function switchRoom(gid, gname) {
+        activeGid = gid == null ? null : String(gid);
+        historyAll = [];
+        renderedIdx = {};
+        topIndex = 0;
+        msgList.innerHTML = '';
+        renderGroupList();
+        updateChatTitle(gname);
+        loadHistory();
+    }
+
+    function updateChatTitle(gname) {
+        var label = activeGid == null ? 'ChatPlus' : (gname || '群聊');
+        chatTitle.textContent = ME ? (label + ' · ' + ME) : label;
+    }
+
     // ---------- WebSocket ----------
 
     function setConn(state) {
@@ -1246,13 +1343,21 @@
             var obj;
             try { obj = JSON.parse(ev.data); } catch (e) { return; }
             if (!obj || typeof obj !== 'object') return;
-            if (obj.type === 'msg') { renderMsg(obj.data); showNotify(obj.data); }
-            else if (obj.type === 'recall') { handleRecall(obj.data); }
+            if (obj.type === 'msg') {
+                // 仅渲染当前房间的消息（gid 一致，或两者都为 null=公共）
+                if (sameRoom(obj.data && obj.data.gid, activeGid)) { renderMsg(obj.data); showNotify(obj.data); }
+            }
+            else if (obj.type === 'recall') {
+                if (sameRoom(obj.data && obj.data.gid, activeGid)) handleRecall(obj.data);
+            }
             else if (obj.type === 'typing') { if (obj.from && obj.from !== ME) showTyping(obj.from); }
             else if (obj.type === 'reaction') { handleReaction(obj.data); }
             else if (obj.type === 'presence') {
                 onlineUsers = obj.users || [];
                 renderUsers();
+            }
+            else if (obj.type === 'groups.changed') {
+                loadGroups();
             }
         };
 
@@ -1290,7 +1395,9 @@
         // 先等账号列表就绪，保证历史消息里的 @提及 能正确高亮 / 描边
         (usersReady || Promise.resolve())
             .then(function () {
-                return fetch(api('/api/messages'), { credentials: 'same-origin' })
+                var url = api('/api/messages');
+                if (activeGid != null) url += (url.indexOf('?') === -1 ? '?' : '&') + 'gid=' + encodeURIComponent(activeGid);
+                return fetch(url, { credentials: 'same-origin' })
                     .then(function (r) { return r.json(); });
             })
             .then(function (j) {
@@ -1316,9 +1423,10 @@
     function sendText() {
         var val = textInput.value.trim();
         if (!val) return;
-        var payload = { type: 'text', content: val };
-        if (replyTo) payload.replyTo = replyTo.idx; // 带上引用目标
-        if (!sendWs({ type: 'msg', data: payload })) return;
+        var data = { type: 'text', content: val };
+        if (activeGid != null) data.gid = activeGid;
+        if (replyTo) data.replyTo = replyTo.idx; // 带上引用目标
+        if (!sendWs({ type: 'msg', data: data })) return;
         textInput.value = '';
         autoGrow();
         hideMentionPanel();
@@ -1367,10 +1475,9 @@
             .then(function (res) {
                 if (!res.body.ok) { toast(res.body.error || '上传失败'); return; }
                 var b = res.body;
-                sendWs({
-                    type: 'msg',
-                    data: { type: b.kind, content: b.url, name: b.name, size: b.size }
-                });
+                var data = { type: b.kind, content: b.url, name: b.name, size: b.size };
+                if (activeGid != null) data.gid = activeGid;
+                sendWs({ type: 'msg', data: data });
             })
             .catch(function () { toast('上传失败或超时，请重试'); })
             .then(function () { if (timer) clearTimeout(timer); if (done) done(); });
@@ -1702,6 +1809,11 @@
 
       if (sidebarMe) sidebarMe.textContent = ME;
 
+      // 会话区：公共聊天切换 + 新建/加入群
+      $('roomPublic').addEventListener('click', function () { switchRoom(null); });
+      $('groupCreateBtn').addEventListener('click', onCreateGroup);
+      $('groupJoinBtn').addEventListener('click', onJoinGroup);
+
       // 侧边栏：桌面端折叠 / 移动端展开-收起
       $('sidebarToggle').addEventListener('click', function () {
         if (isMobile()) chatView.classList.add('sidebar-open');
@@ -1816,8 +1928,11 @@
       unlockNotifySound(); // 首次交互后解锁提示音
 
       textInput.focus();
+      renderGroupList();
+      updateChatTitle();
       loadUsers();
       loadSettings();
+      loadGroups();
       connectWs();
     }
 

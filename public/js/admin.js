@@ -80,6 +80,65 @@
         box.appendChild(d);
     }
 
+    // ---------- 注册申请审核 ----------
+
+    function refreshApprovals() {
+        var box = $('approvalList');
+        if (!box) return;
+        fetch(api('/api/admin/approvals'), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.ok) { emptyTip(box, j.error || '加载失败'); return; }
+                box.innerHTML = '';
+                $('approvalCount').textContent = ' · ' + j.approvals.length + ' 条';
+                if (!j.approvals.length) { emptyTip(box, '暂无待审核申请'); return; }
+                j.approvals.forEach(function (a) { box.appendChild(buildApprovalRow(a)); });
+            })
+            .catch(function () { emptyTip(box, '加载失败'); });
+    }
+
+    function buildApprovalRow(a) {
+        var row = document.createElement('div');
+        row.className = 'admin-user';
+
+        var name = document.createElement('span');
+        name.className = 'u-name';
+        name.textContent = a.name;
+        row.appendChild(name);
+
+        var created = document.createElement('span');
+        created.className = 'u-created';
+        created.textContent = fmtDate(a.created) + ' 申请';
+        row.appendChild(created);
+
+        var appr = document.createElement('button');
+        appr.type = 'button';
+        appr.className = 'admin-act';
+        appr.textContent = '通过';
+        appr.addEventListener('click', function () {
+            adminApi('/api/admin/review/approve', { name: a.name }).then(function (j) {
+                toast(j.ok ? '已通过 ' + a.name : (j.error || '操作失败'));
+                if (j.ok) { refreshApprovals(); refreshUsers(); }
+            });
+        });
+        row.appendChild(appr);
+
+        var rej = document.createElement('button');
+        rej.type = 'button';
+        rej.className = 'admin-act danger';
+        rej.textContent = '拒绝';
+        rej.addEventListener('click', function () {
+            if (!window.confirm('拒绝「' + a.name + '」的注册申请？')) return;
+            adminApi('/api/admin/review/reject', { name: a.name }).then(function (j) {
+                toast(j.ok ? '已拒绝 ' + a.name : (j.error || '操作失败'));
+                if (j.ok) refreshApprovals();
+            });
+        });
+        row.appendChild(rej);
+
+        return row;
+    }
+
     function refreshUsers() {
         var box = $('adminUserList');
         fetch(api('/api/admin/users'), { credentials: 'same-origin' })
@@ -189,6 +248,9 @@
         'recall': '撤回消息',
         'upload': '上传文件',
         'settings': '修改设置',
+        'register': '注册申请',
+        'admin.review.approve': '审核通过',
+        'admin.review.reject': '审核拒绝',
         'admin.user.add': '新建账号',
         'admin.user.del': '删除账号',
         'admin.user.pass': '重置密码'
@@ -295,6 +357,8 @@
                 });
 
                 refreshUsers();
+                refreshApprovals();
+                $('approvalRefresh').addEventListener('click', refreshApprovals);
                 refreshLogs();
             })
             .catch(function () { location.replace('/login.html'); });

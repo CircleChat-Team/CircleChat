@@ -297,6 +297,28 @@ body {
   color: var(--faint);
 }
 
+.login-link {
+  display: block;
+  margin: 16px auto 0;
+  padding: 4px 2px;
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: center;
+}
+.login-link:hover { text-decoration: underline; }
+
+.login-hint {
+  margin-top: 14px;
+  min-height: 18px;
+  font-size: 13px;
+  color: var(--faint);
+  text-align: center;
+  word-break: break-all;
+}
+
 /* ============================================================
  * 聊天页（全屏 · 桌面端侧边栏 / 移动端抽屉）
  * ============================================================ */
@@ -420,6 +442,54 @@ body {
 }
 .sidebar-me-label { font-size: 11px; color: var(--faint); }
 .sidebar-me { font-size: 14px; font-weight: 600; color: var(--text); }
+
+/* 群组 / 会话区 */
+.sidebar-group-section {
+  flex-shrink: 0;
+  padding: 4px 10px 10px;
+  border-top: 1px solid var(--border);
+}
+.sidebar-group-section .sidebar-section-title { padding-bottom: 6px; }
+.group-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background .15s var(--ease);
+}
+.group-item:hover { background: var(--fill); }
+.group-item.active {
+  background: var(--primary);
+  color: #fff;
+}
+#groupList { display: flex; flex-direction: column; }
+.group-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0 4px;
+}
+.group-action-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.group-action-btn:hover { background: var(--fill); color: var(--text); }
 
 /* 移动端遮罩 */
 .sidebar-backdrop { display: none; }

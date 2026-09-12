@@ -40,6 +40,25 @@
       </form>
 
       <div id="loginErr" class="login-err"></div>
+
+      <button type="button" id="toggleRegister" class="login-link">没有账号？申请注册（需管理员审核）</button>
+
+      <form id="registerForm" class="login-form hidden" autocomplete="off">
+        <div class="field">
+          <input id="regUser" class="login-input" type="text" placeholder="注册账号" maxlength="20" required>
+        </div>
+        <div class="field">
+          <input id="regPass" class="login-input" type="password" placeholder="密码（至少 6 位）" maxlength="64" required>
+        </div>
+        <div class="field">
+          <input id="regPass2" class="login-input" type="password" placeholder="确认密码" maxlength="64" required>
+        </div>
+        <button class="login-btn" id="regBtn" type="submit">
+          <span id="regBtnText">提交注册申请</span>
+        </button>
+      </form>
+
+      <div id="registerHint" class="login-hint hidden"></div>
       <div id="loginFooter" class="login-footer"></div>
     </div>
   </div>
