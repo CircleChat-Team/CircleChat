@@ -125,11 +125,18 @@
         pw.className = 'admin-act';
         pw.textContent = '改密';
         pw.addEventListener('click', function () {
-            var p = window.prompt('为「' + u.name + '」设置新密码（至少 6 位）');
-            if (p == null) return;
-            if (p.length < 6) { toast('密码至少 6 位'); return; }
-            adminApi('/api/admin/user/pass', { name: u.name, password: p }).then(function (j) {
-                toast(j.ok ? '已重置密码' : (j.error || '操作失败'));
+            UI.prompt({
+                title: '重置密码',
+                text: '为「' + u.name + '」设置新密码（至少 6 位）',
+                okText: '确认重置',
+                danger: false,
+                input: { type: 'password', placeholder: '新密码（至少 6 位）', maxLength: 64 }
+            }).then(function (p) {
+                if (p == null) return;
+                if (p.length < 6) { toast('密码至少 6 位'); return; }
+                adminApi('/api/admin/user/pass', { name: u.name, password: p }).then(function (j) {
+                    toast(j.ok ? '已重置密码' : (j.error || '操作失败'));
+                });
             });
         });
         row.appendChild(pw);
@@ -140,10 +147,16 @@
             del.className = 'admin-act danger';
             del.textContent = '删除';
             del.addEventListener('click', function () {
-                if (!window.confirm('确定删除账号「' + u.name + '」吗？该操作不可恢复。')) return;
-                adminApi('/api/admin/user/del', { name: u.name }).then(function (j) {
-                    toast(j.ok ? '已删除账号 ' + u.name : (j.error || '操作失败'));
-                    if (j.ok) refreshUsers();
+                UI.confirm({
+                    title: '删除账号',
+                    text: '确定删除账号「' + u.name + '」吗？该操作不可恢复，其历史消息会保留。',
+                    okText: '删除'
+                }).then(function (ok) {
+                    if (!ok) return;
+                    adminApi('/api/admin/user/del', { name: u.name }).then(function (j) {
+                        toast(j.ok ? '已删除账号 ' + u.name : (j.error || '操作失败'));
+                        if (j.ok) refreshUsers();
+                    });
                 });
             });
             row.appendChild(del);

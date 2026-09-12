@@ -676,11 +676,16 @@
             rb.className = 'msg-tool danger';
             rb.textContent = '撤回';
             rb.addEventListener('click', function () {
-                var ask = (IS_ADMIN && m.from !== ME)
-                    ? '确定以管理员身份撤回 ' + m.from + ' 的消息吗？'
-                    : '确定撤回这条消息吗？';
-                if (!window.confirm(ask)) return;
-                sendWs({ type: 'recall', data: { idx: m.idx } });
+                var isOther = IS_ADMIN && m.from !== ME;
+                UI.confirm({
+                    title: '撤回消息',
+                    text: isOther
+                        ? '将以管理员身份撤回 ' + m.from + ' 的这条消息，撤回后所有人都会看到「已撤回」提示。'
+                        : '撤回后所有人都会看到「已撤回」提示，且无法恢复。',
+                    okText: '撤回'
+                }).then(function (ok) {
+                    if (ok) sendWs({ type: 'recall', data: { idx: m.idx } });
+                });
             });
             tools.appendChild(rb);
         }
