@@ -22,6 +22,7 @@ const crypto = require('crypto');
 const auth = require('./lib/auth');
 const store = require('./lib/store');
 const groups = require('./lib/groups');
+const friends = require('./lib/friends');
 const audit = require('./lib/audit');
 const wsproto = require('./lib/ws');
 const logger = require('./lib/log');
@@ -237,10 +238,26 @@ function broadcastGid(gid, obj) {
   }
 }
 
-// 按房间推送：gid=null 为公共聊天（全量），否则仅推群成员
-function broadcastRoom(gid, obj) {
-  if (gid == null) broadcast(obj);
+// 推送给私聊房间（dm 为规范化 key `小:大`）的在线双方
+function broadcastDm(dm, obj) {
+  const pair = String(dm).split(':');
+  for (const c of clients) {
+    if (pair.indexOf(c.user.username) !== -1) sendTo(c, obj);
+  }
+}
+
+// 按房间推送：dm 非空为私聊（仅双方）；gid=null 为公共聊天（全量）；否则按群推成员
+function broadcastRoom(gid, dm, obj) {
+  if (dm != null) broadcastDm(dm, obj);
+  else if (gid == null) broadcast(obj);
   else broadcastGid(gid, obj);
+}
+
+/** 文本中是否 @提及了指定用户名（边界匹配，避免 @apple 误伤 @a） */
+function mentionsUser(text, name) {
+  if (!text || !name) return false;
+  const esc = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('(^|[^\\w\\u4e00-\\u9fa5\\-.])@' + esc + '($|[\\s,，。；;！!？?.]|@)', 'u').test(String(text));
 }
 
 function broadcastPresence() {
@@ -335,8 +352,11 @@ function handleWsText(client, text) {
     if (now - (typingLast.get(u) || 0) > 2000) {
       typingLast.set(u, now);
       const frame = wsproto.encodeText(JSON.stringify({ type: 'typing', from: u }));
+      // 私聊：只推给对方；公共 / 群聊：推给其余所有在线
+      const pm = msg.data && msg.data.pm != null ? String(msg.data.pm).trim() : null;
       for (const c of clients) {
         if (c === client) continue;
+        if (pm) { if (c.user.username !== pm) continue; }
         try { c.socket.write(frame); } catch (e) { /* 忽略 */ }
       }
     }
@@ -346,11 +366,28 @@ function handleWsText(client, text) {
     const d = msg.data || {};
     const type = d.type === 'image' || d.type === 'file' ? d.type : 'text';
     let content = String(d.content || '').slice(0, type === 'text' ? MAX_TEXT_LEN : 300);
-    // 目标房间：null 为公共聊天；否则必须为本群成员才可发送
+    const from = client.user.username;
+    // 目标房间：dm 为私聊（对方用户名），否则 gid 为群 / 公共
+    let dm = null;
+    if (d.pm !== undefined && d.pm !== null && String(d.pm).trim() !== '') {
+      const peer = String(d.pm).trim().slice(0, 64);
+      if (peer === from) return; // 不能给自己发私聊
+      const raw = auth.loadUsers() || {};
+      if (!Object.prototype.hasOwnProperty.call(raw, peer)) return; // 对方账号不存在
+      dm = friends.pairKey(from, peer);
+    }
     let gid = d.gid != null ? String(d.gid) : null;
     if (gid !== null) {
       if (gid.length > 64) return;
-      if (!groups.isMember(gid, client.user.username)) return;
+      if (!groups.isMember(gid, from)) return;
+    }
+    if (dm !== null) {
+      // 好友门禁：非好友私聊仅可发文字 / 图片
+      if (!friends.isFriend(from, dm.split(':').find((u) => u !== from))) {
+        if (type === 'file') return; // 禁发文件
+        if (d.replyTo !== undefined && d.replyTo !== null) return; // 禁引用
+        if (type === 'text' && mentionsUser(content, dm.split(':').find((u) => u !== from))) return; // 禁 @提及
+      }
     }
     // 防注入：image/file 的 content 必须是本服务器上传目录的合法文件（防 javascript: 等伪造链接）
     if (type === 'text') {
@@ -360,34 +397,39 @@ function handleWsText(client, text) {
       if (d.name !== undefined && typeof d.name !== 'string') return;
       if (d.size !== undefined && (!Number.isInteger(d.size) || d.size < 0 || d.size > MAX_UPLOAD)) return;
     }
-    // 引用回复：只接受存在且未被撤回的消息
+    // 引用回复：只接受存在且未被撤回的消息；私聊里仅本房间的消息可被引用
     let replyTo = null;
     if (d.replyTo !== undefined && d.replyTo !== null) {
       const rid = Number(d.replyTo);
       if (Number.isInteger(rid) && rid > 0) {
         const t = store.get(rid);
-        if (t && !t.recalled) replyTo = rid;
+        if (t && !t.recalled) {
+          const tRoom = t.dm != null ? 'dm:' + t.dm : (t.gid != null ? 'gid:' + t.gid : 'pub');
+          const myRoom = dm != null ? 'dm:' + dm : (gid != null ? 'gid:' + gid : 'pub');
+          if (tRoom === myRoom) replyTo = rid;
+        }
       }
     }
     const record = store.add({
-      from: client.user.username,
+      from,
       type,
       content,
       name: d.name,
       size: d.size,
       replyTo,
-      gid
+      gid,
+      dm
     });
     audit.add({
-      actor: client.user.username,
-      action: gid == null ? 'msg' : 'group.msg',
-      target: gid == null ? record.idx : gid,
+      actor: from,
+      action: dm != null ? 'dm.msg' : (gid == null ? 'msg' : 'group.msg'),
+      target: dm != null ? record.idx : (gid == null ? record.idx : gid),
       detail: type === 'text'
         ? '文本：' + content.slice(0, 40)
         : (type === 'image' ? '图片：' : '文件：') + String(d.name || '未命名'),
       ip: client.user.ip
     });
-    broadcastRoom(gid, { type: 'msg', data: record });
+    broadcastRoom(gid, dm, { type: 'msg', data: record });
   }
   if (msg.type === 'react') {
     const d = msg.data || {};
@@ -398,8 +440,12 @@ function handleWsText(client, text) {
     if (!emoji) return;
     const target = store.get(idx);
     if (!target || target.recalled) return; // 不存在的或已撤回的消息不能回应
+    if (target.dm != null) {
+      const pair = String(target.dm).split(':');
+      if (pair.indexOf(client.user.username) === -1) return; // 私聊仅双方可回应
+    }
     const state = store.toggleReaction(idx, emoji, client.user.username);
-    broadcast({
+    broadcastRoom(target.gid, target.dm, {
       type: 'reaction',
       data: { idx, emoji, added: state.added, reactions: state.reactions, by: client.user.username }
     });
@@ -410,27 +456,31 @@ function handleWsText(client, text) {
     if (!Number.isInteger(idx) || idx <= 0) return;
     const target = store.get(idx);
     if (!target || target.recalled) return; // 不存在或已撤回
-    const room = target.gid != null ? String(target.gid) : null;
-    const admin = auth.isAdmin(client.user.username);
+    if (target.dm != null) {
+      const pair = String(target.dm).split(':');
+      if (pair.indexOf(client.user.username) === -1) return; // 私聊仅双方可撤回
+    }
+    const adm = auth.isAdmin(client.user.username);
     // 只能撤回自己的消息；管理员可撤回任意人的消息
-    if (target.from !== client.user.username && !admin) return;
+    if (target.from !== client.user.username && !adm) return;
     if (!store.recall(idx, client.user.username)) return;
+    const room = target.gid != null ? String(target.gid) : null;
     audit.add({
       actor: client.user.username,
-      action: room == null ? 'recall' : 'group.recall',
+      action: target.dm != null ? 'dm.recall' : (room == null ? 'recall' : 'group.recall'),
       target: idx,
       detail: target.from === client.user.username
         ? '撤回了自己的消息'
         : '以管理员身份撤回了 ' + target.from + ' 的消息',
       ip: client.user.ip
     });
-    broadcastRoom(room, {
+    broadcastRoom(room, target.dm, {
       type: 'recall',
       data: {
         idx,
         by: client.user.username,
         owner: target.from,
-        admin: admin && target.from !== client.user.username
+        admin: adm && target.from !== client.user.username
       }
     });
   }
@@ -555,14 +605,112 @@ function handleApi(req, res, urlObj, pathname, ip) {
 
   // GET /api/users（全部账号名 + 头像配置，用于在线状态展示）
   if (pathname === '/api/users' && req.method === 'GET') {
+    const q = (urlObj.searchParams.get('q') || '').trim().toLowerCase();
     const raw = auth.loadUsers() || {};
-    const users = Object.keys(raw).sort().map((name) => ({ name, image: raw[name].image || null }));
+    const users = Object.keys(raw)
+      .filter((name) => name !== me.username && (q === '' || String(name).toLowerCase().indexOf(q) !== -1))
+      .sort()
+      .map((name) => ({ name, image: raw[name].image || null }));
     sendJSON(res, 200, { ok: true, users });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
 
-  // GET /api/profile?name=xxx（用户资料卡：角色 / 在线 / 加入时间 / 消息数）
+  // ---------- 好友接口 ----------
+
+  // 带在线/头像装饰的用户名列表
+  function decorateNames(names) {
+    const raw = auth.loadUsers() || {};
+    const online = new Set([...clients].map(clientId));
+    return names.map(function (n) {
+      const o = { name: n, online: online.has(n) };
+      if (raw[n] && raw[n].image) o.image = raw[n].image;
+      return o;
+    });
+  }
+
+  // GET /api/friends —— 好友 / 收到的申请 / 已发出的申请
+  if (pathname === '/api/friends' && req.method === 'GET') {
+    sendJSON(res, 200, {
+      ok: true,
+      friends: decorateNames(friends.listFriends(me.username)),
+      requests: friends.listRequests(me.username),
+      sent: friends.listSent(me.username)
+    });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/friends/request —— 发送好友申请 {to}
+  if (pathname === '/api/friends/request' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const to = o && typeof o.to === 'string' ? o.to.trim() : '';
+      if (!to || to.length > 64 || to === me.username) {
+        sendJSON(res, 400, { ok: false, error: '无效的对方用户名' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      const raw = auth.loadUsers() || {};
+      if (!Object.prototype.hasOwnProperty.call(raw, to)) {
+        sendJSON(res, 404, { ok: false, error: '用户不存在' });
+        logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      const r = friends.sendRequest(me.username, to);
+      if (!r.ok) {
+        sendJSON(res, 409, { ok: false, error: r.reason || '无法发送申请' });
+        logger.write({ ip, method: req.method, url: pathname, status: 409, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'friend.request', target: to, detail: '向 ' + to + ' 发送好友申请', ip });
+      broadcast({ type: 'friends.changed' });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // POST /api/friends/accept —— 同意好友申请 {from}
+  if (pathname === '/api/friends/accept' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const from = o && typeof o.from === 'string' ? o.from.trim() : '';
+      if (!from || !friends.acceptRequest(me.username, from)) {
+        sendJSON(res, 404, { ok: false, error: '该申请不存在或已处理' });
+        logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'friend.accept', target: from, detail: '同意 ' + from + ' 的好友申请', ip });
+      broadcast({ type: 'friends.changed' });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // POST /api/friends/decline —— 拒绝/删除好友申请 {from}
+  if (pathname === '/api/friends/decline' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const from = o && typeof o.from === 'string' ? o.from.trim() : '';
+      if (!from) { sendJSON(res, 400, { ok: false, error: '参数错误' }); return; }
+      friends.declineRequest(me.username, from);
+      broadcast({ type: 'friends.changed' });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
   if (pathname === '/api/profile' && req.method === 'GET') {
     const name = (urlObj.searchParams.get('name') || '').trim();
     const raw = auth.loadUsers() || {};
@@ -738,6 +886,8 @@ function handleApi(req, res, urlObj, pathname, ip) {
         if (name === 'admin') { sendJSON(res, 400, { ok: false, error: '内置管理员账号不可删除' }); return; }
         if (!auth.deleteUser(name)) { sendJSON(res, 404, { ok: false, error: '用户不存在' }); return; }
         groups.removeUserAll(name); // 清理该用户在各群的全部成员关系，避免遗留孤儿
+        friends.removeUserAll(name); // 清理该用户全部好友关系与好友申请
+        broadcast({ type: 'friends.changed' });
         audit.add({ actor: me.username, action: 'admin.user.del', target: name, detail: '删除账号：' + name, ip });
         // 立即断开该用户的所有在线连接
         for (const c of [...clients]) {
@@ -916,9 +1066,26 @@ function handleApi(req, res, urlObj, pathname, ip) {
     return;
   }
 
-  // GET /api/messages（可带 ?gid= 指定群房间；缺省返回公共聊天）
+  // GET /api/messages（可带 ?gid= 指定群房间 / ?dm= 指定私聊对方；缺省返回公共聊天）
   if (pathname === '/api/messages' && req.method === 'GET') {
     const gid = (urlObj.searchParams.get('gid') || '').trim() || null;
+    const dmPeer = (urlObj.searchParams.get('dm') || '').trim() || null;
+    if (dmPeer !== null) {
+      if (dmPeer.length > 64 || dmPeer === me.username) {
+        sendJSON(res, 403, { ok: false, error: '无权查看该私聊' });
+        logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      const raw = auth.loadUsers() || {};
+      if (!Object.prototype.hasOwnProperty.call(raw, dmPeer)) {
+        sendJSON(res, 404, { ok: false, error: '用户不存在' });
+        logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      sendJSON(res, 200, { ok: true, messages: store.all(null, friends.pairKey(me.username, dmPeer)), max: store.MAX_MESSAGES });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
     if (gid !== null) {
       if (gid.length > 64 || !groups.isMember(gid, me.username)) {
         sendJSON(res, 403, { ok: false, error: '无权查看该群消息' });

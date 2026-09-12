@@ -18,7 +18,12 @@
     var usersReady = null;  // 账号列表首次加载 Promise（历史渲染前等待，确保 @ 高亮可用）
     var IS_ADMIN = false;   // 是否管理员：显示管理面板入口、可撤回任意人的消息
     var activeGid = null;   // 当前会话房间：null=公共聊天，否则为群 id
+    var activeDmPeer = null; // 当前私聊对象用户名（null=公共/群聊）
     var myGroups = [];      // 当前用户加入的群列表 [{id,name,owner}]
+    var myFriends = [];     // 好友列表 [{name, online, image}]
+    var friendRequests = []; // 收到的好友申请（对方用户名）
+    var friendSent = [];    // 已发出的好友申请（对方用户名）
+    var friendNames = {};   // 所有好友名 -> true（用于快捷判断 / DM 门禁）
 
     // ---------- @ 提及状态 ----------
     var mentionPanel = null;          // @ 自动补全面板
@@ -671,12 +676,15 @@
         tools.className = 'msg-tools';
 
         if (m.idx != null && !m.recalled) {
-            var rp = document.createElement('button');
-            rp.type = 'button';
-            rp.className = 'msg-tool';
-            rp.textContent = '回复';
-            rp.addEventListener('click', function () { setReply(m); });
-            tools.appendChild(rp);
+            // 非好友私聊禁用引用回复
+            if (!dmgating()) {
+                var rp = document.createElement('button');
+                rp.type = 'button';
+                rp.className = 'msg-tool';
+                rp.textContent = '回复';
+                rp.addEventListener('click', function () { setReply(m); });
+                tools.appendChild(rp);
+            }
 
             var rc = document.createElement('button');
             rc.type = 'button';
@@ -1213,9 +1221,17 @@
 
     // ---------- 群组 / 会话 ----------
 
-    function sameRoom(a, b) {
-        if (a == null && b == null) return true;
-        return String(a) === String(b);
+    // 判断消息是否属于当前激活的房间（公共 / 群 / 私聊）
+    function msgInActiveRoom(m) {
+        if (!m) return false;
+        if (activeGid != null) return String(m.gid) === String(activeGid);
+        if (activeDmPeer != null) {
+            // dm 以「小:大」的 pairKey 存库，双方都能匹配
+            if (m.dm == null) return false;
+            return String(m.dm).split(':').indexOf(String(activeDmPeer)) !== -1;
+        }
+        // 公共聊天：gid 与 dm 都必须为空
+        return m.gid == null && m.dm == null;
     }
 
     // 我的群列表（初次加载 / 群变更后重拉）
@@ -1235,7 +1251,7 @@
         list.innerHTML = '';
 
         var pub = $('roomPublic');
-        pub.classList.toggle('active', activeGid == null);
+        pub.classList.toggle('active', activeGid == null && activeDmPeer == null);
 
         myGroups.forEach(function (g) {
             var item = document.createElement('button');
@@ -1289,21 +1305,262 @@
         .catch(function () { toast('加入群失败，请重试'); });
     }
 
-    // 切换当前会话房间并加载对应历史
+    // 切换当前会话房间并加载对应历史（gid=null 且 dmPeer=null 为公共聊天）
     function switchRoom(gid, gname) {
         activeGid = gid == null ? null : String(gid);
-        historyAll = [];
-        renderedIdx = {};
-        topIndex = 0;
-        msgList.innerHTML = '';
+        activeDmPeer = null;
+        clearReply();
+        closeReactPicker();
+        resetRoom();
         renderGroupList();
+        renderFriends();
         updateChatTitle(gname);
+        updateDmGate();
         loadHistory();
     }
 
+    // 切换到与某用户的私聊房间（dmPeer=对方用户名）
+    function switchRoomToDm(peer) {
+        peer = String(peer || '');
+        if (!peer || peer === ME) return;
+        activeDmPeer = peer;
+        activeGid = null;
+        clearReply();
+        closeReactPicker();
+        resetRoom();
+        renderGroupList();
+        renderFriends();
+        updateChatTitle();
+        updateDmGate();
+        loadHistory();
+    }
+
+    // 重置当前房间的加载状态与列表
+    function resetRoom() {
+        historyAll = [];
+        renderedIdx = {};
+        topIndex = 0;
+        if (msgList) msgList.innerHTML = '';
+    }
+
     function updateChatTitle(gname) {
-        var label = activeGid == null ? 'ChatPlus' : (gname || '群聊');
+        var label;
+        if (activeDmPeer != null) label = '私聊 · ' + activeDmPeer;
+        else if (activeGid != null) label = gname || '群聊';
+        else label = 'ChatPlus';
         chatTitle.textContent = ME ? (label + ' · ' + ME) : label;
+        var gate = $('dmGateTip');
+        if (gate) gate.classList.toggle('hidden', !(activeDmPeer != null && !isFriend(activeDmPeer)));
+    }
+
+    // ---------- 好友 / 私聊门禁 ----------
+
+    function isFriend(name) {
+        return !!friendNames[String(name)];
+    }
+
+    // 当前是否处于「非好友」私聊门禁：仅可文字 + 图片
+    function dmgating() {
+        return activeDmPeer != null && !isFriend(activeDmPeer);
+    }
+
+    function updateDmGate() {
+        var gating = dmgating();
+        var fb = $('fileBtn');
+        if (fb) {
+            fb.disabled = gating || null;
+            fb.title = gating ? '互加好友后可发送文件' : '发送文件 / 图片';
+        }
+        // 门禁房间内不能引用回复（即便已设置也清除）
+        if (gating && replyTo) { clearReply(); toast('尚未互加好友，仅可发送文字和图片'); }
+    }
+
+    // 拉取好友 / 申请数据并渲染
+    function loadFriends() {
+        return fetch(api('/api/friends'), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.ok) return;
+                myFriends = j.friends || [];
+                friendRequests = j.requests || [];
+                friendSent = j.sent || [];
+                friendNames = {};
+                myFriends.forEach(function (f) { friendNames[String(f.name)] = true; });
+                renderFriends();
+                updateDmGate();
+            })
+            .catch(function () { /* 忽略 */ });
+    }
+
+    // 渲染侧栏好友列表 + 好友申请
+    function renderFriends() {
+        var list = $('friendList');
+        if (list) {
+            list.innerHTML = '';
+            if (!myFriends.length) {
+                var empty = document.createElement('div');
+                empty.className = 'friend-empty';
+                empty.textContent = '暂无好友';
+                list.appendChild(empty);
+            } else {
+                myFriends.forEach(function (f) {
+                    var item = document.createElement('button');
+                    item.type = 'button';
+                    item.className = 'friend-item' + (activeDmPeer === String(f.name) ? ' active' : '');
+                    item.title = (f.online ? '在线' : '离线') + ' · 点击进入私聊';
+                    item.appendChild(makeAvatarEl(f.name, 'friend-avatar', f.image));
+                    var meta = document.createElement('div');
+                    meta.className = 'friend-meta';
+                    var nm = document.createElement('span');
+                    nm.className = 'friend-name';
+                    nm.textContent = f.name;
+                    var st = document.createElement('span');
+                    st.className = 'friend-status' + (f.online ? ' online' : '');
+                    st.textContent = f.online ? '在线' : '离线';
+                    meta.appendChild(nm);
+                    meta.appendChild(st);
+                    item.appendChild(meta);
+                    item.addEventListener('click', function () { switchRoomToDm(f.name); });
+                    list.appendChild(item);
+                });
+            }
+        }
+
+        var rl = $('friendRequestList');
+        if (rl) {
+            rl.innerHTML = '';
+            var incoming = friendRequests.filter(function (n) { return friendSent.indexOf(n) === -1; });
+            if (!incoming.length) {
+                var e2 = document.createElement('div');
+                e2.className = 'friend-empty';
+                e2.textContent = '暂无待处理申请';
+                rl.appendChild(e2);
+                return;
+            }
+            incoming.forEach(function (n) {
+                var item = document.createElement('div');
+                item.className = 'friend-req';
+                item.appendChild(makeAvatarEl(n, 'friend-avatar'));
+                var meta = document.createElement('div');
+                meta.className = 'friend-meta';
+                var nm = document.createElement('span');
+                nm.className = 'friend-name';
+                nm.textContent = n;
+                meta.appendChild(nm);
+                var acts = document.createElement('div');
+                acts.className = 'friend-req-acts';
+                var yes = document.createElement('button');
+                yes.type = 'button';
+                yes.className = 'group-action-btn';
+                yes.textContent = '同意';
+                yes.addEventListener('click', function () { acceptFriend(n); });
+                var no = document.createElement('button');
+                no.type = 'button';
+                no.className = 'group-action-btn';
+                no.textContent = '拒绝';
+                no.addEventListener('click', function () { declineFriend(n); });
+                acts.appendChild(yes);
+                acts.appendChild(no);
+                item.appendChild(meta);
+                item.appendChild(acts);
+                rl.appendChild(item);
+            });
+        }
+    }
+
+    function acceptFriend(from) {
+        fetch(api('/api/friends/accept'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ from: from })
+        }).then(function (r) { return r.json(); })
+        .then(function (j) {
+            if (!j.ok) { toast(j.error || '操作失败'); return; }
+            toast('已同意 ' + from + ' 的好友申请');
+            loadFriends();
+        })
+        .catch(function () { toast('操作失败，请重试'); });
+    }
+
+    function declineFriend(from) {
+        fetch(api('/api/friends/decline'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ from: from })
+        }).then(function (r) { return r.json(); })
+        .then(function () { loadFriends(); })
+        .catch(function () { /* 忽略 */ });
+    }
+
+    // ---------- 添加好友（搜索用户名） ----------
+
+    function openFriendSearch() {
+        $('friendSearchInput').value = '';
+        $('friendSearchResult').innerHTML = '';
+        $('friendSearchMask').classList.remove('hidden');
+        setTimeout(function () { $('friendSearchInput').focus(); }, 30);
+    }
+
+    function closeFriendSearch() {
+        $('friendSearchMask').classList.add('hidden');
+    }
+
+    // 搜索用户名并列出匹配结果（排除自己 / 已是好友）
+    function doFriendSearch() {
+        var q = $('friendSearchInput').value.trim();
+        var box = $('friendSearchResult');
+        box.innerHTML = '';
+        if (!q) { toast('请输入用户名'); return; }
+        fetch(api('/api/users?q=' + encodeURIComponent(q)), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.ok) { box.innerHTML = '<div class="friend-empty">加载失败</div>'; return; }
+                var users = (j.users || []).filter(function (u) { return u.name !== ME && !isFriend(u.name); });
+                if (!users.length) { box.innerHTML = '<div class="friend-empty">未找到匹配的用户，或已是你的好友</div>'; return; }
+                users.forEach(function (u) {
+                    var row = document.createElement('div');
+                    row.className = 'friend-search-item';
+                    row.appendChild(makeAvatarEl(u.name, 'friend-avatar', u.image));
+                    var meta = document.createElement('div');
+                    meta.className = 'friend-meta';
+                    var nm = document.createElement('span');
+                    nm.className = 'friend-name';
+                    nm.textContent = u.name;
+                    meta.appendChild(nm);
+                    row.appendChild(meta);
+                    var btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'group-action-btn';
+                    if (friendSent.indexOf(u.name) !== -1 || friendRequests.indexOf(u.name) !== -1) {
+                        btn.textContent = '已申请';
+                        btn.disabled = true;
+                    } else {
+                        btn.textContent = '加好友';
+                        btn.addEventListener('click', function () { sendFriendRequest(u.name, btn); });
+                    }
+                    row.appendChild(btn);
+                    box.appendChild(row);
+                });
+            })
+            .catch(function () { toast('搜索失败，请重试'); });
+    }
+
+    function sendFriendRequest(to, btn) {
+        fetch(api('/api/friends/request'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ to: to })
+        }).then(function (r) { return r.json(); })
+        .then(function (j) {
+            if (!j.ok) { toast(j.error || '发送失败'); return; }
+            toast('已向 ' + to + ' 发送好友申请');
+            if (btn) { btn.textContent = '已申请'; btn.disabled = true; }
+            loadFriends();
+        })
+        .catch(function () { toast('发送失败，请重试'); });
     }
 
     // ---------- WebSocket ----------
@@ -1344,13 +1601,15 @@
             try { obj = JSON.parse(ev.data); } catch (e) { return; }
             if (!obj || typeof obj !== 'object') return;
             if (obj.type === 'msg') {
-                // 仅渲染当前房间的消息（gid 一致，或两者都为 null=公共）
-                if (sameRoom(obj.data && obj.data.gid, activeGid)) { renderMsg(obj.data); showNotify(obj.data); }
+                // 仅渲染当前房间的消息
+                if (msgInActiveRoom(obj.data)) { renderMsg(obj.data); showNotify(obj.data); }
             }
             else if (obj.type === 'recall') {
-                if (sameRoom(obj.data && obj.data.gid, activeGid)) handleRecall(obj.data);
+                if (msgInActiveRoom(obj.data)) handleRecall(obj.data);
             }
-            else if (obj.type === 'typing') { if (obj.from && obj.from !== ME) showTyping(obj.from); }
+            else if (obj.type === 'typing') {
+                if (obj.from && obj.from !== ME && obj.from === activeDmPeer) showTyping(obj.from);
+            }
             else if (obj.type === 'reaction') { handleReaction(obj.data); }
             else if (obj.type === 'presence') {
                 onlineUsers = obj.users || [];
@@ -1358,6 +1617,9 @@
             }
             else if (obj.type === 'groups.changed') {
                 loadGroups();
+            }
+            else if (obj.type === 'friends.changed') {
+                loadFriends();
             }
         };
 
@@ -1397,6 +1659,7 @@
             .then(function () {
                 var url = api('/api/messages');
                 if (activeGid != null) url += (url.indexOf('?') === -1 ? '?' : '&') + 'gid=' + encodeURIComponent(activeGid);
+                else if (activeDmPeer != null) url += (url.indexOf('?') === -1 ? '?' : '&') + 'dm=' + encodeURIComponent(activeDmPeer);
                 return fetch(url, { credentials: 'same-origin' })
                     .then(function (r) { return r.json(); });
             })
@@ -1423,8 +1686,10 @@
     function sendText() {
         var val = textInput.value.trim();
         if (!val) return;
+        if (dmgating() && replyTo) { clearReply(); toast('尚未互加好友，仅可发送文字和图片'); return; }
         var data = { type: 'text', content: val };
         if (activeGid != null) data.gid = activeGid;
+        if (activeDmPeer != null) data.pm = activeDmPeer;
         if (replyTo) data.replyTo = replyTo.idx; // 带上引用目标
         if (!sendWs({ type: 'msg', data: data })) return;
         textInput.value = '';
@@ -1475,8 +1740,10 @@
             .then(function (res) {
                 if (!res.body.ok) { toast(res.body.error || '上传失败'); return; }
                 var b = res.body;
+                if (dmgating() && b.kind !== 'image') { toast('尚未互加好友，仅可发送文字和图片'); return; }
                 var data = { type: b.kind, content: b.url, name: b.name, size: b.size };
                 if (activeGid != null) data.gid = activeGid;
+                if (activeDmPeer != null) data.pm = activeDmPeer;
                 sendWs({ type: 'msg', data: data });
             })
             .catch(function () { toast('上传失败或超时，请重试'); })
@@ -1485,9 +1752,11 @@
 
     // 批量上传：逐个串行，避免同时挤占带宽
     function uploadFiles(files) {
+        var gating = dmgating();
         var list = [];
         for (var i = 0; i < files.length; i++) {
             var f = nameScreenshot(files[i]);
+            if (gating && !/^image\//.test(f.type || '')) { toast('尚未互加好友，仅可发送文字和图片'); continue; }
             if (f.size > MAX_UPLOAD_SIZE) { toast('「' + (f.name || '文件') + '」超过 20MB 上限'); continue; }
             list.push(f);
         }
@@ -1749,6 +2018,7 @@
 
     function updateMentionPanel() {
         if (!mentionPanel || composing) return;
+        if (dmgating()) { hideMentionPanel(); return; } // 非好友私聊禁用 @ 提及
         var ctx = mentionContext();
         if (ctx === null) { hideMentionPanel(); return; }
         var list = mentionCandidates(ctx);
@@ -1894,11 +2164,25 @@
       });
 
       $('fileBtn').addEventListener('click', function () {
+        if (dmgating()) { toast('尚未互加好友，仅可发送文字和图片'); return; }
         var f = $('fileInput');
         f.accept = '';
         f.value = '';
         f.click();
       });
+
+      // 好友：添加（搜索）/ 关闭 / 请求
+      $('friendAddBtn').addEventListener('click', openFriendSearch);
+      $('friendSearchClose').addEventListener('click', closeFriendSearch);
+      $('friendSearchMask').addEventListener('click', function (e) {
+        if (e.target === this) closeFriendSearch();
+      });
+      $('friendSearchBtn').addEventListener('click', doFriendSearch);
+      $('friendSearchInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); doFriendSearch(); }
+        if (e.key === 'Escape') closeFriendSearch();
+      });
+      loadFriends();
 
       $('fileInput').addEventListener('change', function () {
         var file = this.files && this.files[0];
