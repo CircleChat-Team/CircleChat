@@ -273,6 +273,9 @@ function handleWsUpgrade(req, socket, head) {
   client.sendText = (s) => { try { client.socket.write(wsproto.encodeText(s)); } catch (e) { /* 忽略 */ } };
 
   socket.on('data', (chunk) => { client.alive = true; decoder.push(chunk); });
+  // 对端直接断开（关标签页 / 断网）时只会触发 end，必须在这里清理，
+  // 否则该用户会一直显示在线，直到下一次心跳超时。
+  socket.on('end', () => shutdownClient(client, 'end'));
   socket.on('error', () => shutdownClient(client, 'error'));
   socket.on('close', () => shutdownClient(client, 'closed'));
 
@@ -492,6 +495,30 @@ function handleApi(req, res, urlObj, pathname, ip) {
     const raw = auth.loadUsers() || {};
     const users = Object.keys(raw).sort().map((name) => ({ name, image: raw[name].image || null }));
     sendJSON(res, 200, { ok: true, users });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/profile?name=xxx（用户资料卡：角色 / 在线 / 加入时间 / 消息数）
+  if (pathname === '/api/profile' && req.method === 'GET') {
+    const name = (urlObj.searchParams.get('name') || '').trim();
+    const raw = auth.loadUsers() || {};
+    if (!name || !Object.prototype.hasOwnProperty.call(raw, name)) {
+      sendJSON(res, 404, { ok: false, error: '用户不存在' });
+      logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const online = new Set([...clients].map(clientId));
+    const counts = store.countByUser();
+    sendJSON(res, 200, {
+      ok: true,
+      name,
+      role: raw[name].role === 'admin' ? 'admin' : 'user',
+      created: raw[name].created || null,
+      image: raw[name].image || null,
+      online: online.has(name),
+      msgs: counts[name] || 0
+    });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }

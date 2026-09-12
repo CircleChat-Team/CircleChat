@@ -823,6 +823,76 @@
         return q;
     }
 
+    // ---------- 用户资料卡 ----------
+
+    function fmtDate(ts) {
+        var d = new Date(Number(ts) || 0);
+        function p(n) { return n < 10 ? '0' + n : '' + n; }
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    }
+
+    function openProfile(name) {
+        if (!name) return;
+        fetch(api('/api/profile?name=' + encodeURIComponent(name)), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.ok) { toast(j.error || '加载资料失败'); return; }
+                var av = $('profileAvatar');
+                av.innerHTML = '';
+                if (j.image) {
+                    var img = document.createElement('img');
+                    img.src = j.image;
+                    img.alt = j.name;
+                    av.appendChild(img);
+                    av.style.background = '';
+                } else {
+                    av.textContent = (j.name.charAt(0) || '?').toUpperCase();
+                    av.style.background = avatarColor(j.name);
+                }
+                $('profileName').textContent = j.name + (j.name === ME ? '（我）' : '');
+                $('profileRole').textContent = j.role === 'admin' ? '管理员' : '';
+                $('profileOnline').textContent = j.online ? '在线' : '离线';
+                $('profileCreated').textContent = j.created ? fmtDate(j.created) : '—';
+                $('profileMsgs').textContent = j.msgs + ' 条';
+                $('profileCard').classList.remove('hidden');
+            })
+            .catch(function () { toast('加载资料失败'); });
+    }
+
+    function closeProfile() {
+        var card = $('profileCard');
+        if (card) card.classList.add('hidden');
+    }
+
+    // 点击消息头像或侧边栏成员头像即可打开资料卡
+    function bindProfileCard() {
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest) return;
+            var av = e.target.closest('.msg-avatar, .user-avatar');
+            if (!av) return;
+
+            var wrap = av.closest('.msg');
+            if (wrap) {
+                var idx = wrap.dataset.idx;
+                for (var i = 0; i < historyAll.length; i++) {
+                    if (String(historyAll[i].idx) === String(idx)) { openProfile(historyAll[i].from); return; }
+                }
+                return;
+            }
+            var item = av.closest('.user-item');
+            if (item) {
+                var nm = item.querySelector('.user-name');
+                if (nm) openProfile(nm.textContent.replace(/（我）\s*$/, '').trim());
+            }
+        });
+        $('profileCard').addEventListener('click', function (e) {
+            if (!e.target.closest('.profile-card')) closeProfile();
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeProfile();
+        });
+    }
+
     // 同一人 5 分钟内连发视为一组，第二条起隐藏头像与昵称
     var GROUP_GAP_MS = 5 * 60 * 1000;
 
@@ -1671,6 +1741,7 @@
 
       bindDropUpload(); // 拖拽 / 粘贴上传
       $('replyCancel').addEventListener('click', clearReply);
+      bindProfileCard(); // 头像点击查看资料卡
 
       // 点击表情选择器以外区域时收起
       document.addEventListener('click', function (e) {

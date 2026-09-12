@@ -19,20 +19,20 @@ const ROOT = __dirname;
 
 // MD5 完整性清单（与各源文件内容一一对应）
 const MANIFEST = {
-  'server.js': '2aaeec592db2f28bbee1ffdbccdcb0a5',
+  'server.js': '6081bb22f51a3b981aa50ffde03d6abf',
   'lib/auth.js': 'fdd38af5eb243f31e5236fa77cb69277',
-  'lib/store.js': '158d9d878d241583f250e727e3ebbc5b',
+  'lib/store.js': 'e78da6514d3754d09c010e6c4d9c05d7',
   'lib/audit.js': 'ecbfaa046bbc6cd48791b96ded7b6cad',
   'lib/ws.js': '8eb09d11bc20e592e092b5955b498f1e',
   'lib/log.js': 'cf6a98065b2452eb57b15a6f5db2fd76',
   'public/index.html': '07ea987fcca27049710284d88491f308',
-  'public/css/style.css': '602611d16b35f99d181304a98e29d42b',
+  'public/css/style.css': '5195fe662486cb8f9dc36dffd51f17fd',
   'public/login.html': 'c4d568859aadf229e4fbb894abf25e55',
-  'public/chat.html': '6b05cd59d85228b219117f0e87d99c8c',
+  'public/chat.html': '911f28c384506302d40e6528db9e31dc',
   'public/admin.html': 'ecd367c0ef41e48858d6e7dd481ed774',
   'public/js/config.js': '29e316e77c56cadc01e3850c87a5b7d1',
   'public/js/login.js': '6d114faaf6462e9691a5a9374e6d3d3c',
-  'public/js/chat.js': '4c05cb99fb7e3988add5b919484dca3f',
+  'public/js/chat.js': 'efc7911f60fe18dc488af216bd0c9aa3',
   'public/js/admin.js': '67e38ccf688d514fe6293414e07fb7de',
   'tools/adduser.js': '6fcfc3d222d97ef6d2b095f4f24ccd92'
 };
