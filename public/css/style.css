@@ -201,6 +201,7 @@ body {
   border: 1px solid transparent;
   border-radius: var(--radius);
   outline: none;
+  appearance: none;
   -webkit-appearance: none;
   transition: background .2s var(--ease),
               border-color .2s var(--ease),

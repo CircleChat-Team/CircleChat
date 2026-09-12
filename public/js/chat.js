@@ -14,6 +14,7 @@
     var heartbeatTimer = null;
     var onlineUsers = [];   // 在线用户列表
     var allUsers = [];      // 全部账号列表
+    var userImages = {};    // 用户名 -> 头像图片地址（来自用户配置，未配置则为 null）
     var notifyOn = false;   // 系统通知开关
     var connectedOnce = false; // 是否曾成功建立 WS 连接（用于判断会话是否过期）
 
