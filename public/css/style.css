@@ -890,15 +890,25 @@ body {
   transition: color .15s var(--ease), border-color .15s var(--ease);
 }
 .code-copy:hover { color: #fff; border-color: rgba(255, 255, 255, .35); }
-.code-body { display: flex; align-items: flex-start; overflow-x: auto; }
+/* 行号列与代码列必须共用同一套字号与行高。
+   若只在内层 code 上设 13px/1.55，而 <pre> 自身仍继承气泡的 15px/1.48，
+   <pre> 的 strut（每个行盒的最小高度）会把每行撑到 22.2px，而行号列只有 20.15px，
+   于是每行错开约 2px 并逐行累积。因此把度量统一放在父级 .code-body，两列都继承同一份。 */
+.code-body {
+  display: flex;
+  align-items: flex-start;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.55;
+}
 .code-gutter {
   flex: 0 0 auto;
   padding: 10px 8px 10px 12px;
   text-align: right;
   color: #4b5563;
   font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: inherit;
+  line-height: inherit;
   white-space: pre;
   user-select: none;
   border-right: 1px solid rgba(255, 255, 255, .06);
@@ -908,11 +918,16 @@ body {
   padding: 10px 14px;
   flex: 1 1 auto;
   min-width: 0;
+  font-size: inherit;
+  line-height: inherit;
+  /* 让 <pre> 的 strut 也用等宽字体：strut 与内容字体不同时，
+     两者的 ascent/descent 差异会让行盒比 line-height 略高，多行后依旧会累积错位 */
+  font-family: var(--mono);
 }
 .code-pre code {
   font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: inherit;
+  line-height: inherit;
   color: #e6edf3;
   white-space: pre;
   word-break: normal;

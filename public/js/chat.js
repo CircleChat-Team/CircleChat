@@ -486,8 +486,9 @@
         var code = unesc(codeEscaped);
         if (code.length && code.charAt(code.length - 1) === '\n') code = code.slice(0, -1);
         var lines = code.split('\n');
-        var gutter = '';
-        for (var i = 1; i <= lines.length; i++) gutter += i + '\n';
+        var nums = [];
+        for (var i = 1; i <= lines.length; i++) nums.push(i);
+        var gutter = nums.join('\n'); // 末尾不加换行：否则行号列会多出一个空行，比代码高一行
         var langLabel = lang ? esc(lang) : '代码';
         return '<div class="code-block">' +
             '<div class="code-head"><span class="code-lang">' + langLabel + '</span>' +
