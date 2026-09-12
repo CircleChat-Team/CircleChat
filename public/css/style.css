@@ -557,6 +557,32 @@ body {
   color: #fff;
 }
 #groupList { display: flex; flex-direction: column; }
+.group-item-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.group-item-wrap .group-item { flex: 1; min-width: 0; }
+.group-gear {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin-right: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.group-gear:hover { background: var(--fill); color: var(--text); }
+.group-select { max-width: 220px; margin-left: 8px; }
+.gmg-actions { flex-wrap: wrap; }
+.admin-btn.danger { background: #e5484d; }
+.admin-btn.danger:hover { background: #d13b40; }
 .group-actions {
   display: flex;
   gap: 8px;
@@ -2129,6 +2155,14 @@ body {
   font-size: 13px;
   background: var(--fill);
   border-radius: 10px;
+}
+.u-av {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--faint);
 }
 
 .admin-user .u-name {

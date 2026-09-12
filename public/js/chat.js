@@ -1271,6 +1271,9 @@
         pub.classList.toggle('active', activeGid == null && activeDmPeer == null);
 
         myGroups.forEach(function (g) {
+            var wrap = document.createElement('div');
+            wrap.className = 'group-item-wrap';
+
             var item = document.createElement('button');
             item.type = 'button';
             item.className = 'group-item' + (activeGid === String(g.id) ? ' active' : '');
@@ -1282,44 +1285,94 @@
             item.addEventListener('click', function () {
                 switchRoom(String(g.id), g.name);
             });
-            list.appendChild(item);
+            wrap.appendChild(item);
+
+            // 群主本人或系统管理员可进入群管理面板
+            if (g.owner === ME || IS_ADMIN) {
+                var gear = document.createElement('button');
+                gear.type = 'button';
+                gear.className = 'group-gear';
+                gear.title = '群管理';
+                gear.textContent = '⚙';
+                gear.addEventListener('click', function (ev) {
+                    ev.stopPropagation();
+                    location.href = '/group.html?gid=' + encodeURIComponent(g.id);
+                });
+                wrap.appendChild(gear);
+            }
+            list.appendChild(wrap);
         });
     }
 
     function onCreateGroup() {
-        var name = prompt(tr('chat.group.namePrompt'));
-        if (name == null) return;
-        name = name.trim();
-        if (!name) return;
-        fetch(api('/api/groups'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin',
-            body: JSON.stringify({ name: name })
-        }).then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
-        .then(function (res) {
-            if (!res.body.ok) { toast(res.body.error || tr('chat.group.createFailed')); return; }
-            toast(tr('chat.group.created'));
-            loadGroups().then(function () { switchRoom(res.body.id, name); });
-        })
-        .catch(function () { toast(tr('chat.group.createRetry')); });
+UI.prompt({
+            title: '创建群',
+            text: '输入群名（1-24 位字母/数字/下划线/中文/点/横线）：',
+            placeholder: '群名',
+            okText: '创建',
+            input: { type: 'text', placeholder: '群名', maxLength: 24 }
+        }).then(function (raw) {
+            if (raw == null) return;
+            var name = raw.trim();
+            if (!name) return;
+            fetch(api('/api/groups'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ name: name })
+            }).then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+            .then(function (res) {
+                if (!res.body.ok) { toast(res.body.error || '创建失败'); return; }
+                toast('群已创建');
+                loadGroups().then(function () { switchRoom(res.body.id, name); });
+            })
+            .catch(function () { toast('创建群失败，请重试'); });
+        });
+    }
+
+    // 按群名搜索并发送入群申请（入群需群主/管理员审核）
+    function sendJoinRequest(gid, gname) {
+        UI.confirm({
+            title: '申请入群',
+            text: '向群「' + gname + '」发送入群申请，等待群主审核？',
+            okText: '发送申请'
+        }).then(function (ok) {
+            if (!ok) return;
+            fetch(api('/api/groups/request'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ gid: gid })
+            }).then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+            .then(function (res) {
+                toast(res.body.ok ? '申请已发送，等待群主审核' : (res.body.error || '发送失败'));
+            })
+            .catch(function () { toast('发送申请失败，请重试'); });
+        });
     }
 
     function onJoinGroup() {
-        var gid = prompt(tr('chat.group.idPrompt'));
-        if (gid == null || !gid.trim()) return;
-        fetch(api('/api/groups/join'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin',
-            body: JSON.stringify({ gid: gid.trim() })
-        }).then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
-        .then(function (res) {
-            if (!res.body.ok) { toast(res.body.error || tr('chat.group.joinFailed')); return; }
-            toast(tr('chat.group.joined'));
-            loadGroups();
-        })
-        .catch(function () { toast(tr('chat.group.joinRetry')); });
+        UI.prompt({
+            title: '加入群',
+            text: '输入群名以搜索要加入的群。入群需群主审核。',
+            placeholder: '群名（1-24 位）',
+            okText: '搜索',
+            input: { type: 'text', placeholder: '群名', maxLength: 24 }
+        }).then(function (raw) {
+            if (raw == null) return;
+            var keyword = raw.trim();
+            if (!keyword) return;
+            fetch(api('/api/groups/search?name=' + encodeURIComponent(keyword)), { credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                    if (!j.ok) { toast(j.error || '搜索失败'); return; }
+                    var hits = j.groups || [];
+                    if (!hits.length) { toast('未找到名称包含「' + keyword + '」的群'); return; }
+                    if (hits.length > 1) { toast('找到 ' + hits.length + ' 个群，请输入更精确的名称'); return; }
+                    sendJoinRequest(hits[0].id, hits[0].name);
+                })
+                .catch(function () { toast('搜索失败，请重试'); });
+        });
     }
 
     // 切换当前会话房间并加载对应历史（gid=null 且 dmPeer=null 为公共聊天）

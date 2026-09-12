@@ -169,6 +169,15 @@
         var row = document.createElement('div');
         row.className = 'admin-user';
 
+        if (u.image) {
+            var av = document.createElement('img');
+            av.className = 'u-av';
+            av.src = u.image;
+            av.alt = '';
+            av.referrerPolicy = 'no-referrer';
+            row.appendChild(av);
+        }
+
         var name = document.createElement('span');
         name.className = 'u-name';
         name.textContent = u.name + (u.name === ME ? tr('common.me') : '');
@@ -211,6 +220,28 @@
             });
         });
         row.appendChild(pw);
+
+        var av = document.createElement('button');
+        av.type = 'button';
+        av.className = 'admin-act';
+        av.textContent = u.image ? '改头像' : '设头像';
+        av.addEventListener('click', function () {
+            UI.prompt({
+                title: u.image ? '修改头像' : '设置头像',
+                text: '为「' + u.name + '」设置头像，输入图片地址（http/https），留空可清除：',
+                placeholder: 'https://…',
+                okText: '保存',
+                input: { type: 'text', placeholder: '头像图片地址，可留空清除', maxLength: 2048 }
+            }).then(function (v) {
+                if (v == null) return;
+                var image = v.trim();
+                adminApi('/api/admin/user/image', { name: u.name, image: image }).then(function (j) {
+                    toast(j.ok ? '已更新头像' : (j.error || '操作失败'));
+                    if (j.ok) refreshUsers();
+                });
+            });
+        });
+        row.appendChild(av);
 
         if (u.name !== ME) {
             var del = document.createElement('button');

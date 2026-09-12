@@ -609,12 +609,16 @@ function handleApi(req, res, urlObj, pathname, ip) {
     return;
   }
 
-  // GET /api/users（全部账号名 + 头像配置，用于在线状态展示）
+  // GET /api/users（全部有效账号 + 头像配置，用于成员列表/搜索；不含待审核及被拒账号，含自己）
   if (pathname === '/api/users' && req.method === 'GET') {
     const q = (urlObj.searchParams.get('q') || '').trim().toLowerCase();
     const raw = auth.loadUsers() || {};
     const users = Object.keys(raw)
-      .filter((name) => name !== me.username && (q === '' || String(name).toLowerCase().indexOf(q) !== -1))
+      .filter((name) => {
+        const status = raw[name].status || auth.STATUS.ACTIVE;
+        if (status !== auth.STATUS.ACTIVE) return false; // 隐藏 pending / rejected 账号
+        return q === '' || String(name).toLowerCase().indexOf(q) !== -1;
+      })
       .sort()
       .map((name) => ({ name, image: raw[name].image || null }));
     sendJSON(res, 200, { ok: true, users });
@@ -892,6 +896,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         if (name === 'admin') { sendJSON(res, 400, { ok: false, error: 'api.admin.cannotDeleteAdmin' }); return; }
         if (!auth.deleteUser(name)) { sendJSON(res, 404, { ok: false, error: 'api.user.notFound' }); return; }
         groups.removeUserAll(name); // 清理该用户在各群的全部成员关系，避免遗留孤儿
+        groups.removeRequestsOfUser(name); // 清理该用户的全部入群申请
         friends.removeUserAll(name); // 清理该用户全部好友关系与好友申请
         broadcast({ type: 'friends.changed' });
         audit.add({ actor: me.username, action: 'admin.user.del', target: name, detail: auditDetail('log.detail.user.del', { name }), ip });
@@ -903,6 +908,32 @@ function handleApi(req, res, urlObj, pathname, ip) {
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
         sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
+    // POST /api/admin/user/image —— 设置/清除用户头像 {name, image}
+    if (pathname === '/api/admin/user/image' && req.method === 'POST') {
+      readBody(req, 4096).then((body) => {
+        let o = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+        const image = o && typeof o.image === 'string' ? o.image.trim() : '';
+        if (!name) { sendJSON(res, 400, { ok: false, error: '参数错误' }); return; }
+        // 仅接受 http(s) 图片地址或留空清除；拒绝 javascript: 等危险协议
+        if (image !== '' && !/^https?:\/\/[^\s"'<>]{1,2048}$/i.test(image)) {
+          sendJSON(res, 400, { ok: false, error: '头像须为 http(s) 图片地址，或留空清除' });
+          return;
+        }
+        if (!auth.setImage(name, image)) {
+          sendJSON(res, 404, { ok: false, error: '用户不存在' });
+          return;
+        }
+        audit.add({ actor: me.username, action: 'admin.user.image', target: name, detail: image ? '设置头像：' + name : '清除头像：' + name, ip });
+        sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
       });
       return;
     }
@@ -980,6 +1011,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
       if (!canManage) { sendJSON(res, 403, { ok: false, error: 'api.group.noDismiss' }); return; }
       store.dissolveMessages(gid);
       groups.dissolveGroup(gid);
+      groups.removeRequestsOfGroup(gid); // 清理该群全部待审核/历史的入群申请
       audit.add({ actor: me.username, action: 'group.dissolve', target: gid, detail: auditDetail('log.detail.group.dissolve', { name: g.name }), ip });
       broadcastGid(gid, { type: 'groups.changed', data: { gid } });
       sendJSON(res, 200, { ok: true });
@@ -1003,7 +1035,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     return;
   }
 
-  // POST /api/groups/join —— 加入群 {gid}
+  // POST /api/groups/join —— 按 gid 发送入群申请（旧接口兼容，走审核流程）{gid}
   if (pathname === '/api/groups/join' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o = null;
@@ -1013,8 +1045,12 @@ function handleApi(req, res, urlObj, pathname, ip) {
         sendJSON(res, 404, { ok: false, error: 'api.group.notFound' });
         return;
       }
-      groups.addMember(gid, me.username);
-      audit.add({ actor: me.username, action: 'group.join', target: gid, detail: auditDetail('log.detail.group.join'), ip });
+      const r = groups.requestJoin(gid, me.username);
+      if (!r.ok) {
+        sendJSON(res, 409, { ok: false, error: r.reason || '无法发送入群申请' });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'group.request', target: gid, detail: '申请入群', ip });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -1068,6 +1104,178 @@ function handleApi(req, res, urlObj, pathname, ip) {
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
       sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
+  // GET /api/groups/search?name= —— 按群名搜索可加入的群（任何登录用户）
+  if (pathname === '/api/groups/search' && req.method === 'GET') {
+    const name = (urlObj.searchParams.get('name') || '').trim();
+    if (!name) { sendJSON(res, 200, { ok: true, groups: [] }); return; }
+    sendJSON(res, 200, { ok: true, groups: groups.searchGroups(name) });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/groups/all —— 全部群列表（仅管理员）
+  if (pathname === '/api/groups/all' && req.method === 'GET') {
+    if (!auth.isAdmin(me.username)) {
+      sendJSON(res, 403, { ok: false, error: '无管理员权限' });
+      return;
+    }
+    sendJSON(res, 200, { ok: true, groups: groups.listAllGroups() });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/groups/request —— 按 gid 发送入群申请 {gid}
+  if (pathname === '/api/groups/request' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const r = groups.requestJoin(gid, me.username);
+      if (!r.ok) {
+        sendJSON(res, 409, { ok: false, error: r.reason || '无法发送入群申请' });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'group.request', target: gid, detail: '申请入群', ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // 群管理权限判定：群主本人或全局管理员可管理该群
+  // GET /api/groups/manage?gid= —— 管理面板数据（群信息/成员/待审核/群文件）
+  if (pathname === '/api/groups/manage' && req.method === 'GET') {
+    const gid = (urlObj.searchParams.get('gid') || '').trim() || '';
+    const g = groups.getGroup(gid);
+    if (!g) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
+    const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
+    if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权管理该群' }); return; }
+    sendJSON(res, 200, {
+      ok: true,
+      group: { id: g.id, name: g.name, owner: g.owner, created: g.created },
+      isOwner: groups.isOwner(gid, me.username),
+      members: groups.manageMembers(gid),
+      requests: groups.pendingRequests(gid),
+      files: store.filesByRoom(gid)
+    });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/groups/request/approve —— 通过某人的入群申请 {gid, name}
+  if (pathname === '/api/groups/request/approve' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+      const g = groups.getGroup(gid);
+      if (!g) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
+      const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
+      if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权审核该群' }); return; }
+      if (!groups.approveJoin(gid, name)) { sendJSON(res, 404, { ok: false, error: '该申请不存在或已处理' }); return; }
+      audit.add({ actor: me.username, action: 'group.request.approve', target: gid, detail: '通过入群：' + name, ip });
+      broadcast({ type: 'groups.changed' }); // 让新成员客户端刷新群列表
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // POST /api/groups/request/reject —— 拒绝某人的入群申请 {gid, name}
+  if (pathname === '/api/groups/request/reject' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+      if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
+      const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
+      if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权审核该群' }); return; }
+      if (!groups.rejectJoin(gid, name)) { sendJSON(res, 404, { ok: false, error: '该申请不存在或已处理' }); return; }
+      audit.add({ actor: me.username, action: 'group.request.reject', target: gid, detail: '拒绝入群：' + name, ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // POST /api/groups/members/remove —— 移除群成员 {gid, name}（群主/管理员；群主不可被移除）
+  if (pathname === '/api/groups/members/remove' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+      const g = groups.getGroup(gid);
+      if (!g) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
+      const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
+      if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权限' }); return; }
+      if (name === g.owner) { sendJSON(res, 400, { ok: false, error: '不能移除群主' }); return; }
+      if (!groups.removeMember(gid, name)) { sendJSON(res, 404, { ok: false, error: '不是该群成员' }); return; }
+      audit.add({ actor: me.username, action: 'group.member.remove', target: gid, detail: '移除成员：' + name, ip });
+      broadcastGid(gid, { type: 'groups.changed', data: { gid } });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // POST /api/groups/transfer —— 转移群主 {gid, name}（当前群主或管理员；受让者须在群内）
+  if (pathname === '/api/groups/transfer' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+      const g = groups.getGroup(gid);
+      if (!g) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
+      const isOwner = groups.isOwner(gid, me.username);
+      const isAdmin = auth.isAdmin(me.username);
+      if (!isOwner && !isAdmin) { sendJSON(res, 403, { ok: false, error: '无权转移该群' }); return; }
+      const oldOwner = isOwner ? me.username : g.owner;
+      if (!groups.transferOwner(gid, oldOwner, name)) {
+        sendJSON(res, 400, { ok: false, error: '受让人须为群成员且你须为当前群主' });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'group.transfer', target: gid, detail: '群主转给：' + name, ip });
+      broadcast({ type: 'groups.changed' });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+    });
+    return;
+  }
+
+  // POST /api/groups/file/delete —— 删除群内一条图片/文件 {gid, idx}（群主/管理员）
+  if (pathname === '/api/groups/file/delete' && req.method === 'POST') {
+    readBody(req, 4096).then((body) => {
+      let o = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const idx = o && o.idx != null ? Number(o.idx) : NaN;
+      if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
+      const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
+      if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权管理该群' }); return; }
+      if (!store.removeGroupFile(idx, gid)) { sendJSON(res, 404, { ok: false, error: '该文件不存在或已删除' }); return; }
+      audit.add({ actor: me.username, action: 'group.file.del', target: gid, detail: '删除群文件：#' + idx, ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
     });
     return;
   }
