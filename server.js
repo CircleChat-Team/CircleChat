@@ -67,7 +67,10 @@ const MIME = {
   '.pdf': 'application/pdf',
   '.zip': 'application/zip',
   '.mp3': 'audio/mpeg',
-  '.mp4': 'video/mp4'
+  '.mp4': 'video/mp4',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.m4a': 'audio/mp4'
 };
 
 function sendJSON(res, status, obj) {

@@ -93,6 +93,50 @@
     // 尽早应用主题，避免页面闪烁
     applyTheme(currentTheme());
 
+    // ---------- 新消息提示音 ----------
+
+    var notifySound = null;
+
+    // 收到他人消息时播放提示音（浏览器自动播放策略可能拦截，失败静默忽略）
+    function playNotifySound() {
+        try {
+            if (!notifySound) {
+                notifySound = new Audio(api('/notify.wav'));
+                notifySound.preload = 'auto';
+            }
+            notifySound.currentTime = 0;
+            var p = notifySound.play();
+            if (p && typeof p.catch === 'function') p.catch(function () { /* 未交互前被拦截，忽略 */ });
+        } catch (e) { /* 忽略 */ }
+    }
+
+    // 首次用户交互后预解锁，保证后续能正常出声
+    function unlockNotifySound() {
+        function once() {
+            try {
+                if (!notifySound) {
+                    notifySound = new Audio(api('/notify.wav'));
+                    notifySound.preload = 'auto';
+                }
+                notifySound.volume = 0;
+                var p = notifySound.play();
+                if (p && typeof p.then === 'function') {
+                    p.then(function () {
+                        notifySound.pause();
+                        notifySound.currentTime = 0;
+                        notifySound.volume = 1;
+                    }).catch(function () { notifySound.volume = 1; });
+                } else {
+                    notifySound.volume = 1;
+                }
+            } catch (e) { /* 忽略 */ }
+            document.removeEventListener('click', once);
+            document.removeEventListener('keydown', once);
+        }
+        document.addEventListener('click', once);
+        document.addEventListener('keydown', once);
+    }
+
     // ---------- 工具 ----------
 
     function toast(msg, ms) {
@@ -632,6 +676,8 @@
         historyAll.push(m); // 与历史合并，保证一致性
         msgList.appendChild(wrap);
         if (nearBottom) scrollToBottom();
+        // 收到他人消息时播放提示音（自己发的不回放）
+        if (m.from !== ME) playNotifySound();
     }
 
     // 撤回提示文案：实时事件与历史渲染共用，保证刷新前后文案一致
@@ -1259,6 +1305,8 @@
 
       // 管理员显示「用户管理」入口（跳转独立管理页 /admin.html）
       if (IS_ADMIN) $('adminBtn').classList.remove('hidden');
+
+      unlockNotifySound(); // 首次交互后解锁提示音
 
       textInput.focus();
       loadUsers();
