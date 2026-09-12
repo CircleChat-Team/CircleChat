@@ -25,12 +25,12 @@ const MANIFEST = {
   'lib/ws.js': '8eb09d11bc20e592e092b5955b498f1e',
   'lib/log.js': 'cf6a98065b2452eb57b15a6f5db2fd76',
   'public/index.html': '07ea987fcca27049710284d88491f308',
-  'public/css/style.css': '8704204e46f813d0bf6516c21a1487ac',
+  'public/css/style.css': '32078ac33787c7c6592a66add47d6fe2',
   'public/login.html': 'c4d568859aadf229e4fbb894abf25e55',
-  'public/chat.html': '6e3a5f180bc5717555aceb90891ef657',
+  'public/chat.html': 'a9e7b59062272efd10d684ec623de849',
   'public/js/config.js': '29e316e77c56cadc01e3850c87a5b7d1',
   'public/js/login.js': '6d114faaf6462e9691a5a9374e6d3d3c',
-  'public/js/chat.js': '044fed8d93ace7885c90b31661560da3',
+  'public/js/chat.js': '5acc0c16d73f00ef07669f8aabf92143',
   'tools/adduser.js': '6fcfc3d222d97ef6d2b095f4f24ccd92'
 };
 
