@@ -329,12 +329,22 @@ function handleWsText(client, text) {
       if (d.name !== undefined && typeof d.name !== 'string') return;
       if (d.size !== undefined && (!Number.isInteger(d.size) || d.size < 0 || d.size > MAX_UPLOAD)) return;
     }
+    // 引用回复：只接受存在且未被撤回的消息
+    let replyTo = null;
+    if (d.replyTo !== undefined && d.replyTo !== null) {
+      const rid = Number(d.replyTo);
+      if (Number.isInteger(rid) && rid > 0) {
+        const t = store.get(rid);
+        if (t && !t.recalled) replyTo = rid;
+      }
+    }
     const record = store.add({
       from: client.user.username,
       type,
       content,
       name: d.name,
-      size: d.size
+      size: d.size,
+      replyTo
     });
     audit.add({
       actor: client.user.username,
