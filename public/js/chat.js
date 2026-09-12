@@ -516,14 +516,17 @@
         var meta = document.createElement('div');
         meta.className = 'meta';
         meta.textContent = (m.from === ME ? '' : m.from + ' · ') + fmtTime(m.ts);
-        // 仅自己发送的消息显示「撤回」
-        if (m.from === ME && m.idx != null) {
+        // 自己发送的消息显示「撤回」；管理员可在任意人的消息旁撤回
+        if ((m.from === ME || IS_ADMIN) && m.idx != null) {
             var rb = document.createElement('button');
             rb.type = 'button';
             rb.className = 'recall-btn';
             rb.textContent = '撤回';
             rb.addEventListener('click', function () {
-                if (!window.confirm('确定撤回这条消息吗？')) return;
+                var ask = (IS_ADMIN && m.from !== ME)
+                    ? '确定以管理员身份撤回 ' + m.from + ' 的消息吗？'
+                    : '确定撤回这条消息吗？';
+                if (!window.confirm(ask)) return;
                 sendWs({ type: 'recall', data: { idx: m.idx } });
             });
             meta.appendChild(rb);
@@ -1295,6 +1298,8 @@
         uploadFile(file, isImg ? '图片' : '文件');
         this.value = '';
       });
+
+      if (IS_ADMIN) bindAdminPanel();
 
       textInput.focus();
       loadUsers();
