@@ -19,24 +19,27 @@ const ROOT = __dirname;
 
 // MD5 完整性清单（与各源文件内容一一对应）
 const MANIFEST = {
-  'server.js': 'b53bac8fa2a81de2729701cc1f823dc2',
-  'lib/auth.js': 'beb1a07b30d8cbb303cffbf2bb449c29',
-  'lib/store.js': 'ffd45da5dbadd565fb889eab06be20f4',
-  'lib/groups.js': 'ac94c5d27e9a1e2c0bafbfc043229464',
-  'lib/audit.js': '4b8bf73ee4dc8eaa4437b6bedf9fd1d3',
-  'lib/ws.js': '46545a1e225b690df4351d8bd0106437',
-  'lib/log.js': '242e1358ad4a49f01f4dfa77f3c3d968',
-  'lib/migrate.js': '0291535876be05997ceb2139987d7304',
-  'public/index.html': '2b54a83715cec1b9fb81d9551be69566',
-  'public/css/style.css': '71a4ce68e46d15b90338f3a5a8207ff0',
-  'public/login.html': 'ff321807ea1e792b37ccfd37a6734189',
-  'public/chat.html': 'eba543fa7b8bcea575b801a846a58da0',
-  'public/admin.html': '842d10d8ace2c0c5c47043188b07b08a',
-  'public/js/config.js': 'cc30713437b819590fd0d07a57e2849f',
-  'public/js/login.js': '1407186ed9e496e28ff97257baf18b4d',
-  'public/js/chat.js': 'c9e5488a9144eacf1293bb346a66064d',
-  'public/js/admin.js': 'cfca87bee8dce758d0d2b38096591c69',
-  'tools/adduser.js': '4f41e52c9f404c7dfd1125c7c1985467'
+  'server.js': 'd6af79c7f6ddaa88d592479fa449bfaf',
+  'lib/auth.js': '17af170e1caad9a2a16214c7147f7075',
+  'lib/store.js': 'fb0b9baf8aedc4cd692fa750d5b245f0',
+  'lib/groups.js': '0b22fdebb87de4085c060a947ae9d86c',
+  'lib/audit.js': 'ecbfaa046bbc6cd48791b96ded7b6cad',
+  'lib/ws.js': '8eb09d11bc20e592e092b5955b498f1e',
+  'lib/log.js': 'cf6a98065b2452eb57b15a6f5db2fd76',
+  'lib/migrate.js': 'b913e5acdda20d6a2315382b7d4a7e16',
+  'public/index.html': '07ea987fcca27049710284d88491f308',
+  'public/css/style.css': 'ab839a333798337a67c1cb44facaec47',
+  'public/login.html': '18c266cb44f8b40afc6601ae9342cdbd',
+  'public/chat.html': '3ad412e975fea5c006b71c3344db2d60',
+  'public/admin.html': 'a9de808ff59e16551a4a56a87ff39afd',
+  'public/js/config.js': '29e316e77c56cadc01e3850c87a5b7d1',
+  'public/js/i18n.js': '3859c17dc4d86754086f9039a4175be5',
+  'public/js/lang/zh.js': 'ad7ee100f07d5f1afcb1fff373c86267',
+  'public/js/lang/en.js': 'fbc00d2ef809ed536ce71daad9dbff82',
+  'public/js/login.js': 'acd2c1527e5e54c29ebf2f68fb7d3a9c',
+  'public/js/chat.js': '850d3511ab9f40bff9c47fe86bcb5957',
+  'public/js/admin.js': '8725fe3598e7bd11a621538d3f480771',
+  'tools/adduser.js': '6fcfc3d222d97ef6d2b095f4f24ccd92'
 };
 
 const COPYRIGHT_MARK = '© 2026 Ctoy';

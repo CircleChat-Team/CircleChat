@@ -166,6 +166,48 @@ body {
   to   { opacity: 1; transform: none; }
 }
 
+/* 右上角控制簇（主题 / 语言）：登录页无顶栏，独立悬浮于卡片之外，
+   位置与聊天页顶栏右侧的主题按钮对齐，形成一致的肌肉记忆 */
+.login-tools {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 20;
+}
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  transition: color .2s var(--ease), border-color .2s var(--ease),
+              background .2s var(--ease), transform .15s var(--ease);
+}
+.tool-btn:hover  { color: var(--text); border-color: var(--faint); }
+.tool-btn:active { transform: scale(.94); }
+.tool-btn .icon  { width: 17px; height: 17px; }
+.tool-btn-lang   { letter-spacing: .2px; }
+
+@media (max-width: 767px) {
+  .login-tools { top: 12px; right: 12px; }
+  .tool-btn { height: 32px; }
+}
+
 .login-brand { margin-bottom: 6px; }
 
 .login-logo {

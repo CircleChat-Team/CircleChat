@@ -7,6 +7,9 @@
   'use strict';
 
   var CFG = window.CHAT_CONFIG || {};
+  var I18N = window.I18N;
+
+  function t(key, vars) { return I18N ? I18N.t(key, vars) : key; }
 
   function apiBase() {
     return String(CFG.apiBase || '').replace(/\/+$/, '');
@@ -24,6 +27,10 @@
   var EYE_ON = '<path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"></path>';
   var EYE_OFF = '<path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2z"></path>';
 
+  // 主题图标（与 chat.js 保持一致）
+  var ICON_MOON = '<path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-3.33-9.62A9.05 9.05 0 0 0 12 3z"></path>';
+  var ICON_SUN = '<path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm-9-3H1v2h2v-2zm20 0h-2v2h2v-2zM6.34 6.34 4.93 4.93l1.41-1.41 1.41 1.41L6.34 6.34zm12.02 12.02-1.41 1.41 1.41 1.41 1.41-1.41-1.41-1.41zM4.93 19.07l1.41-1.41 1.41 1.41-1.41 1.41-1.41-1.41zm12.02-12.02 1.41-1.41 1.41 1.41-1.41 1.41-1.41-1.41z"></path>';
+
   function redirectAfterLogin() {
     var next = '';
     try { next = new URLSearchParams(location.search).get('next') || ''; } catch (e) { /* 忽略 */ }
@@ -36,9 +43,11 @@
   function setLoading(on) {
     var btn = $('loginBtn');
     var txt = $('loginBtnText');
-    if (!btn) return;
+    if (!btn || !txt) return;
     btn.disabled = on;
-    txt.innerHTML = on ? '<span class="spinner"></span>' : '登 录';
+    // 转圈动画需要 innerHTML；纯文案一律走 textContent，避免字典内容被当标签解析
+    if (on) txt.innerHTML = '<span class="spinner"></span>';
+    else txt.textContent = t('login.submit');
   }
 
   function doLogin(username, password) {
@@ -56,10 +65,11 @@
           redirectAfterLogin();
         } else {
           setLoading(false);
-          $('loginErr').textContent = res.body.error || '登录失败';
+          // 服务端错误文案暂由 server.js 返回，尚未接入字典（见 README 的后续计划）
+          $('loginErr').textContent = res.body.error || t('login.err.failed');
         }
       })
-      .catch(function () { setLoading(false); $('loginErr').textContent = '网络错误，请重试'; });
+      .catch(function () { setLoading(false); $('loginErr').textContent = t('login.err.network'); });
   }
 
   function doLogout() {
@@ -78,13 +88,13 @@
       loginForm.classList.add('hidden');
       regForm.classList.remove('hidden');
       hint.classList.add('hidden');
-      toggleBtn.textContent = '返回登录';
+      toggleBtn.textContent = t('reg.back');
       $('regUser').focus();
     } else {
       regForm.classList.add('hidden');
       loginForm.classList.remove('hidden');
       hint.classList.add('hidden');
-      toggleBtn.textContent = '没有账号？申请注册（需管理员审核）';
+      toggleBtn.textContent = t('reg.toggle');
       $('loginUser').focus();
     }
     $('loginErr').textContent = '';
@@ -95,9 +105,9 @@
     var p = $('regPass').value;
     var p2 = $('regPass2').value;
     $('registerHint').classList.add('hidden');
-    if (!u || !p) { $('registerHint').textContent = '请填写账号和密码'; $('registerHint').classList.remove('hidden'); return; }
-    if (p.length < 6) { $('registerHint').textContent = '密码至少 6 位'; $('registerHint').classList.remove('hidden'); return; }
-    if (p !== p2) { $('registerHint').textContent = '两次输入的密码不一致'; $('registerHint').classList.remove('hidden'); return; }
+    if (!u || !p) { $('registerHint').textContent = t('login.err.empty'); $('registerHint').classList.remove('hidden'); return; }
+    if (p.length < 6) { $('registerHint').textContent = t('reg.short'); $('registerHint').classList.remove('hidden'); return; }
+    if (p !== p2) { $('registerHint').textContent = t('reg.mismatch'); $('registerHint').classList.remove('hidden'); return; }
     var btn = $('regBtn');
     var txt = $('regBtnText');
     btn.disabled = true;
@@ -110,43 +120,104 @@
     }).then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
       .then(function (res) {
         btn.disabled = false;
-        txt.textContent = '提交注册申请';
+        txt.textContent = t('reg.submit');
         if (res.body.ok) {
           $('regUser').value = '';
           $('regPass').value = '';
           $('regPass2').value = '';
-          $('registerHint').textContent = res.body.message || '注册申请已提交，请等待管理员审核';
+          $('registerHint').textContent = res.body.message || t('reg.ok');
           $('registerHint').classList.remove('hidden');
           $('loginUser').value = u; // 方便审核通过后直接输入密码登录
           toggleRegister(false);
         } else {
-          $('registerHint').textContent = res.body.error || '注册失败';
+          $('registerHint').textContent = res.body.error || t('reg.fail');
           $('registerHint').classList.remove('hidden');
         }
       })
       .catch(function () {
         btn.disabled = false;
-        txt.textContent = '提交注册申请';
-        $('registerHint').textContent = '网络错误，请重试';
+        txt.textContent = t('reg.submit');
+        $('registerHint').textContent = t('login.err.network');
         $('registerHint').classList.remove('hidden');
       });
   }
 
-  function init() {
-    // 应用深色模式（跟随本地存储 / 系统偏好，登录页仅应用不提供切换）
-    var saved;
-    try { saved = localStorage.getItem('chatplus_theme'); } catch (e) { saved = null; }
-    var dark = saved === 'dark' || (saved !== 'light' &&
-      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  // ---------- 主题（深色模式） ----------
 
-    $('loginFooter').textContent = '服务地址：' + displayBase();
+  function currentTheme() {
+    var s;
+    try { s = localStorage.getItem('chatplus_theme'); } catch (e) { s = null; }
+    if (s === 'dark' || s === 'light') return s;
+    return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
+  function applyTheme(th) { document.documentElement.setAttribute('data-theme', th); }
+  function updateThemeIcon() {
+    var icon = $('themeIcon');
+    if (icon) icon.innerHTML = currentTheme() === 'dark' ? ICON_SUN : ICON_MOON;
+  }
+  function toggleTheme() {
+    var th = currentTheme() === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('chatplus_theme', th); } catch (e) { /* 忽略 */ }
+    applyTheme(th);
+    updateThemeIcon();
+  }
+
+  // ---------- 语言 ----------
+
+  // 按钮上显示「将要切到的语言」，而不是当前语言
+  function updateLangLabel() {
+    var el = $('langLabel');
+    if (el && I18N) el.textContent = I18N.langName(I18N.next());
+  }
+
+  /**
+   * 重刷动态文案。
+   * 静态节点（含 placeholder / title）由 I18N.apply() 统一处理，
+   * 这里是那些文案随状态变化的元素。
+   */
+  function refreshDynamicTexts() {
+    $('loginFooter').textContent = t('login.footer', { url: displayBase() });
+
+    var regOn = !$('registerForm').classList.contains('hidden');
+    $('toggleRegister').textContent = t(regOn ? 'reg.back' : 'reg.toggle');
+
+    // 正在提交时按钮里是转圈动画，不要覆盖
+    var loginBtn = $('loginBtn');
+    if (loginBtn && !loginBtn.disabled) $('loginBtnText').textContent = t('login.submit');
+    var regBtn = $('regBtn');
+    if (regBtn && !regBtn.disabled) $('regBtnText').textContent = t('reg.submit');
+
+    var togglePass = $('togglePass');
+    if (togglePass) {
+      var passInput = $('loginPass');
+      togglePass.title = passInput && passInput.type === 'text' ? t('login.hidePass') : t('login.showPass');
+    }
+  }
+
+  function applyLang() {
+    if (I18N) I18N.apply();
+    refreshDynamicTexts();
+    updateLangLabel();
+  }
+
+  function init() {
+    // 尽早应用主题，避免页面闪烁
+    applyTheme(currentTheme());
+    updateThemeIcon();
+
+    // 语言：脚本位于 body 末尾，此时应用基本赶在首次绘制之前
+    applyLang();
+    if (I18N) {
+      I18N.onChange(applyLang);
+      $('langBtn').addEventListener('click', function () { I18N.set(I18N.next()); });
+    }
+    $('themeBtn').addEventListener('click', toggleTheme);
 
     $('loginForm').addEventListener('submit', function (e) {
       e.preventDefault();
       var u = $('loginUser').value.trim();
       var p = $('loginPass').value;
-      if (!u || !p) { $('loginErr').textContent = '请输入账号和密码'; return; }
+      if (!u || !p) { $('loginErr').textContent = t('login.err.empty'); return; }
       doLogin(u, p);
     });
 
@@ -168,7 +239,7 @@
       var showing = passInput.type === 'text';
       passInput.type = showing ? 'password' : 'text';
       toggleIcon.innerHTML = showing ? EYE_ON : EYE_OFF;
-      toggleBtn.title = showing ? '显示密码' : '隐藏密码';
+      toggleBtn.title = showing ? t('login.showPass') : t('login.hidePass');
       passInput.focus();
     });
 
@@ -179,5 +250,10 @@
       .catch(function () { /* 忽略，停留在登录页 */ });
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  // 脚本在 body 末尾：DOM 多半已解析完，直接初始化能减少文案闪烁
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();
