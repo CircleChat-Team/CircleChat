@@ -812,6 +812,12 @@ body {
 }
 .file-card .fsize { font-size: 11px; color: var(--muted); }
 
+/* 已过期（文件被服务端清理）：不可点击，弱化显示，但保留文件名 */
+.file-card.expired { cursor: default; opacity: .75; }
+.file-card.expired:hover  { border-color: var(--border); }
+.file-card.expired:active { transform: none; }
+.file-card.expired .fname { color: var(--muted); }
+
 /* ---------- 输入区 ---------- */
 .emoji-panel {
   position: absolute;
