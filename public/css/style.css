@@ -785,22 +785,61 @@ body {
   cursor: zoom-in;
 }
 
+/* 文件卡片：本身就是消息主体（不再外套气泡），与左右气泡同层级 */
 .file-card {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 180px;
-  padding: 10px 14px;
+  max-width: 100%;
+  padding: 12px 16px;
   color: var(--text);
   text-decoration: none;
-  background: rgba(255, 255, 255, .92);
-  border: 1px solid rgba(0, 0, 0, .06);
-  border-radius: 12px;
-  transition: border-color .2s var(--ease), background .2s var(--ease), transform .15s var(--ease);
+  background: var(--other);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 0 0 1px rgba(0, 0, 0, .02);
+  transition: border-color .2s var(--ease), background .2s var(--ease), box-shadow .2s var(--ease), transform .15s var(--ease);
 }
-[data-theme="dark"] .file-card { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .1); }
+[data-theme="dark"] .file-card {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 0 0 1px rgba(255, 255, 255, .04);
+}
 .file-card:hover  { border-color: var(--primary); }
 .file-card:active { transform: scale(.98); }
+
+/* 自己发送的：与绿色气泡同色，保持左右视觉统一 */
+.msg.self .file-card {
+  color: #fff;
+  background: var(--self);
+  border-color: transparent;
+  border-bottom-right-radius: 6px;
+  box-shadow: 0 1px 2px rgba(7, 193, 96, .22);
+}
+.msg.other .file-card { border-bottom-left-radius: 6px; }
+
+/* 左侧后缀角标 */
+.file-card .fext {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  color: var(--primary);
+  background: rgba(7, 193, 96, .12);
+  border-radius: 12px;
+}
+.msg.self .file-card .fext { color: #fff; background: rgba(255, 255, 255, .22); }
+
+.file-card .fmeta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
 
 .file-card .fname {
   max-width: 240px;
@@ -811,12 +850,25 @@ body {
   text-overflow: ellipsis;
 }
 .file-card .fsize { font-size: 11px; color: var(--muted); }
+.msg.self .file-card .fsize { color: rgba(255, 255, 255, .78); }
 
-/* 已过期（文件被服务端清理）：不可点击，弱化显示，但保留文件名 */
-.file-card.expired { cursor: default; opacity: .75; }
+/* 已过期（文件被服务端清理）：弱化显示、不可点击，但保留文件名 */
+.file-card.expired,
+.msg.self .file-card.expired {
+  color: var(--muted);
+  cursor: default;
+  background: var(--fill);
+  border-color: var(--border);
+  box-shadow: none;
+  opacity: .85;
+}
 .file-card.expired:hover  { border-color: var(--border); }
 .file-card.expired:active { transform: none; }
 .file-card.expired .fname { color: var(--muted); }
+.file-card.expired .fext,
+.msg.self .file-card.expired .fext  { color: var(--muted); background: rgba(128, 128, 128, .14); }
+.file-card.expired .fsize,
+.msg.self .file-card.expired .fsize { color: var(--muted); }
 
 /* ---------- 输入区 ---------- */
 .emoji-panel {

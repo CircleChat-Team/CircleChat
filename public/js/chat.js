@@ -472,28 +472,67 @@
         } catch (e) { /* 忽略 */ }
     }
 
+    // 文件后缀角标：最多 4 个字符，无后缀时显示 FILE
+    function fileExtLabel(name) {
+        var s = String(name || '');
+        var i = s.lastIndexOf('.');
+        var ext = i > 0 ? s.slice(i + 1) : '';
+        ext = ext.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase();
+        return ext || 'FILE';
+    }
+
+    // 文件卡片：本身就是消息主体（不再外套气泡），左侧后缀角标 + 右侧文件名与大小
+    function makeFileCard(m) {
+        var href = safeUploadUrl(m.content);
+        if (!href) return null;
+        var a = document.createElement('a');
+        a.className = 'file-card';
+        a.href = href;
+        a.download = m.name || 'file';
+
+        var badge = document.createElement('span');
+        badge.className = 'fext';
+        badge.textContent = fileExtLabel(m.name);
+
+        var meta = document.createElement('span');
+        meta.className = 'fmeta';
+        var fn = document.createElement('span');
+        fn.className = 'fname';
+        fn.textContent = m.name || '文件';
+        var size = document.createElement('span');
+        size.className = 'fsize';
+        size.textContent = fmtSize(m.size) + ' · 点击下载';
+        meta.appendChild(fn);
+        meta.appendChild(size);
+
+        a.appendChild(badge);
+        a.appendChild(meta);
+        return a;
+    }
+
     // 过期占位：图片/文件已被服务端清理后的展示（文件仍显示文件名）
     function makeExpiredEl(isImage, name) {
         var el = document.createElement('div');
         el.className = 'file-card expired';
-        var icon = document.createElement('span');
-        icon.style.fontSize = '20px';
-        icon.textContent = isImage ? '🖼️' : '📄';
+
+        var badge = document.createElement('span');
+        badge.className = 'fext';
+        badge.textContent = isImage ? 'IMG' : fileExtLabel(name);
+
         var meta = document.createElement('span');
-        var tip = document.createElement('span');
-        tip.className = 'fsize';
-        tip.textContent = isImage ? '图片已过期' : '文件已过期';
-        if (isImage) {
-            meta.appendChild(tip);
-        } else {
+        meta.className = 'fmeta';
+        if (!isImage) {
             var fn = document.createElement('span');
             fn.className = 'fname';
             fn.textContent = name || '文件';
             meta.appendChild(fn);
-            meta.appendChild(document.createElement('br'));
-            meta.appendChild(tip);
         }
-        el.appendChild(icon);
+        var tip = document.createElement('span');
+        tip.className = 'fsize';
+        tip.textContent = isImage ? '图片已过期' : '文件已过期';
+        meta.appendChild(tip);
+
+        el.appendChild(badge);
         el.appendChild(meta);
         return el;
     }
@@ -517,14 +556,21 @@
         var body = document.createElement('div');
         body.className = 'msg-body';
 
-        var bubble = document.createElement('div');
-        bubble.className = 'bubble';
+        // 内容元素：文本 / 图片使用气泡；文件卡片与过期占位本身就是消息主体，不再套一层气泡
+        var contentEl = null;
 
-        if (m.type === 'image') {
+        if (m.type === 'file' || m.file_expired) {
             if (m.file_expired) {
-                // 文件已被清理：显示「图片已过期」
-                bubble.appendChild(makeExpiredEl(true, ''));
+                // 文件已被清理：图片显示「图片已过期」，文件显示「文件已过期」并保留文件名
+                contentEl = makeExpiredEl(m.type === 'image', m.name);
             } else {
+                contentEl = makeFileCard(m);
+                if (!contentEl) return null;
+            }
+        } else {
+            var bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            if (m.type === 'image') {
                 var src = safeUploadUrl(m.content);
                 if (!src) return null;
                 var img = document.createElement('img');
@@ -538,23 +584,10 @@
                     if (w) { w.document.write('<html><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center"><img src="' + src + '" style="max-width:100vw;max-height:100vh"></body></html>'); w.document.close(); }
                 });
                 bubble.appendChild(img);
-            }
-        } else if (m.type === 'file') {
-            if (m.file_expired) {
-                // 文件已被清理：显示「文件已过期」，文件名保留
-                bubble.appendChild(makeExpiredEl(false, m.name));
             } else {
-                var href = safeUploadUrl(m.content);
-                if (!href) return null;
-                var a = document.createElement('a');
-                a.className = 'file-card';
-                a.href = href;
-                a.download = m.name || 'file';
-                a.innerHTML = '<span style="font-size:20px">📄</span><span><span class="fname">' + esc(m.name || '文件') + '</span><br><span class="fsize">' + fmtSize(m.size) + ' · 点击下载</span></span>';
-                bubble.appendChild(a);
+                renderTextContent(bubble, m.content);
             }
-        } else {
-            renderTextContent(bubble, m.content);
+            contentEl = bubble;
         }
 
         var meta = document.createElement('div');
@@ -577,7 +610,7 @@
         }
 
         body.appendChild(meta);
-        body.appendChild(bubble);
+        body.appendChild(contentEl);
 
         var avatar = makeAvatarEl(m.from, 'msg-avatar');
 
