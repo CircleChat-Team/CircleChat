@@ -1409,6 +1409,82 @@ body {
   text-align: center;
 }
 
+/* ---------- 审计日志 ---------- */
+.log-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.log-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.log-tools .admin-input {
+  flex: 0 0 auto;
+  width: 128px;
+  height: 30px;
+  font-size: 12px;
+}
+.log-tools select.admin-input { width: 112px; padding: 0 6px; }
+
+.admin-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 420px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 128, .4) transparent;
+}
+.admin-log-list::-webkit-scrollbar       { width: 6px; }
+.admin-log-list::-webkit-scrollbar-track { background: transparent; }
+.admin-log-list::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, .4); border-radius: 8px; }
+
+.admin-log {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--fill);
+  border-radius: 8px;
+}
+.admin-log .lg-time {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.admin-log .lg-actor {
+  flex: 0 0 auto;
+  min-width: 74px;
+  max-width: 120px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.admin-log .lg-action {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--primary);
+  background: rgba(7, 193, 96, .12);
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.admin-log .lg-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.admin-log.warn .lg-action { color: #e5484d; background: rgba(229, 72, 77, .12); }
+
 /* ---------- 无障碍：降低动效 ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

@@ -166,6 +166,81 @@
         });
     }
 
+    // ---------- 审计日志 ----------
+
+    var ACTION_LABELS = {
+        'login': '登录',
+        'login.fail': '登录失败',
+        'logout': '退出登录',
+        'msg': '发送消息',
+        'recall': '撤回消息',
+        'upload': '上传文件',
+        'settings': '修改设置',
+        'admin.user.add': '新建账号',
+        'admin.user.del': '删除账号',
+        'admin.user.pass': '重置密码'
+    };
+
+    function actionLabel(a) {
+        return ACTION_LABELS[a] || a;
+    }
+
+    function fmtDateTime(ts) {
+        var d = new Date(Number(ts) || 0);
+        function p(n) { return n < 10 ? '0' + n : '' + n; }
+        return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+               p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    }
+
+    function buildLogRow(e) {
+        var row = document.createElement('div');
+        row.className = 'admin-log' + (e.action === 'login.fail' ? ' warn' : '');
+        if (e.ip) row.title = 'IP: ' + e.ip + (e.target ? '　目标: ' + e.target : '');
+
+        var time = document.createElement('span');
+        time.className = 'lg-time';
+        time.textContent = fmtDateTime(e.ts);
+
+        var actor = document.createElement('span');
+        actor.className = 'lg-actor';
+        actor.textContent = e.actor || '—';
+
+        var act = document.createElement('span');
+        act.className = 'lg-action';
+        act.textContent = actionLabel(e.action);
+
+        var detail = document.createElement('span');
+        detail.className = 'lg-detail';
+        detail.textContent = e.detail || '';
+
+        row.appendChild(time);
+        row.appendChild(actor);
+        row.appendChild(act);
+        row.appendChild(detail);
+        return row;
+    }
+
+    function refreshLogs() {
+        var box = $('adminLogList');
+        var actor = $('logActor').value.trim();
+        var action = $('logAction').value;
+        var url = '/api/admin/logs?limit=200';
+        if (actor) url += '&actor=' + encodeURIComponent(actor);
+        if (action) url += '&action=' + encodeURIComponent(action);
+
+        fetch(api(url), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.ok) { emptyTip(box, j.error || '加载失败'); return; }
+                $('logCount').textContent = ' · ' + j.total + ' 条' +
+                    (j.total > j.logs.length ? '（显示最近 ' + j.logs.length + ' 条）' : '');
+                box.innerHTML = '';
+                if (!j.logs.length) { emptyTip(box, '暂无日志'); return; }
+                j.logs.forEach(function (e) { box.appendChild(buildLogRow(e)); });
+            })
+            .catch(function () { emptyTip(box, '加载失败'); });
+    }
+
     function doLogout() {
         fetch(api('/api/logout'), { method: 'POST', credentials: 'same-origin' })
             .catch(function () { /* 忽略 */ });
@@ -198,7 +273,16 @@
                     if (e.key === 'Enter') { e.preventDefault(); addUser(); }
                 });
 
+                // 审计日志：筛选与刷新
+                $('logRefresh').addEventListener('click', refreshLogs);
+                $('logAction').addEventListener('change', refreshLogs);
+                $('logActor').addEventListener('keydown', function (e) {
+                    if (e.isComposing || e.keyCode === 229) return;
+                    if (e.key === 'Enter') { e.preventDefault(); refreshLogs(); }
+                });
+
                 refreshUsers();
+                refreshLogs();
             })
             .catch(function () { location.replace('/login.html'); });
     }

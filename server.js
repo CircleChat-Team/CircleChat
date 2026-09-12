@@ -21,6 +21,7 @@ const crypto = require('crypto');
 
 const auth = require('./lib/auth');
 const store = require('./lib/store');
+const audit = require('./lib/audit');
 const wsproto = require('./lib/ws');
 const logger = require('./lib/log');
 const migrate = require('./lib/migrate');
@@ -316,6 +317,15 @@ function handleWsText(client, text) {
       name: d.name,
       size: d.size
     });
+    audit.add({
+      actor: client.user.username,
+      action: 'msg',
+      target: record.idx,
+      detail: type === 'text'
+        ? '文本：' + content.slice(0, 40)
+        : (type === 'image' ? '图片：' : '文件：') + String(d.name || '未命名'),
+      ip: client.user.ip
+    });
     broadcast({ type: 'msg', data: record });
   }
   if (msg.type === 'recall') {
@@ -328,6 +338,15 @@ function handleWsText(client, text) {
     // 只能撤回自己的消息；管理员可撤回任意人的消息
     if (target.from !== client.user.username && !admin) return;
     if (!store.recall(idx, client.user.username)) return;
+    audit.add({
+      actor: client.user.username,
+      action: 'recall',
+      target: idx,
+      detail: target.from === client.user.username
+        ? '撤回了自己的消息'
+        : '以管理员身份撤回了 ' + target.from + ' 的消息',
+      ip: client.user.ip
+    });
     broadcast({
       type: 'recall',
       data: {
@@ -348,6 +367,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/login
   if (pathname === '/api/login' && req.method === 'POST') {
     if (auth.isLocked(ip)) {
+      audit.add({ actor: '', action: 'login.fail', detail: '触发登录限速（10 分钟内失败次数过多）', ip });
       sendJSON(res, 429, { ok: false, error: '尝试次数过多，请 10 分钟后再试' });
       logger.write({ ip, method: req.method, url: pathname, status: 429, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       return;
@@ -364,12 +384,14 @@ function handleApi(req, res, urlObj, pathname, ip) {
       const user = auth.login(u.trim(), p);
       if (!user) {
         auth.recordFail(ip);
+        audit.add({ actor: u.trim(), action: 'login.fail', detail: '账号或密码错误', ip });
         sendJSON(res, 401, { ok: false, error: '账号或密码错误' });
         logger.write({ ip, method: req.method, url: pathname, status: 401, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
       const token = auth.createSession(user.username, ip);
       auth.clearFails(ip);
+      audit.add({ actor: user.username, action: 'login', detail: '登录成功', ip });
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',
@@ -387,6 +409,8 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/logout
   if (pathname === '/api/logout' && req.method === 'POST') {
     const token = auth.tokenFromCookie(req.headers.cookie);
+    const sess = auth.getSession(token);
+    if (sess) audit.add({ actor: sess.username, action: 'logout', detail: '退出登录', ip });
     if (token) auth.destroySession(token);
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
@@ -449,6 +473,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         return;
       }
       auth.setSettings(me.username, patch);
+      audit.add({ actor: me.username, action: 'settings', detail: '修改设置：' + JSON.stringify(patch), ip });
       sendJSON(res, 200, { ok: true, settings: auth.getSettings(me.username) });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -482,6 +507,20 @@ function handleApi(req, res, urlObj, pathname, ip) {
       return;
     }
 
+    // GET /api/admin/logs —— 审计日志（倒序，支持按用户 / 动作筛选与分页）
+    if (pathname === '/api/admin/logs' && req.method === 'GET') {
+      const q = urlObj.searchParams;
+      const page = audit.list({
+        limit: q.get('limit'),
+        offset: q.get('offset'),
+        actor: (q.get('actor') || '').trim() || undefined,
+        action: (q.get('action') || '').trim() || undefined
+      });
+      sendJSON(res, 200, { ok: true, total: page.total, logs: page.logs, max: audit.MAX_LOGS });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
     // POST /api/admin/user/add —— 新建用户 {name, password, role?}
     if (pathname === '/api/admin/user/add' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
@@ -497,6 +536,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
           sendJSON(res, 409, { ok: false, error: '该用户名已存在' });
           return;
         }
+        audit.add({ actor: me.username, action: 'admin.user.add', target: name, detail: '新建账号：' + name, ip });
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
@@ -515,6 +555,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         if (name === me.username) { sendJSON(res, 400, { ok: false, error: '不能删除当前登录账号' }); return; }
         if (name === 'admin') { sendJSON(res, 400, { ok: false, error: '内置管理员账号不可删除' }); return; }
         if (!auth.deleteUser(name)) { sendJSON(res, 404, { ok: false, error: '用户不存在' }); return; }
+        audit.add({ actor: me.username, action: 'admin.user.del', target: name, detail: '删除账号：' + name, ip });
         // 立即断开该用户的所有在线连接
         for (const c of [...clients]) {
           if (c.user.username === name) { try { c.close(); } catch (e) { /* 忽略 */ } }
@@ -542,6 +583,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
           sendJSON(res, 404, { ok: false, error: '用户不存在' });
           return;
         }
+        audit.add({ actor: me.username, action: 'admin.user.pass', target: name, detail: '重置密码：' + name, ip });
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
@@ -598,6 +640,12 @@ function handleApi(req, res, urlObj, pathname, ip) {
       const savePath = path.join(UPLOAD_DIR, saveName);
       fs.mkdirSync(UPLOAD_DIR, { recursive: true });
       fs.writeFileSync(savePath, buf);
+      audit.add({
+        actor: me.username,
+        action: 'upload',
+        detail: (kind === 'image' ? '图片：' : '文件：') + origName + '（' + buf.length + ' 字节）',
+        ip
+      });
       sendJSON(res, 200, {
         ok: true,
         kind,
@@ -657,6 +705,7 @@ server.on('upgrade', handleWsUpgrade);
 migrate.run();            // 启动前校验并自动迁移数据库结构（兼容旧库）
 auth.init(false);
 store.load();
+audit.load();             // 初始化审计日志表
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // 过期文件清理：启动时执行一次，之后定期检查。

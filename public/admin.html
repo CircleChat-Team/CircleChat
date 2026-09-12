@@ -57,6 +57,30 @@
         <div id="adminUserList" class="admin-user-list"></div>
       </section>
 
+      <section class="admin-card">
+        <div class="admin-card-title log-title">
+          <span>审计日志<span id="logCount" class="admin-count"></span></span>
+          <span class="log-tools">
+            <input id="logActor" class="admin-input" type="text" maxlength="40" placeholder="按用户筛选">
+            <select id="logAction" class="admin-input" title="按动作筛选">
+              <option value="">全部动作</option>
+              <option value="login">登录</option>
+              <option value="login.fail">登录失败</option>
+              <option value="logout">退出登录</option>
+              <option value="msg">发送消息</option>
+              <option value="recall">撤回消息</option>
+              <option value="upload">上传文件</option>
+              <option value="settings">修改设置</option>
+              <option value="admin.user.add">新建账号</option>
+              <option value="admin.user.del">删除账号</option>
+              <option value="admin.user.pass">重置密码</option>
+            </select>
+            <button id="logRefresh" class="admin-act" type="button">刷新</button>
+          </span>
+        </div>
+        <div id="adminLogList" class="admin-log-list"></div>
+      </section>
+
     </main>
   </div>
 
