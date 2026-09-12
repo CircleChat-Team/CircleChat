@@ -620,6 +620,18 @@ function handleHttp(req, res) {
     handleApi(req, res, urlObj, pathname, ip);
     return;
   }
+
+  // 管理页仅管理员可访问：未登录跳登录页，已登录的非管理员跳回聊天页
+  if (pathname === '/admin.html' || pathname === '/js/admin.js') {
+    const u = auth.authByCookie(req.headers.cookie);
+    if (!u || !auth.isAdmin(u.username)) {
+      res.writeHead(302, { Location: u ? '/chat.html' : '/login.html' });
+      res.end();
+      logger.write({ ip, method: req.method, url: pathname, status: 302, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+  }
+
   // 登录页之外不做任何鉴权，静态资源直接服务
   serveStatic(req, res, pathname);
   logger.write({ ip, method: req.method, url: pathname, status: res.statusCode || 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });

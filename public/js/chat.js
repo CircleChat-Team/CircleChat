@@ -1054,133 +1054,7 @@
         textInput.focus();
     }
 
-    // ---------- 管理员面板（仅 admin 可用） ----------
-
-    function adminApi(path, payload) {
-        return fetch(api(path), {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload || {})
-        }).then(function (r) { return r.json(); });
-    }
-
-    function adminEmpty(box, text) {
-        box.innerHTML = '';
-        var d = document.createElement('div');
-        d.className = 'admin-empty';
-        d.textContent = text;
-        box.appendChild(d);
-    }
-
-    // 用户列表：角色 / 在线状态 / 改密 / 删除
-    function refreshAdminUsers() {
-        var box = $('adminUserList');
-        if (!box) return;
-        fetch(api('/api/admin/users'), { credentials: 'same-origin' })
-            .then(function (r) { return r.json(); })
-            .then(function (j) {
-                if (!j.ok) { adminEmpty(box, j.error || '加载失败'); return; }
-                box.innerHTML = '';
-                if (!j.users.length) { adminEmpty(box, '暂无账号'); return; }
-                j.users.forEach(function (u) { box.appendChild(buildAdminUserRow(u)); });
-            })
-            .catch(function () { adminEmpty(box, '加载失败'); });
-    }
-
-    function buildAdminUserRow(u) {
-        var row = document.createElement('div');
-        row.className = 'admin-user';
-
-        var name = document.createElement('span');
-        name.className = 'u-name';
-        name.textContent = u.name;
-        row.appendChild(name);
-
-        if (u.role === 'admin') {
-            var role = document.createElement('span');
-            role.className = 'u-role';
-            role.textContent = '管理员';
-            row.appendChild(role);
-        }
-
-        var state = document.createElement('span');
-        state.className = 'u-state';
-        state.textContent = u.online ? '在线' : '离线';
-        row.appendChild(state);
-
-        var pw = document.createElement('button');
-        pw.type = 'button';
-        pw.className = 'admin-act';
-        pw.textContent = '改密';
-        pw.addEventListener('click', function () {
-            var p = window.prompt('为「' + u.name + '」设置新密码（至少 6 位）');
-            if (p == null) return;
-            if (p.length < 6) { toast('密码至少 6 位'); return; }
-            adminApi('/api/admin/user/pass', { name: u.name, password: p }).then(function (j) {
-                toast(j.ok ? '已重置密码' : (j.error || '操作失败'));
-            });
-        });
-        row.appendChild(pw);
-
-        if (u.name !== ME) {
-            var del = document.createElement('button');
-            del.type = 'button';
-            del.className = 'admin-act';
-            del.textContent = '删除';
-            del.addEventListener('click', function () {
-                if (!window.confirm('确定删除账号「' + u.name + '」吗？该操作不可恢复。')) return;
-                adminApi('/api/admin/user/del', { name: u.name }).then(function (j) {
-                    toast(j.ok ? '已删除账号 ' + u.name : (j.error || '操作失败'));
-                    if (j.ok) { refreshAdminUsers(); loadUsers(); }
-                });
-            });
-            row.appendChild(del);
-        }
-        return row;
-    }
-
-    function adminAddUser() {
-        var n = $('adminNewName');
-        var p = $('adminNewPass');
-        var name = n.value.trim();
-        if (!name || p.value.length < 6) { toast('请填写用户名，密码至少 6 位'); return; }
-        adminApi('/api/admin/user/add', { name: name, password: p.value }).then(function (j) {
-            if (!j.ok) { toast(j.error || '添加失败'); return; }
-            toast('已添加账号 ' + name);
-            n.value = '';
-            p.value = '';
-            refreshAdminUsers();
-            loadUsers();
-        });
-    }
-
-    function openAdminPanel() {
-        $('adminModal').classList.remove('hidden');
-        refreshAdminUsers();
-        setTimeout(function () { $('adminNewName').focus(); }, 60);
-    }
-
-    function closeAdminPanel() {
-        $('adminModal').classList.add('hidden');
-    }
-
-    function bindAdminPanel() {
-        $('adminBtn').classList.remove('hidden');
-        $('adminBtn').addEventListener('click', openAdminPanel);
-        $('adminClose').addEventListener('click', closeAdminPanel);
-        $('adminModal').addEventListener('click', function (e) {
-            if (e.target.hasAttribute('data-close')) closeAdminPanel();
-        });
-        $('adminAddBtn').addEventListener('click', adminAddUser);
-        $('adminNewPass').addEventListener('keydown', function (e) {
-            if (e.isComposing || e.keyCode === 229) return;
-            if (e.key === 'Enter') { e.preventDefault(); adminAddUser(); }
-        });
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && !$('adminModal').classList.contains('hidden')) closeAdminPanel();
-        });
-    }
+    // 注：用户管理已独立为 /admin.html，聊天页只负责显示入口与撤回按钮。
 
     // ---------- 登出 ----------
 
@@ -1299,7 +1173,8 @@
         this.value = '';
       });
 
-      if (IS_ADMIN) bindAdminPanel();
+      // 管理员显示「用户管理」入口（跳转独立管理页 /admin.html）
+      if (IS_ADMIN) $('adminBtn').classList.remove('hidden');
 
       textInput.focus();
       loadUsers();

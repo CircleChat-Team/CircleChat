@@ -1158,72 +1158,84 @@ body {
   .recall-btn { opacity: 1; }
 }
 
-/* ---------- 管理员面板 ---------- */
-.modal {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
-
-.modal-mask {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, .45);
-}
-
-.modal-card {
-  position: relative;
+/* ============================================================
+ * 管理页（admin.html）：仅管理员可访问
+ * ============================================================ */
+.admin-view {
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
-  width: min(520px, 100%);
-  max-height: min(82vh, 720px);
+  background: var(--bg);
+}
+
+.admin-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 16px;
+  background: var(--glass);
+  border-bottom: 1px solid var(--border);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+.admin-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.admin-title { font-size: 16px; font-weight: 600; white-space: nowrap; }
+
+.admin-me {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.admin-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.admin-main {
+  flex: 1;
+  width: min(720px, 100%);
+  margin: 0 auto;
+  padding: 20px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.admin-card {
+  padding: 16px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: var(--shadow-pop);
-  overflow: hidden;
-  animation: slideUp .18s var(--ease) both;
+  border-radius: 14px;
 }
 
-.modal-head {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.modal-title { font-size: 15px; font-weight: 600; }
-
-.modal-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 14px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(128, 128, 128, .4) transparent;
-}
-.modal-body::-webkit-scrollbar       { width: 6px; }
-.modal-body::-webkit-scrollbar-track { background: transparent; }
-.modal-body::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, .4); border-radius: 8px; }
-
-.admin-block-title {
-  margin-bottom: 8px;
-  font-size: 12px;
+.admin-card-title {
+  margin-bottom: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--muted);
 }
 
-/* 顶栏「用户管理」入口：仅管理员可见，用主色按钮保证一眼能看到 */
+.admin-count { font-weight: 400; }
+
+/* 聊天页顶栏「用户管理」入口：仅管理员可见，跳转 /admin.html */
 .admin-entry {
   display: inline-flex;
   align-items: center;
@@ -1236,6 +1248,7 @@ body {
   background: var(--primary);
   border: none;
   border-radius: 8px;
+  text-decoration: none;
   cursor: pointer;
   transition: background .2s var(--ease), transform .15s var(--ease);
 }
@@ -1286,20 +1299,13 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 300px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(128, 128, 128, .4) transparent;
 }
-.admin-user-list::-webkit-scrollbar       { width: 6px; }
-.admin-user-list::-webkit-scrollbar-track { background: transparent; }
-.admin-user-list::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, .4); border-radius: 8px; }
 
 .admin-user {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 8px 12px;
   font-size: 13px;
   background: var(--fill);
   border-radius: 10px;
@@ -1315,6 +1321,8 @@ body {
 }
 .admin-user .u-role { flex: 0 0 auto; font-size: 11px; color: var(--primary); }
 .admin-user .u-state { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+.admin-user .u-state.on { color: var(--primary); }
+.admin-user .u-created { flex: 0 0 auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .admin-act {
   flex: 0 0 auto;
@@ -1328,7 +1336,8 @@ body {
   cursor: pointer;
   transition: border-color .18s var(--ease), color .18s var(--ease);
 }
-.admin-act:hover { border-color: #e5484d; color: #e5484d; }
+.admin-act:hover { border-color: var(--primary); color: var(--primary); }
+.admin-act.danger:hover { border-color: #e5484d; color: #e5484d; }
 
 .admin-empty {
   padding: 10px;
