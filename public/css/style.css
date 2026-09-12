@@ -918,6 +918,44 @@ body {
   word-break: normal;
 }
 
+/* 语法高亮配色（highlight.js token）：
+   代码块底色恒为深色 #0f1419，深浅主题共用一套配色，无需分别维护 */
+.code-pre .hljs-comment,
+.code-pre .hljs-quote          { color: #8b949e; font-style: italic; }
+.code-pre .hljs-keyword,
+.code-pre .hljs-selector-tag,
+.code-pre .hljs-literal,
+.code-pre .hljs-doctag,
+.code-pre .hljs-name,
+.code-pre .hljs-strong         { color: #ff7b72; }
+.code-pre .hljs-string,
+.code-pre .hljs-regexp,
+.code-pre .hljs-addition,
+.code-pre .hljs-attribute,
+.code-pre .hljs-meta .hljs-string { color: #a5d6ff; }
+.code-pre .hljs-number,
+.code-pre .hljs-variable,
+.code-pre .hljs-template-variable,
+.code-pre .hljs-type,
+.code-pre .hljs-selector-class,
+.code-pre .hljs-selector-attr,
+.code-pre .hljs-selector-pseudo { color: #79c0ff; }
+.code-pre .hljs-title,
+.code-pre .hljs-title.function_,
+.code-pre .hljs-title.class_,
+.code-pre .hljs-section         { color: #d2a8ff; }
+.code-pre .hljs-attr,
+.code-pre .hljs-property,
+.code-pre .hljs-params,
+.code-pre .hljs-built_in,
+.code-pre .hljs-symbol,
+.code-pre .hljs-bullet,
+.code-pre .hljs-link            { color: #ffa657; }
+.code-pre .hljs-tag              { color: #7ee787; }
+.code-pre .hljs-meta             { color: #8b949e; }
+.code-pre .hljs-deletion         { color: #ffdcd7; background: rgba(248, 81, 73, .15); }
+.code-pre .hljs-emphasis         { font-style: italic; }
+
 .bubble img {
   display: block;
   max-width: 100%;

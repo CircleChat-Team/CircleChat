@@ -453,7 +453,37 @@
         return out;
     }
 
-    function buildCodeBlockHTML(lang, code) {
+    // 与 esc() 对称的反转义。代码块拿到的文本是已转义的，直接交给高亮库会被二次转义
+    // （&lt; 变成 &amp;lt;），所以先还原成原文再高亮，由高亮库负责重新转义。
+    function unesc(s) {
+        return String(s)
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&amp;/g, '&');
+    }
+
+    // 语法高亮：返回已转义的 HTML。highlight.js 未加载 / 语言未知 / 出错时退回纯文本，
+    // 保证任何情况下都不会因为高亮失败而显示不出代码。
+    var AUTO_DETECT_MAX = 20000; // 超长代码不做语言自动探测，避免卡顿
+    function highlightCode(raw, lang) {
+        var hl = window.hljs;
+        if (!hl) return esc(raw);
+        try {
+            var name = String(lang || '').toLowerCase();
+            if (name && hl.getLanguage(name)) {
+                return hl.highlight(raw, { language: name, ignoreIllegals: true }).value;
+            }
+            if (raw.length <= AUTO_DETECT_MAX) return hl.highlightAuto(raw).value;
+            return esc(raw);
+        } catch (e) {
+            return esc(raw);
+        }
+    }
+
+    function buildCodeBlockHTML(lang, codeEscaped) {
+        var code = unesc(codeEscaped);
         if (code.length && code.charAt(code.length - 1) === '\n') code = code.slice(0, -1);
         var lines = code.split('\n');
         var gutter = '';
@@ -463,7 +493,7 @@
             '<div class="code-head"><span class="code-lang">' + langLabel + '</span>' +
             '<button type="button" class="code-copy">复制</button></div>' +
             '<div class="code-body"><span class="code-gutter">' + gutter + '</span>' +
-            '<pre class="code-pre"><code>' + code + '</code></pre></div>' +
+            '<pre class="code-pre"><code class="hljs">' + highlightCode(code, lang) + '</code></pre></div>' +
             '</div>';
     }
 

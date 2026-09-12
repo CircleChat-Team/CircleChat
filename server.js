@@ -130,8 +130,12 @@ function serveStatic(req, res, pathname) {
       type = 'application/octet-stream';
       attachment = true;
     }
-    // JS/CSS/HTML 不缓存，保证更新后立即生效；图片类资源随机文件名，可长期缓存
-    const cache = /\.(png|jpg|jpeg|gif|webp|ico|svg)$/.test(ext) ? 'public, max-age=86400' : 'no-cache';
+    // JS/CSS/HTML 不缓存，保证更新后立即生效；图片类资源随机文件名，可长期缓存；
+    // vendor 是体积较大的第三方静态资源（很少变动），缓存 7 天，升级时改页面上的 ?v= 即可
+    const isVendor = filePath.startsWith(path.join(PUB, 'vendor') + path.sep);
+    const cache = isVendor
+      ? 'public, max-age=604800'
+      : (/\.(png|jpg|jpeg|gif|webp|ico|svg)$/.test(ext) ? 'public, max-age=86400' : 'no-cache');
     fs.readFile(filePath, (e2, data) => {
       if (e2) { res.writeHead(500); res.end(); return; }
       const acceptGzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
