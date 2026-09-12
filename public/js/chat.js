@@ -1132,6 +1132,14 @@
         $('emojiPanel').classList.toggle('hidden');
       });
 
+      // 点击面板与按钮以外区域时收起表情浮层
+      document.addEventListener('click', function (e) {
+        var p = $('emojiPanel');
+        if (p.classList.contains('hidden')) return;
+        if (e.target.closest('#emojiPanel') || e.target.closest('#emojiBtn')) return;
+        p.classList.add('hidden');
+      });
+
       $('imageBtn').addEventListener('click', function () {
         var f = $('fileInput');
         f.accept = 'image/png,image/jpeg,image/gif,image/webp';
