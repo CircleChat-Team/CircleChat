@@ -834,22 +834,120 @@
         // 补充：符号 & 其他
         '❗', '❓', '✅', '❌', '⭕', '❌', '🚫', '⛔', '🚷', '🚯', '🚳', '🚱', '🔞', '📛', '⚠️', '🚸', '🔰', '♻️', '✳️', '❇️', '✴️', '🔶', '🔷', '🔸', '🔹', '🔺', '🔻', '💠', '🔘', '🔳', '🔲', '🏁', '🚩', '🎌', '🏴', '🏳️', '🏳️‍🌈', '🏴‍☠️', '🇦🇫', '🇦🇱', '🇩🇿', '🇦🇸', '🇦🇩', '🇦🇴', '🇦🇮', '🇦🇶', '🇦🇬', '🇦🇷', '🇦🇲', '🇦🇼', '🇦🇺', '🇦🇹', '🇦🇿', '🇧🇸', '🇧🇭', '🇧🇩', '🇧🇧', '🇧🇾', '🇧🇪', '🇧🇿', '🇧🇯', '🇧🇲', '🇧🇹', '🇧🇴', '🇧🇦', '🇧🇼', '🇧🇷', '🇧🇳', '🇧🇬', '🇧🇫', '🇧🇮', '🇰🇭', '🇨🇲', '🇨🇦', '🇮🇨', '🇨🇻', '🇧🇶', '🇰🇾', '🇨🇫', '🇹🇩', '🇨🇱', '🇨🇴', '🇰🇲', '🇨🇩', '🇨🇬', '🇨🇰', '🇨🇷', '🇭🇷', '🇨🇺', '🇨🇼', '🇨🇾', '🇨🇿', '🇩🇰', '🇩🇯', '🇩🇲', '🇩🇴', '🇪🇨', '🇪🇬', '🇸🇻', '🇬🇶', '🇪🇷', '🇪🇪', '🇪🇹', '🇪🇺', '🇫🇰', '🇫🇴', '🇫🇯', '🇫🇮', '🇫🇷', '🇬🇫', '🇵🇫', '🇹🇫', '🇬🇦', '🇬🇲', '🇬🇪', '🇩🇪', '🇬🇭', '🇬🇮', '🇬🇷', '🇬🇱', '🇬🇩', '🇬🇵', '🇬🇺', '🇬🇹', '🇬🇬', '🇬🇳', '🇬🇼', '🇬🇾', '🇭🇹', '🇭🇳', '🇭🇰', '🇭🇺', '🇮🇸', '🇮🇳', '🇮🇩', '🇮🇷', '🇮🇶', '🇮🇪', '🇮🇲', '🇮🇱', '🇮🇹', '🇨🇮', '🇯🇲', '🇯🇵', '🇯🇪', '🇯🇴', '🇰🇿', '🇰🇪', '🇰🇮', '🇽🇰', '🇰🇼', '🇰🇬', '🇱🇯', '🇱🇵', '🇱🇦', '🇱🇭', '🇹🇷', '🇨🇳', '🇺🇸', '🇬🇧', '🇷🇺', '🇰🇷', '🇷🇴', '🇲🇽', '🇪🇸', '🇵🇹', '🇳🇱', '🇸🇪', '🇳🇴', '🇵🇱', '🇺🇦', '🇿🇦', '🇯🇵', '🇰🇷', '🇸🇬', '🇲🇾', '🇵🇭', '🇻🇳', '🇮🇩', '🇹🇭', '🇦🇪', '🇸🇦', '🇶🇦', '🇰🇼', '🇧🇭', '🇴🇲', '🇯🇴', '🇱🇴', '🇲🇨', '🇲🇻', '🇱🇰', '🇱🇱', '🇹🇲', '🇺🇿', '🇰🇬', '🇹🇦', '🇹🇻', '🇹🇿', '🇺🇬', '🇺🇦', '🇦🇪', '🇬🇧', '🇺🇸', '🇺🇾', '🇺🇿', '🇻🇺', '🇻🇦', '🇻🇪', '🇻🇳', '🇾🇪', '🇿🇲', '🇿🇼'
     ];
+    // 将扁平 EMOJIS 按特征表情切分为分组（无需重复罗列 emoji）
+    var EMOJI_GROUP_DEFS = [
+        { name: '常用', icon: '🙂', marker: '😀' },
+        { name: '表情', icon: '😄', marker: '😃' },
+        { name: '手势', icon: '👍', marker: '👋' },
+        { name: '爱心', icon: '❤️', marker: '🤍' },
+        { name: '食物', icon: '🍔', marker: '🍎' },
+        { name: '动物', icon: '🐱', marker: '🐭' },
+        { name: '物品', icon: '💡', marker: '📱' },
+        { name: '符号', icon: '✅', marker: '❗' }
+    ];
+    var EMOJI_PER_PAGE = 40; // 每页 10 列 × 4 行
+    var emojiGroupIdx = 0;
+    var emojiPageIdx = 0;
+    var EMOJI_GROUPS = EMOJI_GROUP_DEFS.map(function (g, i) {
+        var start = EMOJIS.indexOf(g.marker);
+        var end = (i + 1 < EMOJI_GROUP_DEFS.length) ? EMOJIS.indexOf(EMOJI_GROUP_DEFS[i + 1].marker) : EMOJIS.length;
+        return { name: g.name, icon: g.icon, emojis: EMOJIS.slice(start, end) };
+    });
+
+    function emojiPageCount() {
+        return Math.max(1, Math.ceil(EMOJI_GROUPS[emojiGroupIdx].emojis.length / EMOJI_PER_PAGE));
+    }
+
     function buildEmojiPanel() {
         var panel = $('emojiPanel');
         panel.innerHTML = '';
-        EMOJIS.forEach(function (e) {
+        panel.className = 'emoji-panel hidden';
+
+        // 分组标签栏（横向滚动，隐藏滚动条）
+        var tabs = document.createElement('div');
+        tabs.className = 'emoji-tabs';
+        EMOJI_GROUPS.forEach(function (g, gi) {
+            var t = document.createElement('button');
+            t.type = 'button';
+            t.className = 'emoji-tab' + (gi === emojiGroupIdx ? ' active' : '');
+            t.textContent = g.icon;
+            t.title = g.name;
+            t.addEventListener('click', function () {
+                emojiGroupIdx = gi;
+                emojiPageIdx = 0;
+                renderEmojiPanel();
+            });
+            tabs.appendChild(t);
+        });
+        panel.appendChild(tabs);
+
+        // 表情网格（纵向滚动）
+        var grid = document.createElement('div');
+        grid.className = 'emoji-grid';
+        grid.id = 'emojiGrid';
+        panel.appendChild(grid);
+
+        // 分页栏
+        var pager = document.createElement('div');
+        pager.className = 'emoji-pager';
+        pager.id = 'emojiPager';
+        panel.appendChild(pager);
+
+        renderEmojiPanel();
+    }
+
+    function renderEmojiPanel() {
+        var panel = $('emojiPanel');
+        var group = EMOJI_GROUPS[emojiGroupIdx];
+
+        panel.querySelectorAll('.emoji-tab').forEach(function (t, i) {
+            t.classList.toggle('active', i === emojiGroupIdx);
+        });
+
+        var grid = $('emojiGrid');
+        grid.innerHTML = '';
+        var list = group.emojis;
+        var start = emojiPageIdx * EMOJI_PER_PAGE;
+        list.slice(start, start + EMOJI_PER_PAGE).forEach(function (e) {
             var b = document.createElement('button');
             b.type = 'button';
+            b.className = 'emoji-item';
             b.textContent = e;
             b.addEventListener('click', function () {
                 textInput.value += e;
                 autoGrow();
                 textInput.focus();
                 updateMentionPanel();
-                panel.classList.add('hidden');
+                $('emojiPanel').classList.add('hidden');
             });
-            panel.appendChild(b);
+            grid.appendChild(b);
         });
+
+        var pager = $('emojiPager');
+        var total = emojiPageCount();
+        pager.innerHTML = '';
+        var prev = document.createElement('button');
+        prev.type = 'button';
+        prev.className = 'emoji-page-btn';
+        prev.textContent = '‹';
+        prev.disabled = emojiPageIdx <= 0;
+        prev.addEventListener('click', function () {
+            if (emojiPageIdx > 0) { emojiPageIdx--; renderEmojiPanel(); }
+        });
+        var label = document.createElement('span');
+        label.className = 'emoji-page-label';
+        label.textContent = (emojiPageIdx + 1) + ' / ' + total;
+        var next = document.createElement('button');
+        next.type = 'button';
+        next.className = 'emoji-page-btn';
+        next.textContent = '›';
+        next.disabled = emojiPageIdx >= total - 1;
+        next.addEventListener('click', function () {
+            if (emojiPageIdx < total - 1) { emojiPageIdx++; renderEmojiPanel(); }
+        });
+        pager.appendChild(prev);
+        pager.appendChild(label);
+        pager.appendChild(next);
     }
 
     // ---------- @ 自动补全 ----------

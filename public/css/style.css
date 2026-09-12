@@ -814,24 +814,59 @@ body {
 
 /* ---------- 输入区 ---------- */
 .emoji-panel {
-  display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  gap: 2px;
-  height: 168px;
-  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  height: 256px;
   background: var(--panel);
   border-top: 1px solid var(--border);
-  overflow-y: auto;
   animation: slideUp .25s var(--ease) both;
 }
 
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: none; }
+.emoji-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.emoji-tabs::-webkit-scrollbar { display: none; }
 
-.emoji-panel button {
-  padding: 6px 0;
+.emoji-tab {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 30px;
+  font-size: 19px;
+  line-height: 1;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s var(--ease), transform .12s var(--ease);
+}
+.emoji-tab:hover  { background: var(--fill); }
+.emoji-tab.active { background: var(--fill-hover); }
+.emoji-tab:active { transform: scale(.9); }
+
+.emoji-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 2px;
+  padding: 8px 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 128, .4) transparent;
+}
+.emoji-grid::-webkit-scrollbar        { width: 6px; }
+.emoji-grid::-webkit-scrollbar-track  { background: transparent; }
+.emoji-grid::-webkit-scrollbar-thumb  { background: rgba(128, 128, 128, .4); border-radius: 8px; }
+
+.emoji-item {
+  padding: 4px 0;
   font-size: 20px;
   line-height: 1;
   background: none;
@@ -840,8 +875,46 @@ body {
   cursor: pointer;
   transition: background .15s var(--ease), transform .12s var(--ease);
 }
-.emoji-panel button:hover  { background: var(--fill); }
-.emoji-panel button:active { transform: scale(.88); }
+.emoji-item:hover  { background: var(--fill); }
+.emoji-item:active { transform: scale(.88); }
+
+.emoji-pager {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+
+.emoji-page-btn {
+  width: 30px;
+  height: 26px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+  background: var(--fill);
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background .15s var(--ease);
+}
+.emoji-page-btn:hover:not(:disabled) { background: var(--fill-hover); }
+.emoji-page-btn:disabled { opacity: .4; cursor: default; }
+
+.emoji-page-label {
+  min-width: 48px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
 
 .chat-inputbar {
   position: relative;
@@ -958,6 +1031,15 @@ body {
   border-color: var(--primary);
   box-shadow: 0 0 0 4px rgba(7, 193, 96, .12);
 }
+
+/* 输入框滚动条：细窄主题化，避免默认滚动条遮挡文字 */
+.text-input {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 128, .4) transparent;
+}
+.text-input::-webkit-scrollbar        { width: 6px; }
+.text-input::-webkit-scrollbar-track  { background: transparent; }
+.text-input::-webkit-scrollbar-thumb  { background: rgba(128, 128, 128, .4); border-radius: 8px; }
 
 .send-btn {
   flex-shrink: 0;
