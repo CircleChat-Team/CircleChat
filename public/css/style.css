@@ -578,6 +578,10 @@ body {
 .msg.self .msg-body  { align-items: flex-end; }
 .msg.other .msg-body { align-items: flex-start; }
 
+/* 图片头像：圆形裁切；离线时置灰 */
+.av-img { object-fit: cover; background: none !important; }
+.user-item.offline .av-img { filter: grayscale(1) opacity(.55); }
+
 @keyframes pop {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: none; }

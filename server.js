@@ -386,9 +386,10 @@ function handleApi(req, res, urlObj, pathname, ip) {
     return;
   }
 
-  // GET /api/users（全部账号名，用于在线状态展示）
+  // GET /api/users（全部账号名 + 头像配置，用于在线状态展示）
   if (pathname === '/api/users' && req.method === 'GET') {
-    const users = Object.keys(auth.loadUsers() || {}).sort();
+    const raw = auth.loadUsers() || {};
+    const users = Object.keys(raw).sort().map((name) => ({ name, image: raw[name].image || null }));
     sendJSON(res, 200, { ok: true, users });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;

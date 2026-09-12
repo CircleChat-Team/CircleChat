@@ -343,9 +343,12 @@
         var item = document.createElement('div');
         item.className = 'user-item' + (self ? ' me' : '') + (on || self ? ' online' : ' offline');
 
-        var avatar = makeAvatar(n, 'user-avatar');
-        // 离线用户清空内联样式，使用 CSS 的灰色样式
-        if (!on && !self) { avatar.style.background = ''; avatar.style.color = ''; }
+        var avatar = makeAvatarEl(n, 'user-avatar');
+        // 离线用户：字母头像清空内联样式，使用 CSS 的灰色样式（图片头像由 CSS 置灰）
+        if (!on && !self && avatar.tagName !== 'IMG') {
+            avatar.style.background = '';
+            avatar.style.color = '';
+        }
 
         var meta = document.createElement('div');
         meta.className = 'user-meta';
