@@ -15,6 +15,14 @@
     var onlineUsers = [];   // 在线用户列表
     var allUsers = [];      // 全部账号列表
     var userImages = {};    // 用户名 -> 头像图片地址（来自用户配置，未配置则为 null）
+    var usersReady = null;  // 账号列表首次加载 Promise（历史渲染前等待，确保 @ 高亮可用）
+
+    // ---------- @ 提及状态 ----------
+    var mentionPanel = null;          // @ 自动补全面板
+    var mentionItems = [];            // 当前候选用户名
+    var mentionIndex = 0;             // 高亮候选下标
+    var composing = false;            // 输入法组字中
+    var mentionReCache = { key: null, re: null }; // 提及正则缓存（allUsers 变化后失效）
 
     // ---------- 历史消息懒加载 ----------
     var historyAll = [];    // 全量历史（旧 -> 新）
@@ -161,7 +169,7 @@
     // ---------- 账号列表（在线状态展示） ----------
 
     function loadUsers() {
-        fetch(api('/api/users'), { credentials: 'same-origin' })
+        usersReady = fetch(api('/api/users'), { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (j) {
                 if (j.ok) {
@@ -179,6 +187,7 @@
                 }
             })
             .catch(function () { /* 忽略 */ });
+        return usersReady;
     }
 
     // ---------- Windows 系统通知 ----------
@@ -259,6 +268,50 @@
         } catch (e) { /* 忽略 */ }
     }
 
+    // ---------- @ 提及 ----------
+
+    // 提及正则（缓存，账号列表变化后自动重建）：长用户名优先，避免 @张三 误配 @张三丰 前缀
+    function mentionRegExp() {
+        var key = allUsers.join('\u0001');
+        if (mentionReCache.key === key) return mentionReCache.re;
+        var names = allUsers.slice()
+            .sort(function (a, b) { return String(b).length - String(a).length; })
+            .map(function (n) { return String(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); })
+            .filter(function (n) { return !!n; });
+        mentionReCache = {
+            key: key,
+            re: names.length ? new RegExp('@(?:' + names.join('|') + ')', 'g') : null
+        };
+        return mentionReCache.re;
+    }
+
+    // 提取文本中提及的用户名（按出现顺序）
+    function mentionedNames(text) {
+        var re = mentionRegExp();
+        var s = String(text || '');
+        var names = [], m;
+        if (!re || !s) return names;
+        re.lastIndex = 0;
+        while ((m = re.exec(s)) !== null) {
+            names.push(m[0].slice(1));
+            if (m.index === re.lastIndex) re.lastIndex++;
+        }
+        return names;
+    }
+
+    // 当前登录用户是否被提及
+    function mentionsMe(text) {
+        return !!ME && mentionedNames(text).indexOf(ME) !== -1;
+    }
+
+    // 将已转义文本片段中的 @用户名 渲染为黄色高亮
+    function mdMentions(seg) {
+        var re = mentionRegExp();
+        if (!re || seg.indexOf('@') === -1) return seg;
+        re.lastIndex = 0;
+        return seg.replace(re, function (s) { return '<span class="mention">' + s + '</span>'; });
+    }
+
     // ---------- 渲染消息 ----------
 
     // 防注入：仅允许本服务器上传目录的合法资源 URL
@@ -285,11 +338,11 @@
         var re = /`([^`]+)`/g;
         var last = 0, m;
         while ((m = re.exec(escaped)) !== null) {
-            out += emphasisMD(escaped.slice(last, m.index));
+            out += emphasisMD(mdMentions(escaped.slice(last, m.index)));
             out += '<code class="inline-code">' + m[1] + '</code>';
             last = m.index + m[0].length;
         }
-        out += emphasisMD(escaped.slice(last));
+        out += emphasisMD(mdMentions(escaped.slice(last)));
         return out;
     }
 
@@ -366,6 +419,8 @@
         var wrap = document.createElement('div');
         wrap.className = 'msg ' + (m.from === ME ? 'self' : 'other');
         if (m.idx != null) wrap.dataset.idx = m.idx;
+        // 自己被 @ 的消息：加黄色描边突出显示
+        if (m.type === 'text' && mentionsMe(m.content)) wrap.classList.add('mention-me');
 
         var body = document.createElement('div');
         body.className = 'msg-body';
@@ -645,10 +700,14 @@
     // ---------- 历史消息 ----------
 
     function loadHistory() {
-        fetch(api('/api/messages'), { credentials: 'same-origin' })
-            .then(function (r) { return r.json(); })
+        // 先等账号列表就绪，保证历史消息里的 @提及 能正确高亮 / 描边
+        (usersReady || Promise.resolve())
+            .then(function () {
+                return fetch(api('/api/messages'), { credentials: 'same-origin' })
+                    .then(function (r) { return r.json(); });
+            })
             .then(function (j) {
-                if (j.ok) renderHistory(j.messages);
+                if (j && j.ok) renderHistory(j.messages);
             })
             .catch(function () { /* 忽略，重连后会重试 */ });
     }
@@ -667,6 +726,7 @@
         if (!sendWs({ type: 'msg', data: { type: 'text', content: val } })) return;
         textInput.value = '';
         autoGrow();
+        hideMentionPanel();
         textInput.focus();
     }
 
@@ -728,10 +788,107 @@
                 textInput.value += e;
                 autoGrow();
                 textInput.focus();
+                updateMentionPanel();
                 panel.classList.add('hidden');
             });
             panel.appendChild(b);
         });
+    }
+
+    // ---------- @ 自动补全 ----------
+
+    function buildMentionPanel() {
+        var bar = document.querySelector('.chat-inputbar');
+        if (!bar) return null;
+        var p = document.createElement('div');
+        p.id = 'mentionPanel';
+        p.className = 'mention-panel hidden';
+        bar.appendChild(p);
+        return p;
+    }
+
+    function hideMentionPanel() {
+        mentionItems = [];
+        mentionIndex = 0;
+        if (mentionPanel) mentionPanel.classList.add('hidden');
+    }
+
+    function renderMentionPanel() {
+        if (!mentionPanel) return;
+        mentionPanel.innerHTML = '';
+        mentionItems.forEach(function (n, i) {
+            var item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'mention-item' + (i === mentionIndex ? ' active' : '');
+            item.appendChild(makeAvatarEl(n, 'mention-avatar'));
+            var label = document.createElement('span');
+            label.className = 'mention-name';
+            label.textContent = '@' + n;
+            item.appendChild(label);
+            // mousedown 而非 click：避免输入框先失焦导致光标位置丢失
+            item.addEventListener('mousedown', function (e) {
+                e.preventDefault();
+                applyMention(n);
+            });
+            mentionPanel.appendChild(item);
+        });
+        mentionPanel.classList.remove('hidden');
+    }
+
+    // 候选：前缀匹配，排除自己，最多 8 个
+    function mentionCandidates(query) {
+        var q = String(query || '').toLowerCase();
+        var list = [];
+        for (var i = 0; i < allUsers.length && list.length < 8; i++) {
+            var n = allUsers[i];
+            if (!n || n === ME) continue;
+            if (!q || String(n).toLowerCase().indexOf(q) === 0) list.push(n);
+        }
+        return list;
+    }
+
+    // 光标前若处于「@未完成」状态则返回查询串，否则返回 null
+    function mentionContext() {
+        var pos = textInput.selectionStart;
+        if (pos == null || pos !== textInput.selectionEnd) return null;
+        var m = /@([^\s@]{0,32})$/.exec(textInput.value.slice(0, pos));
+        return m ? m[1] : null;
+    }
+
+    function updateMentionPanel() {
+        if (!mentionPanel || composing) return;
+        var ctx = mentionContext();
+        if (ctx === null) { hideMentionPanel(); return; }
+        var list = mentionCandidates(ctx);
+        if (!list.length) { hideMentionPanel(); return; }
+        mentionItems = list;
+        if (mentionIndex >= list.length) mentionIndex = 0;
+        renderMentionPanel();
+    }
+
+    function moveMentionSel(step) {
+        if (!mentionItems.length) return;
+        mentionIndex = (mentionIndex + step + mentionItems.length) % mentionItems.length;
+        renderMentionPanel();
+        var act = mentionPanel && mentionPanel.querySelector('.mention-item.active');
+        if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
+    }
+
+    // 用选中候选替换光标前的 @查询
+    function applyMention(name) {
+        if (!name) { hideMentionPanel(); return; }
+        var pos = textInput.selectionStart;
+        if (pos == null) { hideMentionPanel(); return; }
+        var before = textInput.value.slice(0, pos);
+        var m = /@[^\s@]*$/.exec(before);
+        var start = m ? pos - m[0].length : pos;
+        var insert = '@' + name + ' ';
+        textInput.value = before.slice(0, start) + insert + textInput.value.slice(pos);
+        var caret = start + insert.length;
+        try { textInput.setSelectionRange(caret, caret); } catch (e) { /* 忽略 */ }
+        hideMentionPanel();
+        autoGrow();
+        textInput.focus();
     }
 
     // ---------- 登出 ----------
@@ -754,6 +911,7 @@
 
     function startChat() {
       buildEmojiPanel();
+      mentionPanel = buildMentionPanel(); // @ 自动补全面板（绝对定位在输入栏上方）
 
       if (sidebarMe) sidebarMe.textContent = ME;
 
@@ -784,13 +942,36 @@
       });
       $('sendBtn').addEventListener('click', sendText);
       textInput.addEventListener('keydown', function (e) {
+        if (e.isComposing || e.keyCode === 229) return; // 中文输入法组字中不处理
+        var panelOpen = mentionPanel && !mentionPanel.classList.contains('hidden');
+        if (panelOpen) {
+          if (e.key === 'ArrowDown') { e.preventDefault(); moveMentionSel(1); return; }
+          if (e.key === 'ArrowUp')   { e.preventDefault(); moveMentionSel(-1); return; }
+          if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            applyMention(mentionItems[mentionIndex]);
+            return;
+          }
+          if (e.key === 'Escape') { e.preventDefault(); hideMentionPanel(); return; }
+        }
         if (e.key === 'Enter' && !e.shiftKey) {
-          if (e.isComposing || e.keyCode === 229) return; // 中文输入法组字中不发送
           e.preventDefault();
           sendText();
         }
       });
-      textInput.addEventListener('input', autoGrow);
+      textInput.addEventListener('input', function () {
+        autoGrow();
+        updateMentionPanel();
+      });
+      textInput.addEventListener('blur', hideMentionPanel);
+      textInput.addEventListener('compositionstart', function () {
+        composing = true;
+        hideMentionPanel();
+      });
+      textInput.addEventListener('compositionend', function () {
+        composing = false;
+        updateMentionPanel();
+      });
 
       $('emojiBtn').addEventListener('click', function () {
         $('emojiPanel').classList.toggle('hidden');
