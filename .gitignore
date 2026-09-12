@@ -1,3 +1,5 @@
 public/uploads/*
 data/*
+.idea/*
+.vscode/*
 .directory
