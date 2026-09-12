@@ -30,15 +30,15 @@ const MANIFEST = {
   'public/index.html': '07ea987fcca27049710284d88491f308',
   'public/css/style.css': 'b536cf34c71dde18ca35d8f808e54db3',
   'public/login.html': '1af85b9020afb1496845643e54e6c962',
-  'public/chat.html': '3ad412e975fea5c006b71c3344db2d60',
-  'public/admin.html': 'a9de808ff59e16551a4a56a87ff39afd',
+  'public/chat.html': 'a70ab4edbeb3fee327ee7edbffbeefa6',
+  'public/admin.html': 'fd0a36a11a081ed5d63e8b706b18d476',
   'public/js/config.js': '29e316e77c56cadc01e3850c87a5b7d1',
   'public/js/i18n.js': '88cf88df85af01b528934fa81f9001cc',
-  'public/js/lang/zh.js': '1d4c7b565bc0a14b2618f7e735937e10',
-  'public/js/lang/en.js': '5f4690a7176b68fb63780b241539f2ce',
+  'public/js/lang/zh.js': '2b45fecef055f4aecfe926d5600cedd7',
+  'public/js/lang/en.js': 'af26db17065febe2a9c2aa2671118450',
   'public/js/login.js': '1071527f5a3d9ac8c4a27f86afb65edf',
-  'public/js/chat.js': '850d3511ab9f40bff9c47fe86bcb5957',
-  'public/js/admin.js': '8725fe3598e7bd11a621538d3f480771',
+  'public/js/chat.js': 'a0be6133dceb070fcaed50e12b334148',
+  'public/js/admin.js': '102b4fba435d99ddc9deeb25173ffeda',
   'tools/adduser.js': '6fcfc3d222d97ef6d2b095f4f24ccd92'
 };
 

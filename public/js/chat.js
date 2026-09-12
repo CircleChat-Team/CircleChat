@@ -62,6 +62,22 @@
     // ---------- DOM 快捷方式 ----------
 
     function $(id) { return document.getElementById(id); }
+
+    // ---------- 国际化 ----------
+    var I18N = window.I18N;
+    // 命名 tr/trn：t 在本文件里已被用作元素变量名（表情分组按钮），避免遮蔽
+    function tr(key, vars) { return I18N ? I18N.t(key, vars) : key; }
+    function trn(key, n, vars) { return I18N ? I18N.tn(key, n, vars) : key; }
+    // 切语言后就地重渲染：静态节点由 I18N.apply() 处理，其余靠各 render*()
+    function applyLang() {
+      if (I18N) I18N.apply();
+      document.title = tr('chat.title');
+      renderUsers();
+      renderGroupList();
+      if (historyAll.length) renderHistory(historyAll);
+      renderEmojiPanel();
+      if (isMobile() && textInput) textInput.placeholder = tr('chat.input.shortPlaceholder');
+    }
     var msgList = $('msgList');
     var textInput = $('textInput');
     var connDot = $('connDot');
@@ -167,7 +183,7 @@
         if (typingWho !== name) {
             bar.textContent = '';
             var label = document.createElement('span');
-            label.textContent = name + ' 正在输入';
+            label.textContent = tr('chat.typing', { name: name });
             var dots = document.createElement('span');
             dots.className = 'typing-dots';
             for (var i = 0; i < 3; i++) dots.appendChild(document.createElement('i'));
@@ -314,19 +330,19 @@
 
     function turnOnNotify() {
         if (!('Notification' in window)) {
-            toast('当前浏览器不支持系统通知（需 HTTPS 或 localhost 访问）');
+            toast(tr('chat.notify.unsupported'));
             setNotifyUI();
             return;
         }
         if (Notification.permission === 'denied') {
-            toast('浏览器已拒绝通知，请在浏览器设置中允许后重试');
+            toast(tr('chat.notify.denied'));
             setNotifyUI();
             return;
         }
         if (Notification.permission === 'default') {
             Notification.requestPermission().then(function (p) {
                 if (p !== 'granted') {
-                    toast('未获得通知权限，通知无法弹出');
+                    toast(tr('chat.notify.blocked'));
                     notifyOn = false;
                     setNotifyUI();
                     return;
@@ -334,14 +350,14 @@
                 notifyOn = true;
                 setNotifyUI();
                 saveSettings();
-                toast('系统通知已开启');
+                toast(tr('chat.notify.on'));
             });
             return;
         }
         notifyOn = true;
         setNotifyUI();
         saveSettings();
-        toast('系统通知已开启');
+        toast(tr('chat.notify.on'));
     }
 
     function showNotify(m) {
@@ -349,9 +365,9 @@
         if (!('Notification' in window) || Notification.permission !== 'granted') return;
         var body = m.type === 'text'
             ? String(m.content)
-            : (m.type === 'image' ? '[图片] ' : '[文件] ') + String(m.name || '');
+            : (m.type === 'image' ? tr('chat.notify.image', { name: String(m.name || '') }) : tr('chat.notify.file', { name: String(m.name || '') }));
         try {
-            var n = new Notification(m.from + ' 发来消息', { body: body.slice(0, 120), tag: 'chatplus' });
+            var n = new Notification(tr('chat.notify.title', { name: m.from }), { body: body.slice(0, 120), tag: 'chatplus' });
             n.onclick = function () { window.focus(); n.close(); };
         } catch (e) { /* 忽略 */ }
     }
@@ -491,10 +507,10 @@
         var nums = [];
         for (var i = 1; i <= lines.length; i++) nums.push(i);
         var gutter = nums.join('\n'); // 末尾不加换行：否则行号列会多出一个空行，比代码高一行
-        var langLabel = lang ? esc(lang) : '代码';
+        var langLabel = lang ? esc(lang) : tr('chat.code');
         return '<div class="code-block">' +
             '<div class="code-head"><span class="code-lang">' + langLabel + '</span>' +
-            '<button type="button" class="code-copy">复制</button></div>' +
+            '<button type="button" class="code-copy">' + tr('common.copy') + '</button></div>' +
             '<div class="code-body"><span class="code-gutter">' + gutter + '</span>' +
             '<pre class="code-pre"><code class="hljs">' + highlightCode(code, lang) + '</code></pre></div>' +
             '</div>';
@@ -566,7 +582,7 @@
         function done() {
             if (!btn) return;
             var old = btn.textContent;
-            btn.textContent = '已复制';
+            btn.textContent = tr('common.copied');
             setTimeout(function () { btn.textContent = old; }, 1200);
         }
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -616,10 +632,10 @@
         meta.className = 'fmeta';
         var fn = document.createElement('span');
         fn.className = 'fname';
-        fn.textContent = m.name || '文件';
+        fn.textContent = m.name || tr('chat.file.defaultName');
         var size = document.createElement('span');
         size.className = 'fsize';
-        size.textContent = fmtSize(m.size) + ' · 点击下载';
+        size.textContent = tr('chat.file.download', { size: fmtSize(m.size) });
         meta.appendChild(fn);
         meta.appendChild(size);
 
@@ -642,12 +658,12 @@
         if (!isImage) {
             var fn = document.createElement('span');
             fn.className = 'fname';
-            fn.textContent = name || '文件';
+            fn.textContent = name || tr('chat.file.defaultName');
             meta.appendChild(fn);
         }
         var tip = document.createElement('span');
         tip.className = 'fsize';
-        tip.textContent = isImage ? '图片已过期' : '文件已过期';
+        tip.textContent = isImage ? tr('chat.file.imageExpired') : tr('chat.file.fileExpired');
         meta.appendChild(tip);
 
         el.appendChild(badge);
@@ -657,7 +673,7 @@
 
     // 通用文本复制（优先剪贴板 API，降级 execCommand）
     function copyText(text, okMsg) {
-        function done() { toast(okMsg || '已复制'); }
+        function done() { toast(okMsg || tr('common.copied')); }
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
         } else {
@@ -674,14 +690,14 @@
             var rp = document.createElement('button');
             rp.type = 'button';
             rp.className = 'msg-tool';
-            rp.textContent = '回复';
+            rp.textContent = tr('chat.tool.reply');
             rp.addEventListener('click', function () { setReply(m); });
             tools.appendChild(rp);
 
             var rc = document.createElement('button');
             rc.type = 'button';
             rc.className = 'msg-tool';
-            rc.textContent = '回应';
+            rc.textContent = tr('chat.tool.react');
             rc.addEventListener('click', function (ev) {
                 ev.stopPropagation();
                 if (reactPickerIdx === m.idx) { closeReactPicker(); return; }
@@ -698,8 +714,8 @@
             var cp = document.createElement('button');
             cp.type = 'button';
             cp.className = 'msg-tool';
-            cp.textContent = '复制';
-            cp.addEventListener('click', function () { copyText(m.content, '已复制消息'); });
+            cp.textContent = tr('common.copy');
+            cp.addEventListener('click', function () { copyText(m.content, tr('chat.tool.copyDone')); });
             tools.appendChild(cp);
         }
 
@@ -707,15 +723,15 @@
             var rb = document.createElement('button');
             rb.type = 'button';
             rb.className = 'msg-tool danger';
-            rb.textContent = '撤回';
+            rb.textContent = tr('chat.tool.recall');
             rb.addEventListener('click', function () {
                 var isOther = IS_ADMIN && m.from !== ME;
                 UI.confirm({
-                    title: '撤回消息',
+                    title: tr('chat.recall.title'),
                     text: isOther
-                        ? '将以管理员身份撤回 ' + m.from + ' 的这条消息，撤回后所有人都会看到「已撤回」提示。'
-                        : '撤回后所有人都会看到「已撤回」提示，且无法恢复。',
-                    okText: '撤回'
+                        ? tr('chat.recall.confirmOther', { name: m.from })
+                        : tr('chat.recall.confirmSelf'),
+                    okText: tr('chat.tool.recall')
                 }).then(function (ok) {
                     if (ok) sendWs({ type: 'recall', data: { idx: m.idx } });
                 });
@@ -769,7 +785,7 @@
             var chip = document.createElement('button');
             chip.type = 'button';
             chip.className = 'reaction' + (r.users.indexOf(ME) !== -1 ? ' mine' : '');
-            chip.title = (r.users || []).join('、');
+            chip.title = (r.users || []).join(tr('common.listSep'));
             var e = document.createElement('span');
             e.className = 'r-emoji';
             e.textContent = r.emoji;
@@ -811,9 +827,9 @@
     var replyTo = null; // 正在回复的消息对象
 
     function replySnippetLocal(m) {
-        if (m.file_expired) return m.type === 'image' ? '图片已过期' : '文件已过期';
-        if (m.type === 'image') return '[图片]';
-        if (m.type === 'file') return '[文件] ' + (m.name || '');
+        if (m.file_expired) return m.type === 'image' ? tr('chat.file.imageExpired') : tr('chat.file.fileExpired');
+        if (m.type === 'image') return tr('chat.quote.image');
+        if (m.type === 'file') return tr('chat.quote.file', { name: m.name || '' });
         var t = String(m.content || '').replace(/\s+/g, ' ').trim();
         return t.length > 60 ? t.slice(0, 60) + '…' : t;
     }
@@ -821,7 +837,7 @@
     function setReply(m) {
         if (!m || m.recalled) return;
         replyTo = m;
-        $('replyFrom').textContent = m.from === ME ? '你' : m.from;
+        $('replyFrom').textContent = m.from === ME ? tr('common.you') : m.from;
         $('replyText').textContent = replySnippetLocal(m);
         $('replyBar').classList.remove('hidden');
         closeReactPicker();
@@ -838,7 +854,7 @@
     // 点击引用块跳到原消息
     function jumpToMsg(idx) {
         var el = msgList.querySelector('.msg[data-idx="' + idx + '"]');
-        if (!el) { toast('原消息不在当前视图中'); return; }
+        if (!el) { toast(tr('chat.reply.notInView')); return; }
         el.scrollIntoView({ block: 'center', behavior: 'smooth' });
         el.classList.add('highlight');
         setTimeout(function () { el.classList.remove('highlight'); }, 1400);
@@ -851,7 +867,7 @@
         q.className = 'quote';
         var qf = document.createElement('span');
         qf.className = 'quote-from';
-        qf.textContent = m.reply.from === ME ? '你' : (m.reply.from || '原消息');
+        qf.textContent = m.reply.from === ME ? tr('common.you') : (m.reply.from || tr('chat.quote.origin'));
         var qt = document.createElement('span');
         qt.className = 'quote-text';
         qt.textContent = m.reply.snippet || '';
@@ -874,7 +890,7 @@
         fetch(api('/api/profile?name=' + encodeURIComponent(name)), { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (j) {
-                if (!j.ok) { toast(j.error || '加载资料失败'); return; }
+                if (!j.ok) { toast(j.error || tr('chat.profile.loadFailed')); return; }
                 var av = $('profileAvatar');
                 av.innerHTML = '';
                 if (j.image) {
@@ -887,14 +903,14 @@
                     av.textContent = (j.name.charAt(0) || '?').toUpperCase();
                     av.style.background = avatarColor(j.name);
                 }
-                $('profileName').textContent = j.name + (j.name === ME ? '（我）' : '');
-                $('profileRole').textContent = j.role === 'admin' ? '管理员' : '';
-                $('profileOnline').textContent = j.online ? '在线' : '离线';
+                $('profileName').textContent = j.name + (j.name === ME ? tr('common.me') : '');
+                $('profileRole').textContent = j.role === 'admin' ? tr('common.admin') : '';
+                $('profileOnline').textContent = j.online ? tr('common.online') : tr('common.offline');
                 $('profileCreated').textContent = j.created ? fmtDate(j.created) : '—';
-                $('profileMsgs').textContent = j.msgs + ' 条';
+                $('profileMsgs').textContent = trn('chat.profile.msgs', j.msgs);
                 $('profileCard').classList.remove('hidden');
             })
-            .catch(function () { toast('加载资料失败'); });
+            .catch(function () { toast(tr('chat.profile.loadFailed')); });
     }
 
     function closeProfile() {
@@ -919,8 +935,8 @@
             }
             var item = av.closest('.user-item');
             if (item) {
-                var nm = item.querySelector('.user-name');
-                if (nm) openProfile(nm.textContent.replace(/（我）\s*$/, '').trim());
+                var nm = item.getAttribute('data-name');
+                if (nm) openProfile(nm);
             }
         });
         $('profileCard').addEventListener('click', function (e) {
@@ -979,7 +995,7 @@
                 if (!src) return null;
                 var img = document.createElement('img');
                 img.src = src;
-                img.alt = m.name || '图片';
+                img.alt = m.name || tr('chat.image.alt');
                 img.loading = 'lazy';
                 // 图片加载完成后，若用户贴近底部则补滚到底部
                 img.addEventListener('load', function () { if (nearBottom) scrollToBottom(); });
@@ -1049,9 +1065,9 @@
     // 撤回提示文案：实时事件与历史渲染共用，保证刷新前后文案一致
     function recallTipText(by, owner, adminRecall) {
         if (adminRecall && owner && by !== owner) {
-            return '管理员 ' + (by || 'admin') + ' 撤回了 ' + owner + ' 的消息';
+            return tr('chat.recall.byAdmin', { admin: by || 'admin', user: owner });
         }
-        return (by === ME ? '你' : (by || '对方')) + ' 撤回了一条消息';
+        return by === ME ? tr('chat.recall.bySelf') : tr('chat.recall.byOther', { who: by || tr('common.other') });
     }
 
     // 处理撤回事件：原位替换为系统提示，并在本地标记（与服务端软删除保持一致）
@@ -1118,7 +1134,7 @@
         if (topIndex === 0) {
             var tip = document.createElement('div');
             tip.className = 'sys-msg';
-            tip.textContent = '— 没有更多消息了 —';
+            tip.textContent = tr('chat.history.noMore');
             msgList.insertBefore(tip, msgList.firstChild);
         }
         // 补偿新增高度，避免视图跳动
@@ -1135,7 +1151,7 @@
         if (!historyAll.length) {
             var empty = document.createElement('div');
             empty.className = 'sys-msg';
-            empty.textContent = '暂无消息，说点什么吧～';
+            empty.textContent = tr('chat.history.empty');
             msgList.appendChild(empty);
             return;
         }
@@ -1150,7 +1166,7 @@
         if (topIndex === 0) {
             var tip0 = document.createElement('div');
             tip0.className = 'sys-msg';
-            tip0.textContent = '— 仅保留最近 500 条消息 —';
+            tip0.textContent = tr('chat.history.limit');
             msgList.insertBefore(tip0, msgList.firstChild);
         }
         // 多次补偿：图片/字体延迟加载会改变高度
@@ -1168,13 +1184,13 @@
       if (!allUsers.length) {
         var tip = document.createElement('div');
         tip.className = 'sidebar-section-title';
-        tip.textContent = '连接中…';
+        tip.textContent = tr('chat.users.connecting');
         sidebarUsers.appendChild(tip);
         return;
       }
       var head = document.createElement('div');
       head.className = 'sidebar-section-title';
-      head.textContent = '成员 · ' + allUsers.length;
+      head.textContent = tr('chat.users.count', { n: allUsers.length });
       sidebarUsers.appendChild(head);
 
       allUsers.forEach(function (n) {
@@ -1182,6 +1198,7 @@
         var self = n === ME;
         var item = document.createElement('div');
         item.className = 'user-item' + (self ? ' me' : '') + (on || self ? ' online' : ' offline');
+        item.setAttribute('data-name', n);   // 显示名可能带「（我）」后缀，点击资料卡要用原始名
 
         var avatar = makeAvatarEl(n, 'user-avatar');
         // 离线用户：字母头像清空内联样式，使用 CSS 的灰色样式（图片头像由 CSS 置灰）
@@ -1194,10 +1211,10 @@
         meta.className = 'user-meta';
         var name = document.createElement('div');
         name.className = 'user-name';
-        name.textContent = n + (self ? '（我）' : '');
+        name.textContent = n + (self ? tr('common.me') : '');
         var status = document.createElement('div');
         status.className = 'user-status';
-        status.textContent = (on || self) ? '在线' : '离线';
+        status.textContent = (on || self) ? tr('common.online') : tr('common.offline');
         meta.appendChild(name);
         meta.appendChild(status);
 
@@ -1241,10 +1258,10 @@
             var item = document.createElement('button');
             item.type = 'button';
             item.className = 'group-item' + (activeGid === String(g.id) ? ' active' : '');
-            item.title = '群主：' + g.owner;
+            item.title = tr('chat.group.owner', { name: g.owner });
             var name = document.createElement('span');
             name.className = 'group-name';
-            name.textContent = g.name + (g.owner === ME ? '（我）' : '');
+            name.textContent = g.name + (g.owner === ME ? tr('common.me') : '');
             item.appendChild(name);
             item.addEventListener('click', function () {
                 switchRoom(String(g.id), g.name);
@@ -1254,7 +1271,7 @@
     }
 
     function onCreateGroup() {
-        var name = prompt('输入群名（1-24 位字母/数字/下划线/中文/点/横线）：');
+        var name = prompt(tr('chat.group.namePrompt'));
         if (name == null) return;
         name = name.trim();
         if (!name) return;
@@ -1265,15 +1282,15 @@
             body: JSON.stringify({ name: name })
         }).then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
         .then(function (res) {
-            if (!res.body.ok) { toast(res.body.error || '创建失败'); return; }
-            toast('群已创建');
+            if (!res.body.ok) { toast(res.body.error || tr('chat.group.createFailed')); return; }
+            toast(tr('chat.group.created'));
             loadGroups().then(function () { switchRoom(res.body.id, name); });
         })
-        .catch(function () { toast('创建群失败，请重试'); });
+        .catch(function () { toast(tr('chat.group.createRetry')); });
     }
 
     function onJoinGroup() {
-        var gid = prompt('输入要加入的群 id：');
+        var gid = prompt(tr('chat.group.idPrompt'));
         if (gid == null || !gid.trim()) return;
         fetch(api('/api/groups/join'), {
             method: 'POST',
@@ -1282,11 +1299,11 @@
             body: JSON.stringify({ gid: gid.trim() })
         }).then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
         .then(function (res) {
-            if (!res.body.ok) { toast(res.body.error || '加入失败'); return; }
-            toast('已加入群');
+            if (!res.body.ok) { toast(res.body.error || tr('chat.group.joinFailed')); return; }
+            toast(tr('chat.group.joined'));
             loadGroups();
         })
-        .catch(function () { toast('加入群失败，请重试'); });
+        .catch(function () { toast(tr('chat.group.joinRetry')); });
     }
 
     // 切换当前会话房间并加载对应历史
@@ -1302,7 +1319,7 @@
     }
 
     function updateChatTitle(gname) {
-        var label = activeGid == null ? 'ChatPlus' : (gname || '群聊');
+        var label = activeGid == null ? 'ChatPlus' : (gname || tr('chat.group.untitled'));
         chatTitle.textContent = ME ? (label + ' · ' + ME) : label;
     }
 
@@ -1310,7 +1327,7 @@
 
     function setConn(state) {
         connDot.className = 'dot ' + state;
-        connDot.title = state === 'on' ? '已连接' : (state === 'off' ? '已断开' : '连接中…');
+        connDot.title = state === 'on' ? tr('chat.conn.on') : (state === 'off' ? tr('chat.conn.off') : tr('chat.users.connecting'));
     }
 
     function sendWs(obj) {
@@ -1318,7 +1335,7 @@
             ws.send(JSON.stringify(obj));
             return true;
         }
-        toast('连接未就绪，请稍候');
+        toast(tr('chat.conn.notReady'));
         return false;
     }
 
@@ -1459,7 +1476,7 @@
         var m = /^image\/(\w+)/.exec(f.type || '');
         var d = new Date();
         function p(n) { return n < 10 ? '0' + n : '' + n; }
-        var name = '截图-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' +
+        var name = tr('chat.upload.shotPrefix') + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' +
                    p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.' + (m ? m[1] : 'png');
         try { return new File([f], name, { type: f.type }); } catch (e) { return f; }
     }
@@ -1467,19 +1484,19 @@
     function uploadFile(file, kindLabel, done) {
         var fd = new FormData();
         fd.append('file', file);
-        toast('正在上传 ' + kindLabel + '…');
+        toast(tr('chat.uploading', { what: kindLabel }));
         var ctrl = window.AbortController ? new AbortController() : null;
         var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 60000) : null;
         fetch(api('/api/upload'), { method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl ? ctrl.signal : undefined })
             .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
             .then(function (res) {
-                if (!res.body.ok) { toast(res.body.error || '上传失败'); return; }
+                if (!res.body.ok) { toast(res.body.error || tr('chat.upload.failed')); return; }
                 var b = res.body;
                 var data = { type: b.kind, content: b.url, name: b.name, size: b.size };
                 if (activeGid != null) data.gid = activeGid;
                 sendWs({ type: 'msg', data: data });
             })
-            .catch(function () { toast('上传失败或超时，请重试'); })
+            .catch(function () { toast(tr('chat.upload.retry')); })
             .then(function () { if (timer) clearTimeout(timer); if (done) done(); });
     }
 
@@ -1488,15 +1505,15 @@
         var list = [];
         for (var i = 0; i < files.length; i++) {
             var f = nameScreenshot(files[i]);
-            if (f.size > MAX_UPLOAD_SIZE) { toast('「' + (f.name || '文件') + '」超过 20MB 上限'); continue; }
+            if (f.size > MAX_UPLOAD_SIZE) { toast(tr('chat.upload.tooBig', { name: f.name || tr('chat.file.defaultName') })); continue; }
             list.push(f);
         }
         if (!list.length) return;
-        if (list.length > 1) toast('正在上传 ' + list.length + ' 个文件…');
+        if (list.length > 1) toast(trn('chat.upload.files', list.length));
         list.reduce(function (p, f) {
             return p.then(function () {
                 return new Promise(function (resolve) {
-                    uploadFile(f, /^image\//.test(f.type || '') ? '图片' : '文件', resolve);
+                    uploadFile(f, /^image\//.test(f.type || '') ? tr('chat.upload.kindImage') : tr('chat.upload.kindFile'), resolve);
                 });
             });
         }, Promise.resolve());
@@ -1573,14 +1590,14 @@
     ];
     // 将扁平 EMOJIS 按特征表情切分为分组（无需重复罗列 emoji）
     var EMOJI_GROUP_DEFS = [
-        { name: '常用', icon: '🙂', marker: '😀' },
-        { name: '表情', icon: '😄', marker: '😃' },
-        { name: '手势', icon: '👍', marker: '👋' },
-        { name: '爱心', icon: '❤️', marker: '🤍' },
-        { name: '食物', icon: '🍔', marker: '🍎' },
-        { name: '动物', icon: '🐱', marker: '🐭' },
-        { name: '物品', icon: '💡', marker: '📱' },
-        { name: '符号', icon: '✅', marker: '❗' }
+        { key: 'chat.emoji.recent', icon: '🙂', marker: '😀' },
+        { key: 'chat.emoji.people', icon: '😄', marker: '😃' },
+        { key: 'chat.emoji.gestures', icon: '👍', marker: '👋' },
+        { key: 'chat.emoji.hearts', icon: '❤️', marker: '🤍' },
+        { key: 'chat.emoji.food', icon: '🍔', marker: '🍎' },
+        { key: 'chat.emoji.animals', icon: '🐱', marker: '🐭' },
+        { key: 'chat.emoji.objects', icon: '💡', marker: '📱' },
+        { key: 'chat.emoji.symbols', icon: '✅', marker: '❗' }
     ];
     var EMOJI_PER_PAGE = 40; // 每页 10 列 × 4 行
     var emojiGroupIdx = 0;
@@ -1833,6 +1850,53 @@
 
       // 深色模式
       $('themeBtn').addEventListener('click', toggleTheme);
+
+      // ---------- 语言下拉 ----------
+      var langMenuOpen = false;
+      function renderLangMenu() {
+        var menu = $('langMenu');
+        if (!menu || !I18N) return;
+        var langs = I18N.languages();
+        var cur = I18N.current();
+        menu.innerHTML = '';
+        for (var i = 0; i < langs.length; i++) {
+          var code = langs[i].code;
+          var isActive = code === cur;
+          var item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'lang-item' + (isActive ? ' is-active' : '');
+          item.setAttribute('role', 'menuitemradio');
+          item.setAttribute('aria-checked', isActive ? 'true' : 'false');
+          item.setAttribute('data-lang', code);
+          item.textContent = langs[i].name;
+          menu.appendChild(item);
+        }
+      }
+      function setLangMenu(open) {
+        var menu = $('langMenu');
+        var btn = $('langBtn');
+        if (!menu || !btn) return;
+        langMenuOpen = open;
+        if (open) { renderLangMenu(); menu.classList.remove('hidden'); }
+        else menu.classList.add('hidden');
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      $('langBtn').addEventListener('click', function (e) {
+        e.stopPropagation();
+        setLangMenu(!langMenuOpen);
+      });
+      $('langMenu').addEventListener('click', function (e) {
+        var code = e.target && e.target.getAttribute ? e.target.getAttribute('data-lang') : null;
+        if (!code) return;
+        I18N.set(code);
+        setLangMenu(false);
+      });
+      document.addEventListener('click', function () { if (langMenuOpen) setLangMenu(false); });
+      document.addEventListener('keydown', function (e) {
+        if (langMenuOpen && (e.key === 'Escape' || e.keyCode === 27)) setLangMenu(false);
+      });
+      applyLang();
+      if (I18N) I18N.onChange(applyLang);
       updateThemeIcon();
 
       $('logoutBtn').addEventListener('click', doLogout);
@@ -1903,8 +1967,8 @@
       $('fileInput').addEventListener('change', function () {
         var file = this.files && this.files[0];
         if (!file) return;
-        if (file.size > MAX_UPLOAD_SIZE) { toast('文件超过 20MB 上限'); return; }
-        uploadFile(file, /^image\//.test(file.type || '') ? '图片' : '文件');
+        if (file.size > MAX_UPLOAD_SIZE) { toast(tr('chat.upload.tooBigPlain')); return; }
+        uploadFile(file, /^image\//.test(file.type || '') ? tr('chat.upload.kindImage') : tr('chat.upload.kindFile'));
         this.value = '';
       });
 
@@ -1913,7 +1977,7 @@
       bindProfileCard(); // 头像点击查看资料卡
 
       // 移动端改用短提示语：原标题较长，窄屏上会换行并撑高输入框
-      if (isMobile()) textInput.placeholder = '输入消息…';
+      if (isMobile()) textInput.placeholder = tr('chat.input.shortPlaceholder');
 
       // 点击表情选择器以外区域时收起
       document.addEventListener('click', function (e) {

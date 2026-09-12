@@ -16,6 +16,18 @@
     function api(path) { return apiBase() + path; }
     function $(id) { return document.getElementById(id); }
 
+    // ---------- 国际化 ----------
+    var I18N = window.I18N;
+    function tr(key, vars) { return I18N ? I18N.t(key, vars) : key; }
+    function trn(key, n, vars) { return I18N ? I18N.tn(key, n, vars) : key; }
+    function applyLang() {
+      if (I18N) I18N.apply();
+      document.title = tr('admin.title');
+      refreshApprovals();
+      refreshUsers();
+      refreshLogs();
+    }
+
     var toastEl = $('toast');
     var ME = null;
 
@@ -88,13 +100,13 @@
         fetch(api('/api/admin/approvals'), { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (j) {
-                if (!j.ok) { emptyTip(box, j.error || '加载失败'); return; }
+                if (!j.ok) { emptyTip(box, j.error || tr('common.loadFailed')); return; }
                 box.innerHTML = '';
-                $('approvalCount').textContent = ' · ' + j.approvals.length + ' 条';
-                if (!j.approvals.length) { emptyTip(box, '暂无待审核申请'); return; }
+                $('approvalCount').textContent = trn('admin.count.items', j.approvals.length);
+                if (!j.approvals.length) { emptyTip(box, tr('admin.pending.empty')); return; }
                 j.approvals.forEach(function (a) { box.appendChild(buildApprovalRow(a)); });
             })
-            .catch(function () { emptyTip(box, '加载失败'); });
+            .catch(function () { emptyTip(box, tr('common.loadFailed')); });
     }
 
     function buildApprovalRow(a) {
@@ -108,16 +120,16 @@
 
         var created = document.createElement('span');
         created.className = 'u-created';
-        created.textContent = fmtDate(a.created) + ' 申请';
+        created.textContent = tr('admin.created.at', { date: fmtDate(a.created) });
         row.appendChild(created);
 
         var appr = document.createElement('button');
         appr.type = 'button';
         appr.className = 'admin-act';
-        appr.textContent = '通过';
+        appr.textContent = tr('admin.approve.btn');
         appr.addEventListener('click', function () {
             adminApi('/api/admin/review/approve', { name: a.name }).then(function (j) {
-                toast(j.ok ? '已通过 ' + a.name : (j.error || '操作失败'));
+                toast(j.ok ? tr('admin.approved', { name: a.name }) : (j.error || tr('common.opFailed')));
                 if (j.ok) { refreshApprovals(); refreshUsers(); }
             });
         });
@@ -126,11 +138,11 @@
         var rej = document.createElement('button');
         rej.type = 'button';
         rej.className = 'admin-act danger';
-        rej.textContent = '拒绝';
+        rej.textContent = tr('admin.reject.btn');
         rej.addEventListener('click', function () {
-            if (!window.confirm('拒绝「' + a.name + '」的注册申请？')) return;
+            if (!window.confirm(tr('admin.reject.confirm', { name: a.name }))) return;
             adminApi('/api/admin/review/reject', { name: a.name }).then(function (j) {
-                toast(j.ok ? '已拒绝 ' + a.name : (j.error || '操作失败'));
+                toast(j.ok ? tr('admin.rejected', { name: a.name }) : (j.error || tr('common.opFailed')));
                 if (j.ok) refreshApprovals();
             });
         });
@@ -144,13 +156,13 @@
         fetch(api('/api/admin/users'), { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (j) {
-                if (!j.ok) { emptyTip(box, j.error || '加载失败'); return; }
+                if (!j.ok) { emptyTip(box, j.error || tr('common.loadFailed')); return; }
                 box.innerHTML = '';
-                $('adminCount').textContent = ' · ' + j.users.length + ' 个';
-                if (!j.users.length) { emptyTip(box, '暂无账号'); return; }
+                $('adminCount').textContent = trn('admin.count.users', j.users.length);
+                if (!j.users.length) { emptyTip(box, tr('admin.users.empty')); return; }
                 j.users.forEach(function (u) { box.appendChild(buildUserRow(u)); });
             })
-            .catch(function () { emptyTip(box, '加载失败'); });
+            .catch(function () { emptyTip(box, tr('common.loadFailed')); });
     }
 
     function buildUserRow(u) {
@@ -159,19 +171,19 @@
 
         var name = document.createElement('span');
         name.className = 'u-name';
-        name.textContent = u.name + (u.name === ME ? '（我）' : '');
+        name.textContent = u.name + (u.name === ME ? tr('common.me') : '');
         row.appendChild(name);
 
         if (u.role === 'admin') {
             var role = document.createElement('span');
             role.className = 'u-role';
-            role.textContent = '管理员';
+            role.textContent = tr('common.admin');
             row.appendChild(role);
         }
 
         var state = document.createElement('span');
         state.className = 'u-state' + (u.online ? ' on' : '');
-        state.textContent = u.online ? '在线' : '离线';
+        state.textContent = u.online ? tr('common.online') : tr('common.offline');
         row.appendChild(state);
 
         var created = document.createElement('span');
@@ -182,19 +194,19 @@
         var pw = document.createElement('button');
         pw.type = 'button';
         pw.className = 'admin-act';
-        pw.textContent = '改密';
+        pw.textContent = tr('admin.users.changePass');
         pw.addEventListener('click', function () {
             UI.prompt({
-                title: '重置密码',
-                text: '为「' + u.name + '」设置新密码（至少 6 位）',
-                okText: '确认重置',
+                title: tr('admin.users.resetTitle'),
+                text: tr('admin.users.resetPrompt', { name: u.name }),
+                okText: tr('admin.users.resetOk'),
                 danger: false,
-                input: { type: 'password', placeholder: '新密码（至少 6 位）', maxLength: 64 }
+                input: { type: 'password', placeholder: tr('admin.users.newPassPlaceholder'), maxLength: 64 }
             }).then(function (p) {
                 if (p == null) return;
-                if (p.length < 6) { toast('密码至少 6 位'); return; }
+                if (p.length < 6) { toast(tr('reg.short')); return; }
                 adminApi('/api/admin/user/pass', { name: u.name, password: p }).then(function (j) {
-                    toast(j.ok ? '已重置密码' : (j.error || '操作失败'));
+                    toast(j.ok ? tr('admin.users.passReset') : (j.error || tr('common.opFailed')));
                 });
             });
         });
@@ -204,16 +216,16 @@
             var del = document.createElement('button');
             del.type = 'button';
             del.className = 'admin-act danger';
-            del.textContent = '删除';
+            del.textContent = tr('admin.users.delBtn');
             del.addEventListener('click', function () {
                 UI.confirm({
-                    title: '删除账号',
-                    text: '确定删除账号「' + u.name + '」吗？该操作不可恢复，其历史消息会保留。',
-                    okText: '删除'
+                    title: tr('admin.users.delTitle'),
+                    text: tr('admin.users.delConfirm', { name: u.name }),
+                    okText: tr('admin.users.delBtn')
                 }).then(function (ok) {
                     if (!ok) return;
                     adminApi('/api/admin/user/del', { name: u.name }).then(function (j) {
-                        toast(j.ok ? '已删除账号 ' + u.name : (j.error || '操作失败'));
+                        toast(j.ok ? tr('admin.users.deleted', { name: u.name }) : (j.error || tr('common.opFailed')));
                         if (j.ok) refreshUsers();
                     });
                 });
@@ -227,10 +239,10 @@
         var n = $('adminNewName');
         var p = $('adminNewPass');
         var name = n.value.trim();
-        if (!name || p.value.length < 6) { toast('请填写用户名，密码至少 6 位'); return; }
+        if (!name || p.value.length < 6) { toast(tr('admin.add.validate')); return; }
         adminApi('/api/admin/user/add', { name: name, password: p.value }).then(function (j) {
-            if (!j.ok) { toast(j.error || '添加失败'); return; }
-            toast('已添加账号 ' + name);
+            if (!j.ok) { toast(j.error || tr('admin.add.fail')); return; }
+            toast(tr('admin.added', { name: name }));
             n.value = '';
             p.value = '';
             n.focus();
@@ -240,24 +252,26 @@
 
     // ---------- 审计日志 ----------
 
-    var ACTION_LABELS = {
-        'login': '登录',
-        'login.fail': '登录失败',
-        'logout': '退出登录',
-        'msg': '发送消息',
-        'recall': '撤回消息',
-        'upload': '上传文件',
-        'settings': '修改设置',
-        'register': '注册申请',
-        'admin.review.approve': '审核通过',
-        'admin.review.reject': '审核拒绝',
-        'admin.user.add': '新建账号',
-        'admin.user.del': '删除账号',
-        'admin.user.pass': '重置密码'
+    // 审计动作 → 文案 key（下拉框选项与日志标签共用同一批 key）
+    var ACTION_KEYS = {
+        'login': 'admin.action.login',
+        'login.fail': 'admin.action.loginFail',
+        'logout': 'admin.action.logout',
+        'msg': 'admin.action.msg',
+        'recall': 'admin.action.recall',
+        'upload': 'admin.action.upload',
+        'settings': 'admin.action.settings',
+        'register': 'admin.action.register',
+        'admin.review.approve': 'admin.action.approve',
+        'admin.review.reject': 'admin.action.reject',
+        'admin.user.add': 'admin.action.userAdd',
+        'admin.user.del': 'admin.action.userDel',
+        'admin.user.pass': 'admin.action.userPass'
     };
 
     function actionLabel(a) {
-        return ACTION_LABELS[a] || a;
+        var k = ACTION_KEYS[a];
+        return k ? tr(k) : a;
     }
 
     function fmtDateTime(ts) {
@@ -270,7 +284,7 @@
     function buildLogRow(e) {
         var row = document.createElement('div');
         row.className = 'admin-log' + (e.action === 'login.fail' ? ' warn' : '');
-        if (e.ip) row.title = 'IP: ' + e.ip + (e.target ? '　目标: ' + e.target : '');
+        if (e.ip) row.title = 'IP: ' + e.ip + (e.target ? tr('admin.log.target') + e.target : '');
 
         var time = document.createElement('span');
         time.className = 'lg-time';
@@ -306,14 +320,14 @@
         fetch(api(url), { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (j) {
-                if (!j.ok) { emptyTip(box, j.error || '加载失败'); return; }
-                $('logCount').textContent = ' · ' + j.total + ' 条' +
-                    (j.total > j.logs.length ? '（显示最近 ' + j.logs.length + ' 条）' : '');
+                if (!j.ok) { emptyTip(box, j.error || tr('common.loadFailed')); return; }
+                $('logCount').textContent = trn('admin.count.items', j.total) +
+                    (j.total > j.logs.length ? tr('admin.log.shown', { n: j.logs.length }) : '');
                 box.innerHTML = '';
-                if (!j.logs.length) { emptyTip(box, '暂无日志'); return; }
+                if (!j.logs.length) { emptyTip(box, tr('admin.log.empty')); return; }
                 j.logs.forEach(function (e) { box.appendChild(buildLogRow(e)); });
             })
-            .catch(function () { emptyTip(box, '加载失败'); });
+            .catch(function () { emptyTip(box, tr('common.loadFailed')); });
     }
 
     function doLogout() {
@@ -332,10 +346,57 @@
                 if (!j.ok) { location.replace('/login.html'); return; }
                 if (j.role !== 'admin') { location.replace('/chat.html'); return; } // 非管理员不可进
                 ME = j.username;
-                $('adminMe').textContent = '管理员 ' + ME;
+                $('adminMe').textContent = tr('admin.me.label', { name: ME });
 
                 $('adminBack').addEventListener('click', function () { location.href = '/chat.html'; });
                 $('themeBtn').addEventListener('click', toggleTheme);
+
+      // ---------- 语言下拉 ----------
+      var langMenuOpen = false;
+      function renderLangMenu() {
+        var menu = $('langMenu');
+        if (!menu || !I18N) return;
+        var langs = I18N.languages();
+        var cur = I18N.current();
+        menu.innerHTML = '';
+        for (var i = 0; i < langs.length; i++) {
+          var code = langs[i].code;
+          var isActive = code === cur;
+          var item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'lang-item' + (isActive ? ' is-active' : '');
+          item.setAttribute('role', 'menuitemradio');
+          item.setAttribute('aria-checked', isActive ? 'true' : 'false');
+          item.setAttribute('data-lang', code);
+          item.textContent = langs[i].name;
+          menu.appendChild(item);
+        }
+      }
+      function setLangMenu(open) {
+        var menu = $('langMenu');
+        var btn = $('langBtn');
+        if (!menu || !btn) return;
+        langMenuOpen = open;
+        if (open) { renderLangMenu(); menu.classList.remove('hidden'); }
+        else menu.classList.add('hidden');
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      $('langBtn').addEventListener('click', function (e) {
+        e.stopPropagation();
+        setLangMenu(!langMenuOpen);
+      });
+      $('langMenu').addEventListener('click', function (e) {
+        var code = e.target && e.target.getAttribute ? e.target.getAttribute('data-lang') : null;
+        if (!code) return;
+        I18N.set(code);
+        setLangMenu(false);
+      });
+      document.addEventListener('click', function () { if (langMenuOpen) setLangMenu(false); });
+      document.addEventListener('keydown', function (e) {
+        if (langMenuOpen && (e.key === 'Escape' || e.keyCode === 27)) setLangMenu(false);
+      });
+      applyLang();
+      if (I18N) I18N.onChange(applyLang);
                 updateThemeIcon();
                 $('logoutBtn').addEventListener('click', doLogout);
                 $('adminAddBtn').addEventListener('click', addUser);
