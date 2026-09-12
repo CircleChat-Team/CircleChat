@@ -1,5 +1,62 @@
-public/uploads/*
+# ============================================================
+# ChatPlus 隐私排除列表 —— 对话/用户数据库、SSH 密钥、日志、凭据
+# 版权 © 2026 Ctoy，保留所有权利。
+# 说明：凡包含用户隐私/密钥/会话数据的文件一律不进版本库。
+# ============================================================
+
+# --- 运行时数据（对话数据库、用户数据库、各类日志/状态） ---
 data/*
+data/**
+public/uploads/*
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# --- 日志与临时文件 ---
+*.log
+*.access.log
+*.tmp
+*.bak
+*.swp
+*~
+
+# --- SSH 私钥 / 证书 / 凭据类文件 ---
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+id_dsa
+id_ecdsa
+*.pem
+*.ppk
+*.key
+*.p12
+*.p8
+*.pfx
+*_rsa
+*_dsa
+known_hosts
+authorized_keys
+.ssh/
+_askpass*
+*_askpass*.cmd
+credentials
+credentials.json
+production.env
+.env
+.env.*
+!.env.example
+
+# --- 对话/隐私导出文件 ---
+backups/
+backup/*
+export/*
+chat_history*
+*conversation*.json
+*chat*.json
+
+# --- 编辑器等 ---
 .idea/*
 .vscode/*
 .directory
