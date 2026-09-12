@@ -684,6 +684,19 @@ body {
 .msg.self .meta  { justify-content: flex-end; }
 .msg.other .meta { justify-content: flex-start; }
 
+/* 操作条放到昵称/时间的另一侧：自己的消息时间贴右边缘，对方的昵称贴左边缘，
+   这样默认隐藏的操作条不会把时间挤得离边缘很远，看着不再别扭 */
+.msg.self .msg-tools { order: -1; }
+
+/* 昵称/时间过长时截断，保证操作条始终完整不被压缩 */
+.msg .meta-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* 连续消息合并：同一人短时间连发时隐藏头像，昵称行浮动显示，形成紧凑对话流 */
 .msg.grouped .msg-avatar { visibility: hidden; }
 .msg.grouped .meta {
@@ -709,6 +722,7 @@ body {
 
 /* 消息操作条：默认隐藏，悬停消息时显现 */
 .msg-tools {
+  flex: 0 0 auto; /* 不参与压缩，按钮永远完整显示 */
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -719,10 +733,12 @@ body {
 .msg-tools:focus-within { opacity: 1; }
 
 .msg-tool {
+  flex: 0 0 auto;
   padding: 1px 7px;
   font-size: 11px;
   font-family: inherit;
   line-height: 1.6;
+  white-space: nowrap;
   color: var(--muted);
   background: none;
   border: none;

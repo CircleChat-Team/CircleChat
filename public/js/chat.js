@@ -1027,13 +1027,28 @@
                 break;
             }
         }
+        closeReactPicker();
         var old = msgList.querySelector('.msg[data-idx="' + idx + '"]');
         if (!old) return;
         var tip = document.createElement('div');
         tip.className = 'sys-msg';
         tip.textContent = recallTipText(data.by, data.owner, data.admin);
+        var next = old.nextElementSibling; // 替换前先取到后一条
         old.parentNode.replaceChild(tip, old);
         if (nearBottom) scrollToBottom();
+
+        // 被撤回的若原本是本组「组首」（唯一带头像的那条），后面那条需要升级为组首，
+        // 否则整组都没有头像（刷新后才会恢复）。
+        while (next && !next.classList.contains('msg')) next = next.nextElementSibling;
+        if (!next) return;
+        var nextIdx = next.dataset.idx;
+        for (var k = 0; k < historyAll.length; k++) {
+            if (String(historyAll[k].idx) === String(nextIdx)) {
+                var rebuilt = buildMsg(historyAll[k], canGroup(historyAll[k - 1], historyAll[k]));
+                if (rebuilt && rebuilt.classList.contains('msg')) next.parentNode.replaceChild(rebuilt, next);
+                break;
+            }
+        }
     }
 
     // 懒加载：向前追加更早的一批历史，并保持滚动位置不跳动
@@ -1252,6 +1267,12 @@
 
     // 输入框随内容自动增高（多行换行消息）
     function autoGrow() {
+        // 空内容时交还给 CSS 的固定高度：否则移动端过长的 placeholder 一旦换行，
+        // scrollHeight 会把输入框撑高，白白占掉好几行空间
+        if (!textInput.value) {
+            textInput.style.height = '';
+            return;
+        }
         textInput.style.height = 'auto';
         textInput.style.height = Math.min(textInput.scrollHeight, 140) + 'px';
     }
@@ -1742,6 +1763,9 @@
       bindDropUpload(); // 拖拽 / 粘贴上传
       $('replyCancel').addEventListener('click', clearReply);
       bindProfileCard(); // 头像点击查看资料卡
+
+      // 移动端改用短提示语：原标题较长，窄屏上会换行并撑高输入框
+      if (isMobile()) textInput.placeholder = '输入消息…';
 
       // 点击表情选择器以外区域时收起
       document.addEventListener('click', function (e) {
