@@ -108,6 +108,25 @@
         msgList.scrollTop = msgList.scrollHeight;
     }
 
+    // ---------- 头像（确定性配色首字母头像，前端生成，无需改服务端） ----------
+    var AVATAR_PALETTE = ['#07c160', '#ff9f0a', '#ff375f', '#5856d6', '#0a84ff',
+                          '#bf5af2', '#ff6482', '#30d158', '#64d2ff', '#ffd60a',
+                          '#5e5ce6', '#e56a4d'];
+    function avatarColor(name) {
+        var h = 0;
+        name = String(name || '?');
+        for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+        return AVATAR_PALETTE[h % AVATAR_PALETTE.length];
+    }
+    function makeAvatar(name, cls) {
+        var d = document.createElement('div');
+        d.className = cls;
+        d.setAttribute('aria-hidden', 'true');
+        d.textContent = (String(name || '?').charAt(0) || '?').toUpperCase();
+        d.style.background = avatarColor(name);
+        return d;
+    }
+
     // ---------- 账号列表（在线状态展示） ----------
 
     function loadUsers() {
@@ -211,6 +230,9 @@
         var wrap = document.createElement('div');
         wrap.className = 'msg ' + (m.from === ME ? 'self' : 'other');
 
+        var body = document.createElement('div');
+        body.className = 'msg-body';
+
         var bubble = document.createElement('div');
         bubble.className = 'bubble';
 
@@ -239,12 +261,17 @@
             bubble.textContent = m.content;
         }
 
-        wrap.appendChild(bubble);
+        body.appendChild(bubble);
 
         var meta = document.createElement('div');
         meta.className = 'meta';
         meta.textContent = (m.from === ME ? '' : m.from + ' · ') + fmtTime(m.ts);
-        wrap.appendChild(meta);
+        body.appendChild(meta);
+
+        var avatar = makeAvatar(m.from, 'msg-avatar');
+
+        wrap.appendChild(avatar);
+        wrap.appendChild(body);
 
         msgList.appendChild(wrap);
         scrollToBottom();
@@ -290,9 +317,9 @@
         var item = document.createElement('div');
         item.className = 'user-item' + (self ? ' me' : '') + (on || self ? ' online' : ' offline');
 
-        var avatar = document.createElement('div');
-        avatar.className = 'user-avatar';
-        avatar.textContent = (n.charAt(0) || '?').toUpperCase();
+        var avatar = makeAvatar(n, 'user-avatar');
+        // 离线用户清空内联样式，使用 CSS 的灰色样式
+        if (!on && !self) { avatar.style.background = ''; avatar.style.color = ''; }
 
         var meta = document.createElement('div');
         meta.className = 'user-meta';
