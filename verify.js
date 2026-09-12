@@ -19,9 +19,9 @@ const ROOT = __dirname;
 
 // MD5 完整性清单（与各源文件内容一一对应）
 const MANIFEST = {
-  'server.js': 'a7cf4ead4cafbb2a6d8851ae47c4ac98',
+  'server.js': '45f03e376d6917c34884920096304ac2',
   'lib/auth.js': 'fdd38af5eb243f31e5236fa77cb69277',
-  'lib/store.js': 'bf0b994032172e180274050b2a35b28f',
+  'lib/store.js': 'b585a8e075818bd6185a97da6c08781b',
   'lib/ws.js': '8eb09d11bc20e592e092b5955b498f1e',
   'lib/log.js': 'cf6a98065b2452eb57b15a6f5db2fd76',
   'public/index.html': '07ea987fcca27049710284d88491f308',
@@ -31,7 +31,7 @@ const MANIFEST = {
   'public/admin.html': '566a7d1faf14eac6220fa9698ddb9096',
   'public/js/config.js': '29e316e77c56cadc01e3850c87a5b7d1',
   'public/js/login.js': '6d114faaf6462e9691a5a9374e6d3d3c',
-  'public/js/chat.js': '7e4d6f4dc668271da0d1276a223a73fd',
+  'public/js/chat.js': 'a6fbdec3bffb5f7fe0fa49059b0c0723',
   'public/js/admin.js': 'a323821d2d624aff8e0f51eac15d4fb8',
   'tools/adduser.js': '6fcfc3d222d97ef6d2b095f4f24ccd92'
 };
