@@ -21,7 +21,7 @@
 | --- | --- |
 | `Ctoy` | `Yhc061900` |
 | `system_mini` | `SYSTEM_mini1234` |
-
+| `admin` | `Admin1234` |
 > 密码哈希存于 `data/users.json`（格式：`盐$SHA256(盐+密码)`），文件内无明文。
 > 修改密码：`node tools/adduser.js <用户名> [新密码]`（不传新密码则交互输入）。
 
