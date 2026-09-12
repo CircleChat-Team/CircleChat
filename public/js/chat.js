@@ -1386,10 +1386,10 @@
         var fb = $('fileBtn');
         if (fb) {
             fb.disabled = gating || null;
-            fb.title = gating ? '互加好友后可发送文件' : '发送文件 / 图片';
+            fb.title = gating ? tr('chat.dm.fileGated') : tr('chat.dm.sendFiles');
         }
         // 门禁房间内不能引用回复（即便已设置也清除）
-        if (gating && replyTo) { clearReply(); toast('尚未互加好友，仅可发送文字和图片'); }
+        if (gating && replyTo) { clearReply(); toast(tr('chat.dm.gateToast')); }
     }
 
     // 拉取好友 / 申请数据并渲染
@@ -1417,14 +1417,14 @@
             if (!myFriends.length) {
                 var empty = document.createElement('div');
                 empty.className = 'friend-empty';
-                empty.textContent = '暂无好友';
+                empty.textContent = tr('chat.friend.empty');
                 list.appendChild(empty);
             } else {
                 myFriends.forEach(function (f) {
                     var item = document.createElement('button');
                     item.type = 'button';
                     item.className = 'friend-item' + (activeDmPeer === String(f.name) ? ' active' : '');
-                    item.title = (f.online ? '在线' : '离线') + ' · 点击进入私聊';
+                    item.title = (f.online ? tr('chat.status.online') : tr('chat.status.offline')) + tr('chat.friend.clickToDm');
                     item.appendChild(makeAvatarEl(f.name, 'friend-avatar', f.image));
                     var meta = document.createElement('div');
                     meta.className = 'friend-meta';
@@ -1433,7 +1433,7 @@
                     nm.textContent = f.name;
                     var st = document.createElement('span');
                     st.className = 'friend-status' + (f.online ? ' online' : '');
-                    st.textContent = f.online ? '在线' : '离线';
+                    st.textContent = f.online ? tr('chat.status.online') : tr('chat.status.offline');
                     meta.appendChild(nm);
                     meta.appendChild(st);
                     item.appendChild(meta);
@@ -1450,7 +1450,7 @@
             if (!incoming.length) {
                 var e2 = document.createElement('div');
                 e2.className = 'friend-empty';
-                e2.textContent = '暂无待处理申请';
+                e2.textContent = tr('chat.friend.noRequests');
                 rl.appendChild(e2);
                 return;
             }
@@ -1469,12 +1469,12 @@
                 var yes = document.createElement('button');
                 yes.type = 'button';
                 yes.className = 'group-action-btn';
-                yes.textContent = '同意';
+                yes.textContent = tr('chat.friend.accept');
                 yes.addEventListener('click', function () { acceptFriend(n); });
                 var no = document.createElement('button');
                 no.type = 'button';
                 no.className = 'group-action-btn';
-                no.textContent = '拒绝';
+                no.textContent = tr('chat.friend.reject');
                 no.addEventListener('click', function () { declineFriend(n); });
                 acts.appendChild(yes);
                 acts.appendChild(no);
@@ -1493,11 +1493,11 @@
             body: JSON.stringify({ from: from })
         }).then(function (r) { return r.json(); })
         .then(function (j) {
-            if (!j.ok) { toast(j.error || '操作失败'); return; }
-            toast('已同意 ' + from + ' 的好友申请');
+            if (!j.ok) { toast(j.error || tr('common.opFailed')); return; }
+            toast(tr('chat.friend.accepted', { name: from }));
             loadFriends();
         })
-        .catch(function () { toast('操作失败，请重试'); });
+        .catch(function () { toast(tr('common.opFailedRetry')); });
     }
 
     function declineFriend(from) {
@@ -1529,13 +1529,13 @@
         var q = $('friendSearchInput').value.trim();
         var box = $('friendSearchResult');
         box.innerHTML = '';
-        if (!q) { toast('请输入用户名'); return; }
+        if (!q) { toast(tr('chat.friend.enterName')); return; }
         fetch(api('/api/users?q=' + encodeURIComponent(q)), { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (j) {
-                if (!j.ok) { box.innerHTML = '<div class="friend-empty">加载失败</div>'; return; }
+                if (!j.ok) { box.innerHTML = '<div class="friend-empty">' + tr('common.loadFailed') + '</div>'; return; }
                 var users = (j.users || []).filter(function (u) { return u.name !== ME && !isFriend(u.name); });
-                if (!users.length) { box.innerHTML = '<div class="friend-empty">未找到匹配的用户，或已是你的好友</div>'; return; }
+                if (!users.length) { box.innerHTML = '<div class="friend-empty">' + tr('chat.friend.notFound') + '</div>'; return; }
                 users.forEach(function (u) {
                     var row = document.createElement('div');
                     row.className = 'friend-search-item';
@@ -1551,17 +1551,17 @@
                     btn.type = 'button';
                     btn.className = 'group-action-btn';
                     if (friendSent.indexOf(u.name) !== -1 || friendRequests.indexOf(u.name) !== -1) {
-                        btn.textContent = '已申请';
+                        btn.textContent = tr('chat.friend.requested');
                         btn.disabled = true;
                     } else {
-                        btn.textContent = '加好友';
+                        btn.textContent = tr('chat.friend.add');
                         btn.addEventListener('click', function () { sendFriendRequest(u.name, btn); });
                     }
                     row.appendChild(btn);
                     box.appendChild(row);
                 });
             })
-            .catch(function () { toast('搜索失败，请重试'); });
+            .catch(function () { toast(tr('chat.friend.searchFailed')); });
     }
 
     function sendFriendRequest(to, btn) {
@@ -1572,12 +1572,12 @@
             body: JSON.stringify({ to: to })
         }).then(function (r) { return r.json(); })
         .then(function (j) {
-            if (!j.ok) { toast(j.error || '发送失败'); return; }
-            toast('已向 ' + to + ' 发送好友申请');
-            if (btn) { btn.textContent = '已申请'; btn.disabled = true; }
+            if (!j.ok) { toast(j.error || tr('common.sendFailed')); return; }
+            toast(tr('chat.friend.sent', { name: to }));
+            if (btn) { btn.textContent = tr('chat.friend.requested'); btn.disabled = true; }
             loadFriends();
         })
-        .catch(function () { toast('发送失败，请重试'); });
+        .catch(function () { toast(tr('chat.friend.sendFailedRetry')); });
     }
 
     // ---------- WebSocket ----------
@@ -1703,7 +1703,7 @@
     function sendText() {
         var val = textInput.value.trim();
         if (!val) return;
-        if (dmgating() && replyTo) { clearReply(); toast('尚未互加好友，仅可发送文字和图片'); return; }
+        if (dmgating() && replyTo) { clearReply(); toast(tr('chat.dm.gateToast')); return; }
         var data = { type: 'text', content: val };
         if (activeGid != null) data.gid = activeGid;
         if (activeDmPeer != null) data.pm = activeDmPeer;
@@ -1757,7 +1757,7 @@
             .then(function (res) {
                 if (!res.body.ok) { toast(res.body.error || tr('chat.upload.failed')); return; }
                 var b = res.body;
-                if (dmgating() && b.kind !== 'image') { toast('尚未互加好友，仅可发送文字和图片'); return; }
+                if (dmgating() && b.kind !== 'image') { toast(tr('chat.dm.gateToast')); return; }
                 var data = { type: b.kind, content: b.url, name: b.name, size: b.size };
                 if (activeGid != null) data.gid = activeGid;
                 if (activeDmPeer != null) data.pm = activeDmPeer;
@@ -2228,7 +2228,7 @@
       });
 
       $('fileBtn').addEventListener('click', function () {
-        if (dmgating()) { toast('尚未互加好友，仅可发送文字和图片'); return; }
+        if (dmgating()) { toast(tr('chat.dm.gateToast')); return; }
         var f = $('fileInput');
         f.accept = '';
         f.value = '';

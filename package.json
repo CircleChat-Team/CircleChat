@@ -7,7 +7,6 @@
   "scripts": {
     "start": "node server.js",
     "adduser": "node tools/adduser.js",
-    "verify": "node verify.js",
     "build:hljs": "esbuild tools/hljs-entry.mjs --bundle --minify --format=iife --legal-comments=inline --banner:js=\"/*! highlight.js v11.12.0 | (c) 2006-2024 Josh Goebel and other contributors | BSD-3-Clause | https://github.com/highlightjs/highlight.js | 完整许可证: public/vendor/highlight.LICENSE.txt */\" --outfile=public/vendor/highlight.min.js"
   },
   "engines": {
