@@ -3,7 +3,7 @@
  * 版权 © 2026 Ctoy，保留所有权利。禁止去除版权信息。
  *
  * 加载顺序（必须在 lang/*.js 之前）：
- *   /js/i18n.js  →  /js/lang/zh.js  →  /js/lang/en.js  →  页面脚本
+ *   /js/i18n.js  →  /js/lang/zh.js  →  /js/lang/en.js  →  /js/lang/jp.js  →  页面脚本
  *
  * 用法：
  *   I18N.t('login.submit')                  取文案
@@ -32,9 +32,9 @@ window.I18N = (function () {
   var FALLBACK = 'zh';
   // 只用来决定下拉框里的显示顺序，不是白名单——
   // 语言能不能用取决于对应字典是否已加载
-  var SUPPORTED = ['zh', 'en'];
+  var SUPPORTED = ['zh', 'en', 'ja'];
 
-  // 由 lang/zh.js、lang/en.js 挂载
+  // 由 lang/zh.js、lang/en.js、lang/jp.js 等挂载
   var dict = {};
 
   /** 取 BCP-47 主语言子标签：zh-CN → zh、en-US → en、pt-BR → pt、ja → ja */
