@@ -16,6 +16,7 @@
     var allUsers = [];      // 全部账号列表
     var userImages = {};    // 用户名 -> 头像图片地址（来自用户配置，未配置则为 null）
     var usersReady = null;  // 账号列表首次加载 Promise（历史渲染前等待，确保 @ 高亮可用）
+    var IS_ADMIN = false;   // 是否管理员：显示管理面板入口、可撤回任意人的消息
 
     // ---------- @ 提及状态 ----------
     var mentionPanel = null;          // @ 自动补全面板
@@ -565,9 +566,14 @@
         if (!old) return;
         var tip = document.createElement('div');
         tip.className = 'sys-msg';
-        tip.textContent = (data.by === ME ? '你' : (data.by || '对方')) + ' 撤回了一条消息';
+        if (data.admin && data.owner) {
+            tip.textContent = '管理员 ' + (data.by || 'admin') + ' 撤回了 ' + data.owner + ' 的消息';
+        } else {
+            tip.textContent = (data.by === ME ? '你' : (data.by || '对方')) + ' 撤回了一条消息';
+        }
         old.parentNode.replaceChild(tip, old);
         if (nearBottom) scrollToBottom();
+        refreshAdminMsgs(); // 面板打开时同步刷新消息列表
     }
 
     // 懒加载：向前追加更早的一批历史，并保持滚动位置不跳动
@@ -1046,6 +1052,181 @@
         textInput.focus();
     }
 
+    // ---------- 管理员面板（仅 admin 可用） ----------
+
+    function adminApi(path, payload) {
+        return fetch(api(path), {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload || {})
+        }).then(function (r) { return r.json(); });
+    }
+
+    function adminEmpty(box, text) {
+        box.innerHTML = '';
+        var d = document.createElement('div');
+        d.className = 'admin-empty';
+        d.textContent = text;
+        box.appendChild(d);
+    }
+
+    // 用户列表：角色 / 在线状态 / 改密 / 删除
+    function refreshAdminUsers() {
+        var box = $('adminUserList');
+        if (!box) return;
+        fetch(api('/api/admin/users'), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.ok) { adminEmpty(box, j.error || '加载失败'); return; }
+                box.innerHTML = '';
+                if (!j.users.length) { adminEmpty(box, '暂无账号'); return; }
+                j.users.forEach(function (u) { box.appendChild(buildAdminUserRow(u)); });
+            })
+            .catch(function () { adminEmpty(box, '加载失败'); });
+    }
+
+    function buildAdminUserRow(u) {
+        var row = document.createElement('div');
+        row.className = 'admin-user';
+
+        var name = document.createElement('span');
+        name.className = 'u-name';
+        name.textContent = u.name;
+        row.appendChild(name);
+
+        if (u.role === 'admin') {
+            var role = document.createElement('span');
+            role.className = 'u-role';
+            role.textContent = '管理员';
+            row.appendChild(role);
+        }
+
+        var state = document.createElement('span');
+        state.className = 'u-state';
+        state.textContent = u.online ? '在线' : '离线';
+        row.appendChild(state);
+
+        var pw = document.createElement('button');
+        pw.type = 'button';
+        pw.className = 'admin-act';
+        pw.textContent = '改密';
+        pw.addEventListener('click', function () {
+            var p = window.prompt('为「' + u.name + '」设置新密码（至少 6 位）');
+            if (p == null) return;
+            if (p.length < 6) { toast('密码至少 6 位'); return; }
+            adminApi('/api/admin/user/pass', { name: u.name, password: p }).then(function (j) {
+                toast(j.ok ? '已重置密码' : (j.error || '操作失败'));
+            });
+        });
+        row.appendChild(pw);
+
+        if (u.name !== ME) {
+            var del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'admin-act';
+            del.textContent = '删除';
+            del.addEventListener('click', function () {
+                if (!window.confirm('确定删除账号「' + u.name + '」吗？该操作不可恢复。')) return;
+                adminApi('/api/admin/user/del', { name: u.name }).then(function (j) {
+                    toast(j.ok ? '已删除账号 ' + u.name : (j.error || '操作失败'));
+                    if (j.ok) { refreshAdminUsers(); loadUsers(); }
+                });
+            });
+            row.appendChild(del);
+        }
+        return row;
+    }
+
+    // 消息列表：撤回任意人的消息
+    function refreshAdminMsgs() {
+        var box = $('adminMsgList');
+        if (!box) return;
+        var list = historyAll.slice(-50).reverse();
+        if (!list.length) { adminEmpty(box, '暂无消息'); return; }
+        box.innerHTML = '';
+        list.forEach(function (m) {
+            var row = document.createElement('div');
+            row.className = 'admin-msg';
+
+            var text = document.createElement('span');
+            text.className = 'm-text';
+            text.textContent = m.type === 'text' ? m.content
+                : (m.type === 'image' ? '[图片]' : '[文件] ' + (m.name || ''));
+            row.appendChild(text);
+
+            var from = document.createElement('span');
+            from.className = 'm-from';
+            from.textContent = m.from;
+            row.appendChild(from);
+
+            var rb = document.createElement('button');
+            rb.type = 'button';
+            rb.className = 'admin-act';
+            rb.textContent = '撤回';
+            rb.addEventListener('click', function () {
+                if (!window.confirm('确定撤回 ' + m.from + ' 的这条消息吗？')) return;
+                sendWs({ type: 'recall', data: { idx: m.idx } });
+            });
+            row.appendChild(rb);
+
+            box.appendChild(row);
+        });
+    }
+
+    function adminSend() {
+        var input = $('adminMsgInput');
+        var val = input.value.trim();
+        if (!val) return;
+        if (!sendWs({ type: 'msg', data: { type: 'text', content: val } })) return;
+        input.value = '';
+        toast('已发送');
+    }
+
+    function adminAddUser() {
+        var n = $('adminNewName');
+        var p = $('adminNewPass');
+        var name = n.value.trim();
+        if (!name || p.value.length < 6) { toast('请填写用户名，密码至少 6 位'); return; }
+        adminApi('/api/admin/user/add', { name: name, password: p.value }).then(function (j) {
+            if (!j.ok) { toast(j.error || '添加失败'); return; }
+            toast('已添加账号 ' + name);
+            n.value = '';
+            p.value = '';
+            refreshAdminUsers();
+            loadUsers();
+        });
+    }
+
+    function openAdminPanel() {
+        $('adminModal').classList.remove('hidden');
+        refreshAdminUsers();
+        refreshAdminMsgs();
+        setTimeout(function () { $('adminMsgInput').focus(); }, 60);
+    }
+
+    function closeAdminPanel() {
+        $('adminModal').classList.add('hidden');
+    }
+
+    function bindAdminPanel() {
+        $('adminBtn').classList.remove('hidden');
+        $('adminBtn').addEventListener('click', openAdminPanel);
+        $('adminClose').addEventListener('click', closeAdminPanel);
+        $('adminModal').addEventListener('click', function (e) {
+            if (e.target.hasAttribute('data-close')) closeAdminPanel();
+        });
+        $('adminAddBtn').addEventListener('click', adminAddUser);
+        $('adminSendBtn').addEventListener('click', adminSend);
+        $('adminMsgInput').addEventListener('keydown', function (e) {
+            if (e.isComposing || e.keyCode === 229) return;
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); adminSend(); }
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && !$('adminModal').classList.contains('hidden')) closeAdminPanel();
+        });
+    }
+
     // ---------- 登出 ----------
 
     function doLogout() {
@@ -1177,6 +1358,7 @@
             .then(function (j) {
                 if (j.ok) {
                   ME = j.username;
+                  IS_ADMIN = j.role === 'admin';
                   onlineUsers = j.online || [];
                   chatTitle.textContent = 'ChatPlus · ' + ME;
                   renderUsers();

@@ -34,6 +34,11 @@ const UPLOAD_DIR = path.join(PUB, 'uploads');
 const MAX_UPLOAD = 20 * 1024 * 1024; // 上传上限 20MB
 const MAX_TEXT_LEN = 4096;           // 单条文本长度上限
 
+// 管理员新建用户时的用户名规则：2-20 位字母/数字/下划线/中文/点/横线
+const USERNAME_RE = /^[\w\u4e00-\u9fa5\-.]{2,20}$/;
+const MIN_PASS_LEN = 6;
+const MAX_PASS_LEN = 64;
+
 // 允许的图片扩展名
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 // 允许的文件扩展名（白名单）
@@ -312,9 +317,19 @@ function handleWsText(client, text) {
     if (!Number.isInteger(idx) || idx <= 0) return;
     const target = store.get(idx);
     if (!target) return;
-    if (target.from !== client.user.username) return; // 只能撤回自己的消息
+    const admin = auth.isAdmin(client.user.username);
+    // 只能撤回自己的消息；管理员可撤回任意人的消息
+    if (target.from !== client.user.username && !admin) return;
     store.recall(idx);
-    broadcast({ type: 'recall', data: { idx, by: client.user.username } });
+    broadcast({
+      type: 'recall',
+      data: {
+        idx,
+        by: client.user.username,
+        owner: target.from,
+        admin: admin && target.from !== client.user.username
+      }
+    });
   }
 }
 
@@ -392,7 +407,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // GET /api/me
   if (pathname === '/api/me' && req.method === 'GET') {
     const online = [...clients].map(clientId);
-    sendJSON(res, 200, { ok: true, username: me.username, online });
+    sendJSON(res, 200, { ok: true, username: me.username, role: auth.getRole(me.username), online });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -432,6 +447,104 @@ function handleApi(req, res, urlObj, pathname, ip) {
     }).catch((e) => {
       sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
     });
+    return;
+  }
+
+  // ---------- 管理员接口（仅 role=admin 可用） ----------
+
+  if (pathname.indexOf('/api/admin/') === 0) {
+    if (!auth.isAdmin(me.username)) {
+      sendJSON(res, 403, { ok: false, error: '无管理员权限' });
+      logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // GET /api/admin/users —— 用户列表（含角色与在线状态）
+    if (pathname === '/api/admin/users' && req.method === 'GET') {
+      const raw = auth.loadUsers() || {};
+      const online = new Set([...clients].map(clientId));
+      const users = Object.keys(raw).sort().map((name) => ({
+        name,
+        role: raw[name].role === 'admin' ? 'admin' : 'user',
+        created: raw[name].created || null,
+        image: raw[name].image || null,
+        online: online.has(name)
+      }));
+      sendJSON(res, 200, { ok: true, users });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // POST /api/admin/user/add —— 新建用户 {name, password, role?}
+    if (pathname === '/api/admin/user/add' && req.method === 'POST') {
+      readBody(req, 2048).then((body) => {
+        let o = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+        const pass = o && typeof o.password === 'string' ? o.password : '';
+        if (!USERNAME_RE.test(name) || pass.length < MIN_PASS_LEN || pass.length > MAX_PASS_LEN) {
+          sendJSON(res, 400, { ok: false, error: '用户名需 2-20 位字母/数字/下划线/中文，密码至少 6 位' });
+          return;
+        }
+        if (!auth.createUser(name, pass, o.role === 'admin' ? 'admin' : 'user')) {
+          sendJSON(res, 409, { ok: false, error: '该用户名已存在' });
+          return;
+        }
+        sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+      });
+      return;
+    }
+
+    // POST /api/admin/user/del —— 删除用户 {name}
+    if (pathname === '/api/admin/user/del' && req.method === 'POST') {
+      readBody(req, 2048).then((body) => {
+        let o = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+        if (!name) { sendJSON(res, 400, { ok: false, error: '参数错误' }); return; }
+        if (name === me.username) { sendJSON(res, 400, { ok: false, error: '不能删除当前登录账号' }); return; }
+        if (name === 'admin') { sendJSON(res, 400, { ok: false, error: '内置管理员账号不可删除' }); return; }
+        if (!auth.deleteUser(name)) { sendJSON(res, 404, { ok: false, error: '用户不存在' }); return; }
+        // 立即断开该用户的所有在线连接
+        for (const c of [...clients]) {
+          if (c.user.username === name) { try { c.close(); } catch (e) { /* 忽略 */ } }
+        }
+        sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+      });
+      return;
+    }
+
+    // POST /api/admin/user/pass —— 重置密码 {name, password}
+    if (pathname === '/api/admin/user/pass' && req.method === 'POST') {
+      readBody(req, 2048).then((body) => {
+        let o = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+        const pass = o && typeof o.password === 'string' ? o.password : '';
+        if (!name || pass.length < MIN_PASS_LEN || pass.length > MAX_PASS_LEN) {
+          sendJSON(res, 400, { ok: false, error: '密码至少 6 位' });
+          return;
+        }
+        if (!auth.setPassword(name, pass)) {
+          sendJSON(res, 404, { ok: false, error: '用户不存在' });
+          return;
+        }
+        sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+      });
+      return;
+    }
+
+    sendJSON(res, 404, { ok: false, error: '接口不存在' });
+    logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
 
