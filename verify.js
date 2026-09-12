@@ -19,28 +19,30 @@ const ROOT = __dirname;
 
 // MD5 完整性清单（与各源文件内容一一对应）
 const MANIFEST = {
-  'server.js': 'd6af79c7f6ddaa88d592479fa449bfaf',
+  'server.js': '3b6af0de947fe95788d433e069da4ce7',
   'lib/auth.js': '17af170e1caad9a2a16214c7147f7075',
-  'lib/store.js': 'fb0b9baf8aedc4cd692fa750d5b245f0',
+  'lib/store.js': '8d3aa88f3ef562bdd8f0c3db7cf0236e',
   'lib/groups.js': '0b22fdebb87de4085c060a947ae9d86c',
   'lib/audit.js': 'ecbfaa046bbc6cd48791b96ded7b6cad',
   'lib/ws.js': '8eb09d11bc20e592e092b5955b498f1e',
   'lib/log.js': 'cf6a98065b2452eb57b15a6f5db2fd76',
-  'lib/migrate.js': 'b913e5acdda20d6a2315382b7d4a7e16',
+  'lib/migrate.js': 'fe45d8071a4816a5e64f45abeaa7a91b',
+  'lib/friends.js': '1b71ab556fe475e2a0fa80a6c02a1cb9',
   'public/index.html': '07ea987fcca27049710284d88491f308',
-  'public/css/style.css': 'b536cf34c71dde18ca35d8f808e54db3',
+  'public/css/style.css': 'df1e3d80509d0930f6e59b0faa216ce7',
   'public/login.html': '1af85b9020afb1496845643e54e6c962',
-  'public/chat.html': 'a70ab4edbeb3fee327ee7edbffbeefa6',
+  'public/chat.html': '775409097f40389b303820bbc798567b',
   'public/admin.html': 'fd0a36a11a081ed5d63e8b706b18d476',
   'public/js/config.js': '29e316e77c56cadc01e3850c87a5b7d1',
   'public/js/i18n.js': '88cf88df85af01b528934fa81f9001cc',
-  'public/js/lang/zh.js': '2b45fecef055f4aecfe926d5600cedd7',
-  'public/js/lang/en.js': 'af26db17065febe2a9c2aa2671118450',
+  'public/js/lang/zh.js': 'bcb9cfd0b5ee21e18fb5ae1277cddd4f',
+  'public/js/lang/en.js': 'a7d6980753f0f227618b4705621ff21f',
   'public/js/login.js': '1071527f5a3d9ac8c4a27f86afb65edf',
-  'public/js/chat.js': 'a0be6133dceb070fcaed50e12b334148',
+  'public/js/chat.js': '6f13ff926aeaa5ebd789ed4f4f38a033',
   'public/js/admin.js': '102b4fba435d99ddc9deeb25173ffeda',
   'tools/adduser.js': '6fcfc3d222d97ef6d2b095f4f24ccd92'
 };
+
 
 const COPYRIGHT_MARK = '© 2026 Ctoy';
 

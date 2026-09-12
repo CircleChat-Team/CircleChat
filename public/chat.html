@@ -29,6 +29,17 @@
       </div>
       <div id="sidebarUsers" class="sidebar-list"></div>
 
+      <!-- 好友区 -->
+      <div class="sidebar-friend-section">
+        <div class="sidebar-section-title sidebar-title-row">
+          <span>好友</span>
+          <button type="button" id="friendAddBtn" class="group-action-btn" title="搜索用户名添加好友">+ 加好友</button>
+        </div>
+        <div id="friendList" class="sidebar-friend-list"></div>
+        <div class="sidebar-sub-title">好友申请</div>
+        <div id="friendRequestList" class="sidebar-friend-list"></div>
+      </div>
+
       <!-- 群组 / 会话区 -->
       <div class="sidebar-group-section">
         <div class="sidebar-section-title" data-i18n="chat.sessions">会话</div>
@@ -101,6 +112,7 @@
       <div id="msgList" class="msg-list"></div>
 
       <footer class="chat-inputbar">
+        <div id="dmGateTip" class="dm-gate-tip hidden">尚未互加好友：仅可发送文字和图片。互相成为好友后可发送文件、引用回复与 @提及。</div>
         <div id="emojiPanel" class="emoji-panel hidden"></div>
         <div id="typingBar" class="typing-bar hidden"></div>
         <div id="replyBar" class="reply-bar hidden">
@@ -147,6 +159,22 @@
         <div class="profile-row"><span data-i18n="chat.profile.joinedAt">加入时间</span><b id="profileCreated">—</b></div>
         <div class="profile-row"><span data-i18n="chat.profile.msgsLabel">消息数</span><b id="profileMsgs">—</b></div>
       </div>
+    </div>
+  </div>
+
+  <!-- 添加好友（搜索用户名） -->
+  <div id="friendSearchMask" class="profile-mask hidden">
+    <div class="profile-card friend-search-card">
+      <div class="friend-search-head">
+        <span class="profile-name">添加好友</span>
+        <button id="friendSearchClose" class="reply-cancel" type="button" title="关闭" aria-label="关闭">×</button>
+      </div>
+      <div class="friend-search-row">
+        <input id="friendSearchInput" type="text" placeholder="输入用户名搜索" maxlength="64" autocomplete="off">
+        <button id="friendSearchBtn" class="group-action-btn" type="button">搜索</button>
+      </div>
+      <div class="friend-search-tip">输入对方用户名，发送好友申请。对方同意后即可互为好友。</div>
+      <div id="friendSearchResult" class="friend-search-result"></div>
     </div>
   </div>
 

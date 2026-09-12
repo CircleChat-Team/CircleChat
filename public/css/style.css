@@ -576,6 +576,146 @@ body {
 }
 .group-action-btn:hover { background: var(--fill); color: var(--text); }
 
+/* 好友区 */
+.sidebar-friend-section {
+  flex-shrink: 0;
+  padding: 4px 10px 6px;
+  border-top: 1px solid var(--border);
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-friend-section .sidebar-section-title { padding-bottom: 6px; }
+.sidebar-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 2px;
+}
+.sidebar-title-row .group-action-btn { flex: 0 0 auto; padding: 3px 8px; }
+.sidebar-sub-title {
+  padding: 8px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .8px;
+  color: var(--faint);
+}
+.sidebar-friend-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.sidebar-friend-list::-webkit-scrollbar        { width: 5px; }
+.sidebar-friend-list::-webkit-scrollbar-thumb  { background: rgba(128, 128, 128, .3); border-radius: 8px; }
+.friend-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background .15s var(--ease);
+}
+.friend-item:hover { background: var(--fill); }
+.friend-item.active { background: var(--fill-hover); }
+.friend-avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--faint);
+  background: var(--primary);
+  border-radius: 50%;
+}
+.friend-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.friend-name {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friend-status { font-size: 10px; color: var(--muted); }
+.friend-status.online { color: var(--primary-dark); }
+.friend-empty { font-size: 12px; color: var(--faint); padding: 4px 8px; }
+.friend-req {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+}
+.friend-req-acts { display: flex; gap: 4px; }
+.friend-req-acts .group-action-btn { flex: 0 0 auto; margin: 0; }
+
+/* 私聊门禁提示 */
+.dm-gate-tip {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--warn, #d97706);
+  background: var(--fill);
+  border-bottom: 1px solid var(--border);
+}
+
+/* 添加好友搜索弹窗 */
+.friend-search-card { padding: 14px; width: min(92vw, 360px); }
+.friend-search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.friend-search-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.friend-search-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+.friend-search-row input:focus { outline: none; border-color: var(--primary); }
+.friend-search-row .group-action-btn { flex: 0 0 auto; padding: 8px 14px; }
+.friend-search-tip { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.friend-search-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.friend-search-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 9px;
+}
+.friend-search-item:hover { background: var(--fill); }
+.friend-search-item .group-action-btn { flex: 0 0 auto; padding: 4px 12px; }
+.friend-search-item .group-action-btn:disabled { opacity: .5; cursor: default; }
+
 /* 移动端遮罩 */
 .sidebar-backdrop { display: none; }
 

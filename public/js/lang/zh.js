@@ -147,6 +147,8 @@
     'chat.upload.files.other': '正在上传 {n} 个文件…',
     'chat.upload.files.one': '正在上传 {n} 个文件…',
     'chat.image.alt': '图片',
+    'chat.dm.title': '私聊 · {name}',
+    'chat.dm.gateToast': '尚未互加好友，仅可发送文字和图片',
     'chat.upload.failed': '上传失败',
     'chat.upload.retry': '上传失败或超时，请重试',
     'chat.upload.tooBig': '「{name}」超过 20MB 上限',

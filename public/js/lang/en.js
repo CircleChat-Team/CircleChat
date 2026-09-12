@@ -146,6 +146,8 @@
     'chat.upload.files.one': 'Uploading 1 file…',
     'chat.upload.files.other': 'Uploading {n} files…',
     'chat.image.alt': 'Image',
+    'chat.dm.title': 'DM · {name}',
+    'chat.dm.gateToast': 'You can only send text and images until you become friends',
     'chat.upload.failed': 'Upload failed',
     'chat.upload.retry': 'Upload failed or timed out, please retry',
     'chat.upload.tooBig': '"{name}" exceeds the 20MB limit',
