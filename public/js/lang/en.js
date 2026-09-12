@@ -21,6 +21,7 @@
   return {
 
     // ---------- Common ----------
+    'lang.name': 'English',         // Native name shown in the dropdown, never translated
     'common.theme': 'Toggle dark mode',
     'common.lang': 'Switch language',
 

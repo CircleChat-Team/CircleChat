@@ -11,7 +11,12 @@
  *   I18N.tn('chat.count', 3)                复数（字典写 key.one / key.other）
  *   I18N.apply()                            应用 DOM 上的 data-i18n 系列属性
  *   I18N.set('en')                          切换语言（会触发 onChange）
+ *   I18N.languages()                        已加载的语言列表，供下拉框渲染
  *   I18N.onChange(fn)                       注册切换后的回调
+ *
+ * 新增一种语言：写一个 lang/xx.js（含 'lang.name': 该语言自称），
+ * 在页面加一行 <script>，下拉框会自动出现该选项。
+ * 想调整下拉框里的排序，把语言码加进下方 SUPPORTED 即可。
  *
  * HTML 侧支持四种属性：
  *   data-i18n              → textContent
@@ -25,19 +30,18 @@ window.I18N = (function () {
 
   var STORAGE_KEY = 'chatplus_lang';
   var FALLBACK = 'zh';
+  // 只用来决定下拉框里的显示顺序，不是白名单——
+  // 语言能不能用取决于对应字典是否已加载
   var SUPPORTED = ['zh', 'en'];
-
-  // 语言自称（切换按钮上显示，不参与翻译）
-  var NATIVE_NAME = { zh: '中文', en: 'EN' };
 
   // 由 lang/zh.js、lang/en.js 挂载
   var dict = {};
 
+  /** 取 BCP-47 主语言子标签：zh-CN → zh、en-US → en、pt-BR → pt、ja → ja */
   function normalize(code) {
-    var c = String(code || '').toLowerCase();
-    if (c.indexOf('zh') === 0) return 'zh';
-    if (c.indexOf('en') === 0) return 'en';
-    return '';
+    var c = String(code || '').toLowerCase().trim();
+    var m = /^([a-z]{2,3})(?:[-_][a-z0-9]+)*$/.exec(c);
+    return m ? m[1] : '';
   }
 
   function detect() {
@@ -55,7 +59,18 @@ window.I18N = (function () {
     return FALLBACK;
   }
 
+  // current 是「请求值」：i18n.js 先于字典加载，此刻还无法校验该语言是否存在
   var current = detect();
+
+  /**
+   * 实际生效的语言：请求的语言字典没加载时回退到 FALLBACK。
+   * 保证文案、<html lang>、下拉框选中态三者始终一致——
+   * 比如浏览器语言是 fr 而 fr.js 不存在，整站按中文渲染并把中文标记为选中，
+   * 而不是文案是中文却把 <html lang> 标成 fr。
+   */
+  function active() {
+    return dict[current] ? current : FALLBACK;
+  }
 
   function lookup(lang, key) {
     var d = dict[lang];
@@ -75,7 +90,7 @@ window.I18N = (function () {
    * 两边都缺时直接把 key 显示出来，方便一眼看出漏翻，而不是静默显示空白。
    */
   function t(key, vars) {
-    var s = lookup(current, key);
+    var s = lookup(active(), key);
     if (s === null) s = lookup(FALLBACK, key);
     if (s === null) return key;
     return vars ? interpolate(s, vars) : s;
@@ -84,7 +99,7 @@ window.I18N = (function () {
   function pluralForm(n) {
     try {
       if (window.Intl && window.Intl.PluralRules) {
-        return new window.Intl.PluralRules(current).select(n);
+        return new window.Intl.PluralRules(active()).select(n);
       }
     } catch (e) { /* 老浏览器退回英文规则 */ }
     return n === 1 ? 'one' : 'other';
@@ -92,8 +107,9 @@ window.I18N = (function () {
 
   /** 带复数的取文案：优先 key.<one|other>，再退到 key 本身 */
   function tn(key, n, vars) {
-    var s = lookup(current, key + '.' + pluralForm(n));
-    if (s === null) s = lookup(current, key + '.other');
+    var a = active();
+    var s = lookup(a, key + '.' + pluralForm(n));
+    if (s === null) s = lookup(a, key + '.other');
     if (s === null) s = lookup(FALLBACK, key + '.other');
     if (s === null) s = lookup(FALLBACK, key);
     if (s === null) return key;
@@ -130,7 +146,8 @@ window.I18N = (function () {
         else nodes[i].textContent = text;
       }
     }
-    document.documentElement.lang = current === 'zh' ? 'zh-CN' : current;
+    var used = active();
+    document.documentElement.lang = used === 'zh' ? 'zh-CN' : used;
   }
 
   var listeners = [];
@@ -141,16 +158,32 @@ window.I18N = (function () {
 
   function set(lang) {
     var n = normalize(lang) || FALLBACK;
+    // 只接受已加载字典的语言，避免切到一个没有任何文案的语言
+    if (!dict[n]) n = FALLBACK;
     if (n === current) return;
     current = n;
     try { localStorage.setItem(STORAGE_KEY, n); } catch (e) { /* 忽略 */ }
     for (var i = 0; i < listeners.length; i++) listeners[i](n);
   }
 
-  /** 下一个语言：目前只有两种，用作切换按钮的目标 */
-  function next() {
-    var i = SUPPORTED.indexOf(current);
-    return SUPPORTED[(i + 1) % SUPPORTED.length];
+  /**
+   * 已加载的语言列表，供下拉框渲染。
+   * 顺序：先按 SUPPORTED 声明的先后，其余按字典加载顺序追加。
+   * name 取该语言自己的 lang.name（语言自称不翻译），
+   * 这样新增语言只需加一个字典文件，不必改动任何渲染代码。
+   */
+  function languages() {
+    var out = [];
+    var seen = {};
+    var codes = SUPPORTED.concat(Object.keys(dict));
+    for (var i = 0; i < codes.length; i++) {
+      var c = codes[i];
+      if (seen[c] || !dict[c]) continue;
+      seen[c] = 1;
+      var nm = lookup(c, 'lang.name');
+      out.push({ code: c, name: nm === null ? c : nm });
+    }
+    return out;
   }
 
   return {
@@ -160,9 +193,7 @@ window.I18N = (function () {
     apply: apply,
     set: set,
     onChange: onChange,
-    next: next,
-    current: function () { return current; },
-    langName: function (code) { return NATIVE_NAME[normalize(code)] || String(code || ''); },
-    supported: SUPPORTED
+    current: function () { return active(); },
+    languages: languages
   };
 })();

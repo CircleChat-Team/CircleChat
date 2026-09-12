@@ -164,10 +164,42 @@
 
   // ---------- 语言 ----------
 
-  // 按钮上显示「将要切到的语言」，而不是当前语言
-  function updateLangLabel() {
-    var el = $('langLabel');
-    if (el && I18N) el.textContent = I18N.langName(I18N.next());
+  var langMenuOpen = false;
+
+  // 选项来自已加载的字典；语言名用各自语言的自称，不参与翻译。
+  // 新增语言只需加一个 lang/xx.js，这里不用改。
+  function renderLangMenu() {
+    var menu = $('langMenu');
+    if (!menu || !I18N) return;
+    var langs = I18N.languages();
+    var cur = I18N.current();
+    menu.innerHTML = '';
+    for (var i = 0; i < langs.length; i++) {
+      var code = langs[i].code;
+      var active = code === cur;
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'lang-item' + (active ? ' is-active' : '');
+      item.setAttribute('role', 'menuitemradio');
+      item.setAttribute('aria-checked', active ? 'true' : 'false');
+      item.setAttribute('data-lang', code);
+      item.textContent = langs[i].name;
+      menu.appendChild(item);
+    }
+  }
+
+  function setLangMenu(open) {
+    var menu = $('langMenu');
+    var btn = $('langBtn');
+    if (!menu || !btn) return;
+    langMenuOpen = open;
+    if (open) {
+      renderLangMenu();          // 每次打开都重建，保证勾选状态最新
+      menu.classList.remove('hidden');
+    } else {
+      menu.classList.add('hidden');
+    }
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
 
   /**
@@ -197,7 +229,6 @@
   function applyLang() {
     if (I18N) I18N.apply();
     refreshDynamicTexts();
-    updateLangLabel();
   }
 
   function init() {
@@ -209,7 +240,23 @@
     applyLang();
     if (I18N) {
       I18N.onChange(applyLang);
-      $('langBtn').addEventListener('click', function () { I18N.set(I18N.next()); });
+
+      // 语言下拉：点按钮开合，选项由 renderLangMenu() 动态生成
+      $('langBtn').addEventListener('click', function (e) {
+        e.stopPropagation();               // 别让下面那个「点空白关闭」立刻把它关掉
+        setLangMenu(!langMenuOpen);
+      });
+      $('langMenu').addEventListener('click', function (e) {
+        var code = e.target && e.target.getAttribute ? e.target.getAttribute('data-lang') : null;
+        if (!code) return;
+        I18N.set(code);
+        setLangMenu(false);
+      });
+      // 点击别处或按 Esc 收起
+      document.addEventListener('click', function () { if (langMenuOpen) setLangMenu(false); });
+      document.addEventListener('keydown', function (e) {
+        if (langMenuOpen && (e.key === 'Escape' || e.keyCode === 27)) setLangMenu(false);
+      });
     }
     $('themeBtn').addEventListener('click', toggleTheme);
 

@@ -201,7 +201,50 @@ body {
 .tool-btn:hover  { color: var(--text); border-color: var(--faint); }
 .tool-btn:active { transform: scale(.94); }
 .tool-btn .icon  { width: 17px; height: 17px; }
-.tool-btn-lang   { letter-spacing: .2px; }
+/* 下拉展开时按钮保持高亮，表明菜单归属于它 */
+.tool-btn[aria-expanded="true"] { color: var(--text); border-color: var(--faint); }
+
+/* 语言下拉：选项由 I18N.languages() 动态生成，加语言只需加字典文件 */
+.lang-switch { position: relative; }
+.lang-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 138px;
+  padding: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  animation: langPop .16s var(--ease) both;
+}
+@keyframes langPop {
+  from { opacity: 0; transform: translateY(-5px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+.lang-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.lang-item:hover { background: var(--fill); }
+.lang-item.is-active { color: var(--primary); font-weight: 500; }
+.lang-item.is-active::after { content: '✓'; font-size: 12px; }
 
 @media (max-width: 767px) {
   .login-tools { top: 12px; right: 12px; }
