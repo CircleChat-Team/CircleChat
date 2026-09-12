@@ -273,6 +273,7 @@
     function buildMsg(m) {
         var wrap = document.createElement('div');
         wrap.className = 'msg ' + (m.from === ME ? 'self' : 'other');
+        if (m.idx != null) wrap.dataset.idx = m.idx;
 
         var body = document.createElement('div');
         body.className = 'msg-body';
@@ -310,6 +311,18 @@
         var meta = document.createElement('div');
         meta.className = 'meta';
         meta.textContent = (m.from === ME ? '' : m.from + ' · ') + fmtTime(m.ts);
+        // 仅自己发送的消息显示「撤回」
+        if (m.from === ME && m.idx != null) {
+            var rb = document.createElement('button');
+            rb.type = 'button';
+            rb.className = 'recall-btn';
+            rb.textContent = '撤回';
+            rb.addEventListener('click', function () {
+                if (!window.confirm('确定撤回这条消息吗？')) return;
+                sendWs({ type: 'recall', data: { idx: m.idx } });
+            });
+            meta.appendChild(rb);
+        }
 
         body.appendChild(meta);
         body.appendChild(bubble);
@@ -333,6 +346,23 @@
         if (!wrap) return;
         historyAll.push(m); // 与历史合并，保证一致性
         msgList.appendChild(wrap);
+        if (nearBottom) scrollToBottom();
+    }
+
+    // 处理撤回事件：移除对应气泡，原位替换为系统提示
+    function handleRecall(data) {
+        if (!data || data.idx == null) return;
+        var idx = data.idx;
+        delete renderedIdx[idx];
+        for (var i = 0; i < historyAll.length; i++) {
+            if (historyAll[i].idx === idx) { historyAll.splice(i, 1); break; }
+        }
+        var old = msgList.querySelector('.msg[data-idx="' + idx + '"]');
+        if (!old) return;
+        var tip = document.createElement('div');
+        tip.className = 'sys-msg';
+        tip.textContent = (data.by === ME ? '你' : (data.by || '对方')) + ' 撤回了一条消息';
+        old.parentNode.replaceChild(tip, old);
         if (nearBottom) scrollToBottom();
     }
 
@@ -485,6 +515,7 @@
             try { obj = JSON.parse(ev.data); } catch (e) { return; }
             if (!obj || typeof obj !== 'object') return;
             if (obj.type === 'msg') { renderMsg(obj.data); showNotify(obj.data); }
+            else if (obj.type === 'recall') { handleRecall(obj.data); }
             else if (obj.type === 'presence') {
                 onlineUsers = obj.users || [];
                 renderUsers();

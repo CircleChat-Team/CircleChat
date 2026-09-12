@@ -305,6 +305,16 @@ function handleWsText(client, text) {
     });
     broadcast({ type: 'msg', data: record });
   }
+  if (msg.type === 'recall') {
+    const d = msg.data || {};
+    const idx = Number(d.idx);
+    if (!Number.isInteger(idx) || idx <= 0) return;
+    const target = store.get(idx);
+    if (!target) return;
+    if (target.from !== client.user.username) return; // 只能撤回自己的消息
+    store.recall(idx);
+    broadcast({ type: 'recall', data: { idx, by: client.user.username } });
+  }
 }
 
 // ---------- HTTP 路由 ----------

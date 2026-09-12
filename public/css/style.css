@@ -626,6 +626,24 @@ body {
 }
 .msg.self .meta { text-align: right; }
 
+/* 撤回按钮：默认隐藏，悬停消息时显现 */
+.recall-btn {
+  margin-left: 6px;
+  padding: 0 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s var(--ease), color .15s var(--ease);
+}
+.msg-body:hover .recall-btn,
+.recall-btn:focus { opacity: 1; }
+.recall-btn:hover { color: var(--primary); }
+
 .bubble img {
   display: block;
   max-width: 100%;
@@ -851,6 +869,8 @@ body {
   .msg-body { max-width: 82%; }
   .msg-list { padding: 16px 12px 20px; }
   .emoji-panel { grid-template-columns: repeat(8, 1fr); }
+  /* 触屏无 hover：撤回按钮常驻显示 */
+  .recall-btn { opacity: 1; }
 }
 
 /* ---------- 无障碍：降低动效 ---------- */
