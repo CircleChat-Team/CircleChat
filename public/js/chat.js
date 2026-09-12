@@ -322,7 +322,7 @@
         return null;
     }
 
-    // ---------- 轻量 Markdown 渲染（仅 ```代码块``` / `行内代码` / **粗体** / *斜体*） ----------
+    // ---------- 轻量 Markdown 渲染（```代码块``` / `行内代码` / **粗体** / *斜体* / [链接](url) / > 引用） ----------
     var FENCE_RE = /```([a-zA-Z0-9_+\-.]*)[ \t]*\n([\s\S]*?)```/g;
 
     function emphasisMD(escaped) {
@@ -332,14 +332,35 @@
             .replace(/\*([^*]+?)\*/g, '<em>$1</em>');
     }
 
+    // 链接 URL 白名单：仅允许 http/https/mailto 与相对路径，阻断 javascript: 等危险协议
+    function safeLinkUrl(url) {
+        var u = String(url).trim();
+        if (!u) return null;
+        if (/^(?:https?:|mailto:)/i.test(u)) return u;
+        if (/^(?:\/|#|\.\/|\.\.\/)/.test(u)) return u;
+        return null;
+    }
+
     function renderInlineMD(escaped) {
-        // 先抽出行内代码，避免其内部被加粗/斜体处理
+        // 先抽出 行内代码 与 链接，避免其内部被加粗/斜体二次处理
         var out = '';
-        var re = /`([^`]+)`/g;
+        var re = /(`[^`]+`)|\[([^\]]+)\]\(([^)\s]+)\)/g;
         var last = 0, m;
         while ((m = re.exec(escaped)) !== null) {
-            out += emphasisMD(mdMentions(escaped.slice(last, m.index)));
-            out += '<code class="inline-code">' + m[1] + '</code>';
+            var gap = escaped.slice(last, m.index);
+            out += emphasisMD(mdMentions(gap));
+            if (m[1]) {
+                out += '<code class="inline-code">' + m[1].slice(1, -1) + '</code>';
+            } else if (m[2] !== undefined) {
+                var linkText = m[2];
+                var url = m[3];
+                var safe = safeLinkUrl(url);
+                if (safe) {
+                    out += '<a class="md-link" href="' + safe + '" target="_blank" rel="noopener noreferrer">' + linkText + '</a>';
+                } else {
+                    out += m[0]; // 非法链接：原样显示，不生成可点击标签
+                }
+            }
             last = m.index + m[0].length;
         }
         out += emphasisMD(mdMentions(escaped.slice(last)));
@@ -360,22 +381,58 @@
             '</div>';
     }
 
+    // 把一段（不含代码块）的转义文本按行解析为块级 HTML：普通段落 + > 引用块
+    function renderBlocks(segment) {
+        var lines = segment.split('\n');
+        var out = '';
+        var para = [];
+        var quote = [];
+        function flushPara() {
+            if (!para.length) return;
+            out += '<p class="md-text">' + renderInlineMD(para.join('\n')) + '</p>';
+            para = [];
+        }
+        function flushQuote() {
+            if (!quote.length) return;
+            out += '<blockquote class="md-quote">' + renderInlineMD(quote.join('<br>')) + '</blockquote>';
+            quote = [];
+        }
+        for (var i = 0; i < lines.length; i++) {
+            var q = /^[ \t]{0,3}&gt;\s?(.*)$/.exec(lines[i]);
+            if (q) {
+                flushPara();
+                quote.push(q[1]);
+            } else {
+                flushQuote();
+                if (lines[i].trim().length === 0) flushPara();
+                else para.push(lines[i]);
+            }
+        }
+        flushPara();
+        flushQuote();
+        return out;
+    }
+
+    // 普通片段：含引用行时走块级解析，否则保持原单段落行为（换行折叠）
+    function renderSegment(segment) {
+        if (/^[ \t]{0,3}&gt;\s?/m.test(segment)) return renderBlocks(segment);
+        if (segment.trim().length) return '<p class="md-text">' + renderInlineMD(segment) + '</p>';
+        if (segment.length) return renderInlineMD(segment);
+        return '';
+    }
+
     function renderTextContent(bubble, text) {
         var escaped = esc(text);
         var html = '';
         var last = 0, m;
         FENCE_RE.lastIndex = 0;
         while ((m = FENCE_RE.exec(escaped)) !== null) {
-            var before = escaped.slice(last, m.index);
-            if (before.trim().length) html += '<p class="md-text">' + renderInlineMD(before) + '</p>';
-            else if (before.length) html += renderInlineMD(before);
+            html += renderSegment(escaped.slice(last, m.index));
             html += buildCodeBlockHTML(m[1], m[2]);
             last = m.index + m[0].length;
         }
-        var after = escaped.slice(last);
-        if (after.trim().length) html += '<p class="md-text">' + renderInlineMD(after) + '</p>';
-        else if (after.length) html += renderInlineMD(after);
-        if (!html) html = '<p class="md-text"></p>';
+        html += renderSegment(escaped.slice(last));
+        if (!html.trim()) html = '<p class="md-text"></p>';
         bubble.innerHTML = html;
         bubble.querySelectorAll('.code-copy').forEach(function (btn) {
             btn.addEventListener('click', function () {

@@ -678,6 +678,36 @@ body {
 .md-text:empty { display: none; }
 .md-text + .md-text { margin-top: 6px; }
 
+/* 链接：[text](url) 渲染的可点击链接 */
+.md-link {
+  color: var(--primary-dark);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-word;
+}
+.msg.self .bubble .md-link { color: #eafff2; }
+.md-link:hover { opacity: .82; }
+
+/* 引用块：> 开头的行 */
+.md-quote {
+  margin: 4px 0;
+  padding: 4px 12px;
+  color: var(--muted);
+  background: rgba(128, 128, 128, .08);
+  border-left: 3px solid var(--faint);
+  border-radius: 0 8px 8px 0;
+  white-space: normal;
+}
+.msg.self .bubble .md-quote {
+  color: rgba(255, 255, 255, .92);
+  background: rgba(255, 255, 255, .12);
+  border-left-color: rgba(255, 255, 255, .5);
+}
+[data-theme="dark"] .md-quote {
+  background: rgba(255, 255, 255, .06);
+  border-left-color: rgba(255, 255, 255, .28);
+}
+
 .inline-code {
   font-family: var(--mono);
   font-size: .92em;
