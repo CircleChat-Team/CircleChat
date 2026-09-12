@@ -694,7 +694,7 @@ body {
 
 .chat-inputbar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   padding: 10px 16px;
   padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
@@ -727,14 +727,18 @@ body {
   flex: 1;
   min-width: 0;
   height: 40px;
-  padding: 0 16px;
+  max-height: 140px;
+  padding: 9px 16px;
   font-size: 16px;
+  line-height: 1.5;
   font-family: inherit;
   color: var(--text);
   background: var(--fill);
   border: 1px solid transparent;
   border-radius: 20px;
   outline: none;
+  resize: none;
+  overflow-y: auto;
   transition: background .2s var(--ease), border-color .2s var(--ease), box-shadow .2s var(--ease);
 }
 .text-input::placeholder { color: var(--faint); }

@@ -532,11 +532,18 @@
 
     // ---------- 发送 ----------
 
+    // 输入框随内容自动增高（多行换行消息）
+    function autoGrow() {
+        textInput.style.height = 'auto';
+        textInput.style.height = Math.min(textInput.scrollHeight, 140) + 'px';
+    }
+
     function sendText() {
         var val = textInput.value.trim();
         if (!val) return;
         if (!sendWs({ type: 'msg', data: { type: 'text', content: val } })) return;
         textInput.value = '';
+        autoGrow();
         textInput.focus();
     }
 
@@ -596,6 +603,7 @@
             b.textContent = e;
             b.addEventListener('click', function () {
                 textInput.value += e;
+                autoGrow();
                 textInput.focus();
                 panel.classList.add('hidden');
             });
@@ -653,8 +661,13 @@
       });
       $('sendBtn').addEventListener('click', sendText);
       textInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          if (e.isComposing || e.keyCode === 229) return; // 中文输入法组字中不发送
+          e.preventDefault();
+          sendText();
+        }
       });
+      textInput.addEventListener('input', autoGrow);
 
       $('emojiBtn').addEventListener('click', function () {
         $('emojiPanel').classList.toggle('hidden');
