@@ -970,7 +970,37 @@
         textInput.focus();
     }
 
-    function uploadFile(file, kindLabel) {
+    // ---------- 拖拽 / 粘贴上传 ----------
+
+    var MAX_UPLOAD_SIZE = 20 * 1024 * 1024;
+    var dragDepth = 0;
+
+    function isFileDrag(e) {
+        var dt = e.dataTransfer;
+        if (!dt || !dt.types) return false;
+        for (var i = 0; i < dt.types.length; i++) {
+            if (dt.types[i] === 'Files') return true;
+        }
+        return false;
+    }
+
+    function showDropMask(on) {
+        var m = $('dropMask');
+        if (m) m.classList.toggle('hidden', !on);
+    }
+
+    // 粘贴的截图通常没有文件名，补一个可读的名字
+    function nameScreenshot(f) {
+        if (f.name && f.name !== 'image.png' && f.name !== 'blob') return f;
+        var m = /^image\/(\w+)/.exec(f.type || '');
+        var d = new Date();
+        function p(n) { return n < 10 ? '0' + n : '' + n; }
+        var name = '截图-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' +
+                   p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.' + (m ? m[1] : 'png');
+        try { return new File([f], name, { type: f.type }); } catch (e) { return f; }
+    }
+
+    function uploadFile(file, kindLabel, done) {
         var fd = new FormData();
         fd.append('file', file);
         toast('正在上传 ' + kindLabel + '…');
@@ -987,7 +1017,68 @@
                 });
             })
             .catch(function () { toast('上传失败或超时，请重试'); })
-            .then(function () { if (timer) clearTimeout(timer); });
+            .then(function () { if (timer) clearTimeout(timer); if (done) done(); });
+    }
+
+    // 批量上传：逐个串行，避免同时挤占带宽
+    function uploadFiles(files) {
+        var list = [];
+        for (var i = 0; i < files.length; i++) {
+            var f = nameScreenshot(files[i]);
+            if (f.size > MAX_UPLOAD_SIZE) { toast('「' + (f.name || '文件') + '」超过 20MB 上限'); continue; }
+            list.push(f);
+        }
+        if (!list.length) return;
+        if (list.length > 1) toast('正在上传 ' + list.length + ' 个文件…');
+        list.reduce(function (p, f) {
+            return p.then(function () {
+                return new Promise(function (resolve) {
+                    uploadFile(f, /^image\//.test(f.type || '') ? '图片' : '文件', resolve);
+                });
+            });
+        }, Promise.resolve());
+    }
+
+    function bindDropUpload() {
+        document.addEventListener('dragenter', function (e) {
+            if (!isFileDrag(e)) return;
+            e.preventDefault();
+            dragDepth++;
+            showDropMask(true);
+        });
+        document.addEventListener('dragover', function (e) {
+            if (!isFileDrag(e)) return;
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+        });
+        document.addEventListener('dragleave', function (e) {
+            if (!isFileDrag(e)) return;
+            dragDepth = Math.max(0, dragDepth - 1);
+            if (!dragDepth) showDropMask(false);
+        });
+        document.addEventListener('drop', function (e) {
+            if (!isFileDrag(e)) return;
+            e.preventDefault();
+            dragDepth = 0;
+            showDropMask(false);
+            var files = e.dataTransfer && e.dataTransfer.files;
+            if (files && files.length) uploadFiles(files);
+        });
+        // 粘贴上传：仅处理剪贴板里的文件，普通文本粘贴不拦截
+        document.addEventListener('paste', function (e) {
+            var items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+            var files = [];
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].kind === 'file') {
+                    var f = items[i].getAsFile();
+                    if (f) files.push(f);
+                }
+            }
+            if (!files.length) return;
+            e.preventDefault();
+            uploadFiles(files);
+        });
     }
 
     // ---------- 表情 ----------
@@ -1343,11 +1434,12 @@
       $('fileInput').addEventListener('change', function () {
         var file = this.files && this.files[0];
         if (!file) return;
-        if (file.size > 20 * 1024 * 1024) { toast('文件超过 20MB 上限'); return; }
-        var isImg = /^image\/(png|jpeg|gif|webp)$/.test(file.type);
-        uploadFile(file, isImg ? '图片' : '文件');
+        if (file.size > MAX_UPLOAD_SIZE) { toast('文件超过 20MB 上限'); return; }
+        uploadFile(file, /^image\//.test(file.type || '') ? '图片' : '文件');
         this.value = '';
       });
+
+      bindDropUpload(); // 拖拽 / 粘贴上传
 
       // 管理员显示「用户管理」入口（跳转独立管理页 /admin.html）
       if (IS_ADMIN) $('adminBtn').classList.remove('hidden');
