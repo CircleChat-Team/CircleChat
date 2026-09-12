@@ -474,6 +474,14 @@
 
     // 构建单条消息 DOM（不插入、不滚动），返回 wrap 或 null（非法资源）
     function buildMsg(m) {
+        // 已撤回的消息：直接渲染为系统提示，刷新后依然保留位置
+        if (m.recalled) {
+            var tip = document.createElement('div');
+            tip.className = 'sys-msg';
+            tip.textContent = recallTipText(m.recalled_by, m.from, m.recalled_by !== m.from);
+            return tip;
+        }
+
         var wrap = document.createElement('div');
         wrap.className = 'msg ' + (m.from === ME ? 'self' : 'other');
         if (m.idx != null) wrap.dataset.idx = m.idx;
@@ -557,23 +565,30 @@
         if (nearBottom) scrollToBottom();
     }
 
-    // 处理撤回事件：移除对应气泡，原位替换为系统提示
+    // 撤回提示文案：实时事件与历史渲染共用，保证刷新前后文案一致
+    function recallTipText(by, owner, adminRecall) {
+        if (adminRecall && owner && by !== owner) {
+            return '管理员 ' + (by || 'admin') + ' 撤回了 ' + owner + ' 的消息';
+        }
+        return (by === ME ? '你' : (by || '对方')) + ' 撤回了一条消息';
+    }
+
+    // 处理撤回事件：原位替换为系统提示，并在本地标记（与服务端软删除保持一致）
     function handleRecall(data) {
         if (!data || data.idx == null) return;
         var idx = data.idx;
-        delete renderedIdx[idx];
         for (var i = 0; i < historyAll.length; i++) {
-            if (historyAll[i].idx === idx) { historyAll.splice(i, 1); break; }
+            if (historyAll[i].idx === idx) {
+                historyAll[i].recalled = 1;
+                historyAll[i].recalled_by = data.by || '';
+                break;
+            }
         }
         var old = msgList.querySelector('.msg[data-idx="' + idx + '"]');
         if (!old) return;
         var tip = document.createElement('div');
         tip.className = 'sys-msg';
-        if (data.admin && data.owner) {
-            tip.textContent = '管理员 ' + (data.by || 'admin') + ' 撤回了 ' + data.owner + ' 的消息';
-        } else {
-            tip.textContent = (data.by === ME ? '你' : (data.by || '对方')) + ' 撤回了一条消息';
-        }
+        tip.textContent = recallTipText(data.by, data.owner, data.admin);
         old.parentNode.replaceChild(tip, old);
         if (nearBottom) scrollToBottom();
     }

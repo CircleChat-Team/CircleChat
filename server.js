@@ -316,11 +316,11 @@ function handleWsText(client, text) {
     const idx = Number(d.idx);
     if (!Number.isInteger(idx) || idx <= 0) return;
     const target = store.get(idx);
-    if (!target) return;
+    if (!target || target.recalled) return; // 不存在或已撤回
     const admin = auth.isAdmin(client.user.username);
     // 只能撤回自己的消息；管理员可撤回任意人的消息
     if (target.from !== client.user.username && !admin) return;
-    store.recall(idx);
+    if (!store.recall(idx, client.user.username)) return;
     broadcast({
       type: 'recall',
       data: {
