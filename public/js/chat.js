@@ -127,6 +127,19 @@
         d.style.background = avatarColor(name);
         return d;
     }
+    // 优先使用用户配置的头像图片，未配置则回退为字母头像
+    function makeAvatarEl(name, cls) {
+        var img = userImages[String(name)];
+        if (img) {
+            var el = document.createElement('img');
+            el.className = cls + ' av-img';
+            el.src = img;
+            el.alt = String(name);
+            el.setAttribute('aria-hidden', 'true');
+            return el;
+        }
+        return makeAvatar(name, cls);
+    }
 
     // ---------- 账号列表（在线状态展示） ----------
 
@@ -134,7 +147,19 @@
         fetch(api('/api/users'), { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (j) {
-                if (j.ok) { allUsers = j.users || []; renderUsers(); }
+                if (j.ok) {
+                    allUsers = [];
+                    userImages = {};
+                    (j.users || []).forEach(function (u) {
+                        if (typeof u === 'string') {
+                            allUsers.push(u);
+                        } else {
+                            allUsers.push(u.name);
+                            userImages[u.name] = u.image || null; // 手动配置的头像地址
+                        }
+                    });
+                    renderUsers();
+                }
             })
             .catch(function () { /* 忽略 */ });
     }
