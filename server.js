@@ -34,6 +34,11 @@ const UPLOAD_DIR = path.join(PUB, 'uploads');
 const MAX_UPLOAD = 20 * 1024 * 1024; // 上传上限 20MB
 const MAX_TEXT_LEN = 4096;           // 单条文本长度上限
 
+// 上传文件保留天数：超期后删除硬盘文件，消息记录保留并显示「图片/文件已过期」
+// 可用环境变量 FILE_TTL_DAYS 覆盖，默认 15 天
+const FILE_TTL_DAYS = Math.max(1, parseInt(process.env.FILE_TTL_DAYS, 10) || 15);
+const FILE_CLEANUP_INTERVAL = 6 * 3600 * 1000; // 每 6 小时检查一次
+
 // 管理员新建用户时的用户名规则：2-20 位字母/数字/下划线/中文/点/横线
 const USERNAME_RE = /^[\w\u4e00-\u9fa5\-.]{2,20}$/;
 const MIN_PASS_LEN = 6;
@@ -654,6 +659,19 @@ auth.init(false);
 store.load();
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+// 过期文件清理：启动时执行一次，之后定期检查。
+// 只删除硬盘文件，消息记录保留（前端显示「图片/文件已过期」，文件仍显示文件名）。
+function runFileCleanup() {
+  try {
+    const n = store.cleanupExpired(FILE_TTL_DAYS);
+    if (n > 0) console.log('[cleanup] 文件过期清理：' + n + ' 个文件已删除，消息记录保留');
+  } catch (e) {
+    console.error('[cleanup] 文件过期清理失败：' + (e && e.message ? e.message : e));
+  }
+}
+runFileCleanup();
+setInterval(runFileCleanup, FILE_CLEANUP_INTERVAL).unref();
+
 server.listen(PORT, HOST, () => {
   console.log('==========================================');
   console.log(' ChatPlus 私人聊天服务器 v1.0.0 已启动');
@@ -662,6 +680,7 @@ server.listen(PORT, HOST, () => {
   console.log(' 数据目录: ' + path.join(ROOT, 'data'));
   console.log(' 消息保留: 最近 ' + store.MAX_MESSAGES + ' 条');
   console.log(' 上传上限: ' + (MAX_UPLOAD / 1024 / 1024) + ' MB');
+  console.log(' 文件保留: ' + FILE_TTL_DAYS + ' 天（超期仅删文件，消息保留）');
   console.log('==========================================');
 });
 

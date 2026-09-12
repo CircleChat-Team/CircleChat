@@ -472,6 +472,32 @@
         } catch (e) { /* 忽略 */ }
     }
 
+    // 过期占位：图片/文件已被服务端清理后的展示（文件仍显示文件名）
+    function makeExpiredEl(isImage, name) {
+        var el = document.createElement('div');
+        el.className = 'file-card expired';
+        var icon = document.createElement('span');
+        icon.style.fontSize = '20px';
+        icon.textContent = isImage ? '🖼️' : '📄';
+        var meta = document.createElement('span');
+        var tip = document.createElement('span');
+        tip.className = 'fsize';
+        tip.textContent = isImage ? '图片已过期' : '文件已过期';
+        if (isImage) {
+            meta.appendChild(tip);
+        } else {
+            var fn = document.createElement('span');
+            fn.className = 'fname';
+            fn.textContent = name || '文件';
+            meta.appendChild(fn);
+            meta.appendChild(document.createElement('br'));
+            meta.appendChild(tip);
+        }
+        el.appendChild(icon);
+        el.appendChild(meta);
+        return el;
+    }
+
     // 构建单条消息 DOM（不插入、不滚动），返回 wrap 或 null（非法资源）
     function buildMsg(m) {
         // 已撤回的消息：直接渲染为系统提示，刷新后依然保留位置
@@ -495,28 +521,38 @@
         bubble.className = 'bubble';
 
         if (m.type === 'image') {
-            var src = safeUploadUrl(m.content);
-            if (!src) return null;
-            var img = document.createElement('img');
-            img.src = src;
-            img.alt = m.name || '图片';
-            img.loading = 'lazy';
-            // 图片加载完成后，若用户贴近底部则补滚到底部
-            img.addEventListener('load', function () { if (nearBottom) scrollToBottom(); });
-            img.addEventListener('click', function () {
-                var w = window.open('', '_blank');
-                if (w) { w.document.write('<html><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center"><img src="' + src + '" style="max-width:100vw;max-height:100vh"></body></html>'); w.document.close(); }
-            });
-            bubble.appendChild(img);
+            if (m.file_expired) {
+                // 文件已被清理：显示「图片已过期」
+                bubble.appendChild(makeExpiredEl(true, ''));
+            } else {
+                var src = safeUploadUrl(m.content);
+                if (!src) return null;
+                var img = document.createElement('img');
+                img.src = src;
+                img.alt = m.name || '图片';
+                img.loading = 'lazy';
+                // 图片加载完成后，若用户贴近底部则补滚到底部
+                img.addEventListener('load', function () { if (nearBottom) scrollToBottom(); });
+                img.addEventListener('click', function () {
+                    var w = window.open('', '_blank');
+                    if (w) { w.document.write('<html><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center"><img src="' + src + '" style="max-width:100vw;max-height:100vh"></body></html>'); w.document.close(); }
+                });
+                bubble.appendChild(img);
+            }
         } else if (m.type === 'file') {
-            var href = safeUploadUrl(m.content);
-            if (!href) return null;
-            var a = document.createElement('a');
-            a.className = 'file-card';
-            a.href = href;
-            a.download = m.name || 'file';
-            a.innerHTML = '<span style="font-size:20px">📄</span><span><span class="fname">' + esc(m.name || '文件') + '</span><br><span class="fsize">' + fmtSize(m.size) + ' · 点击下载</span></span>';
-            bubble.appendChild(a);
+            if (m.file_expired) {
+                // 文件已被清理：显示「文件已过期」，文件名保留
+                bubble.appendChild(makeExpiredEl(false, m.name));
+            } else {
+                var href = safeUploadUrl(m.content);
+                if (!href) return null;
+                var a = document.createElement('a');
+                a.className = 'file-card';
+                a.href = href;
+                a.download = m.name || 'file';
+                a.innerHTML = '<span style="font-size:20px">📄</span><span><span class="fname">' + esc(m.name || '文件') + '</span><br><span class="fsize">' + fmtSize(m.size) + ' · 点击下载</span></span>';
+                bubble.appendChild(a);
+            }
         } else {
             renderTextContent(bubble, m.content);
         }
