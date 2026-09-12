@@ -23,6 +23,7 @@ const auth = require('./lib/auth');
 const store = require('./lib/store');
 const wsproto = require('./lib/ws');
 const logger = require('./lib/log');
+const migrate = require('./lib/migrate');
 
 // ---------- 配置 ----------
 const PORT = parseInt(process.env.PORT, 10) || 8080;
@@ -516,6 +517,7 @@ server.on('upgrade', handleWsUpgrade);
 
 // ---------- 启动 ----------
 
+migrate.run();            // 启动前校验并自动迁移数据库结构（兼容旧库）
 auth.init(false);
 store.load();
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
