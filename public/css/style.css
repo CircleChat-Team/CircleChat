@@ -1145,6 +1145,82 @@ body {
   30%           { opacity: 1; }
 }
 
+/* ---------- 引用回复：输入栏上方的提示条 ---------- */
+.reply-bar {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: calc(100% + 4px);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--glass-strong);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  backdrop-filter: saturate(180%) blur(12px);
+  animation: slideUp .18s var(--ease) both;
+}
+.reply-label { flex: 0 0 auto; color: var(--muted); }
+.reply-from  { flex: 0 0 auto; font-weight: 600; color: var(--primary); }
+.reply-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.reply-cancel {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  font-size: 15px;
+  line-height: 1;
+  font-family: inherit;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.reply-cancel:hover { color: var(--text); background: var(--fill); }
+
+/* ---------- 引用块（气泡上方的原消息摘要） ---------- */
+.quote {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 260px;
+  margin-bottom: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--fill);
+  border-left: 3px solid var(--primary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s var(--ease);
+}
+.quote:hover { background: var(--fill-hover); }
+.quote-from { font-weight: 600; color: var(--primary); }
+.quote-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 点击引用跳转后，目标消息短暂高亮 */
+.msg.highlight .bubble,
+.msg.highlight .file-card { box-shadow: 0 0 0 2px var(--primary); }
+
 .chat-inputbar {
   position: relative;
   display: flex;

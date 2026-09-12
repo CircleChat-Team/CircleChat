@@ -638,6 +638,13 @@
         tools.className = 'msg-tools';
 
         if (m.idx != null && !m.recalled) {
+            var rp = document.createElement('button');
+            rp.type = 'button';
+            rp.className = 'msg-tool';
+            rp.textContent = '回复';
+            rp.addEventListener('click', function () { setReply(m); });
+            tools.appendChild(rp);
+
             var rc = document.createElement('button');
             rc.type = 'button';
             rc.className = 'msg-tool';
@@ -761,6 +768,61 @@
         }
     }
 
+    // ---------- 引用回复 ----------
+
+    var replyTo = null; // 正在回复的消息对象
+
+    function replySnippetLocal(m) {
+        if (m.file_expired) return m.type === 'image' ? '图片已过期' : '文件已过期';
+        if (m.type === 'image') return '[图片]';
+        if (m.type === 'file') return '[文件] ' + (m.name || '');
+        var t = String(m.content || '').replace(/\s+/g, ' ').trim();
+        return t.length > 60 ? t.slice(0, 60) + '…' : t;
+    }
+
+    function setReply(m) {
+        if (!m || m.recalled) return;
+        replyTo = m;
+        $('replyFrom').textContent = m.from === ME ? '你' : m.from;
+        $('replyText').textContent = replySnippetLocal(m);
+        $('replyBar').classList.remove('hidden');
+        closeReactPicker();
+        $('emojiPanel').classList.add('hidden');
+        textInput.focus();
+    }
+
+    function clearReply() {
+        replyTo = null;
+        var bar = $('replyBar');
+        if (bar) bar.classList.add('hidden');
+    }
+
+    // 点击引用块跳到原消息
+    function jumpToMsg(idx) {
+        var el = msgList.querySelector('.msg[data-idx="' + idx + '"]');
+        if (!el) { toast('原消息不在当前视图中'); return; }
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        el.classList.add('highlight');
+        setTimeout(function () { el.classList.remove('highlight'); }, 1400);
+    }
+
+    // 气泡上方的引用块
+    function buildQuote(m) {
+        if (!m.reply) return null;
+        var q = document.createElement('div');
+        q.className = 'quote';
+        var qf = document.createElement('span');
+        qf.className = 'quote-from';
+        qf.textContent = m.reply.from === ME ? '你' : (m.reply.from || '原消息');
+        var qt = document.createElement('span');
+        qt.className = 'quote-text';
+        qt.textContent = m.reply.snippet || '';
+        q.appendChild(qf);
+        q.appendChild(qt);
+        q.addEventListener('click', function () { jumpToMsg(m.reply.idx); });
+        return q;
+    }
+
     // 同一人 5 分钟内连发视为一组，第二条起隐藏头像与昵称
     var GROUP_GAP_MS = 5 * 60 * 1000;
 
@@ -839,6 +901,9 @@
             if (tools) meta.appendChild(tools);
             body.appendChild(meta);
         }
+
+        var quote = buildQuote(m);
+        if (quote) body.appendChild(quote);
 
         body.appendChild(contentEl);
 
@@ -1124,10 +1189,13 @@
     function sendText() {
         var val = textInput.value.trim();
         if (!val) return;
-        if (!sendWs({ type: 'msg', data: { type: 'text', content: val } })) return;
+        var payload = { type: 'text', content: val };
+        if (replyTo) payload.replyTo = replyTo.idx; // 带上引用目标
+        if (!sendWs({ type: 'msg', data: payload })) return;
         textInput.value = '';
         autoGrow();
         hideMentionPanel();
+        clearReply();
         textInput.focus();
     }
 
@@ -1546,6 +1614,7 @@
           }
           if (e.key === 'Escape') { e.preventDefault(); hideMentionPanel(); return; }
         }
+        if (e.key === 'Escape' && replyTo) { e.preventDefault(); clearReply(); return; }
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           sendText();
@@ -1601,6 +1670,7 @@
       });
 
       bindDropUpload(); // 拖拽 / 粘贴上传
+      $('replyCancel').addEventListener('click', clearReply);
 
       // 点击表情选择器以外区域时收起
       document.addEventListener('click', function (e) {
