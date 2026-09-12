@@ -294,7 +294,7 @@
         meta.textContent = (m.from === ME ? '' : m.from + ' · ') + fmtTime(m.ts);
         body.appendChild(meta);
 
-        var avatar = makeAvatar(m.from, 'msg-avatar');
+        var avatar = makeAvatarEl(m.from, 'msg-avatar');
 
         wrap.appendChild(avatar);
         wrap.appendChild(body);
