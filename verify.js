@@ -30,7 +30,7 @@ const MANIFEST = {
   'public/chat.html': 'a9e7b59062272efd10d684ec623de849',
   'public/js/config.js': '29e316e77c56cadc01e3850c87a5b7d1',
   'public/js/login.js': '6d114faaf6462e9691a5a9374e6d3d3c',
-  'public/js/chat.js': '5acc0c16d73f00ef07669f8aabf92143',
+  'public/js/chat.js': '4529b453ae21dbfe38abdf45333266dd',
   'tools/adduser.js': '6fcfc3d222d97ef6d2b095f4f24ccd92'
 };
 
