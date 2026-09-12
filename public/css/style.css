@@ -605,6 +605,7 @@ body {
 }
 
 .msg-body {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -671,17 +672,43 @@ body {
 }
 
 .msg .meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 5px;
   padding: 0 6px;
   font-size: 11px;
   letter-spacing: .2px;
   color: var(--muted);
 }
-.msg.self .meta { text-align: right; }
+.msg.self .meta  { justify-content: flex-end; }
+.msg.other .meta { justify-content: flex-start; }
+
+/* 连续消息合并：同一人短时间连发时隐藏头像，昵称行浮动显示，形成紧凑对话流 */
+.msg.grouped .msg-avatar { visibility: hidden; }
+.msg.grouped .meta {
+  position: absolute;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 1px 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+  opacity: 0;
+  transition: opacity .15s var(--ease);
+}
+.msg.grouped:hover .meta,
+.msg.grouped .meta:focus-within { opacity: 1; }
+.msg.grouped .meta-text { display: none; }
+.msg.self.grouped .meta  { right: 0; }
+.msg.other.grouped .meta { left: 0; }
 
 /* 撤回按钮：默认隐藏，悬停消息时显现 */
 .recall-btn {
-  margin-left: 6px;
   padding: 0 3px;
   font-size: 12px;
   line-height: 1.5;
@@ -1281,6 +1308,16 @@ body {
   .emoji-grid  { grid-template-columns: repeat(8, 1fr); }
   /* 触屏无 hover：撤回按钮常驻显示 */
   .recall-btn { opacity: 1; }
+  /* 分组消息的昵称行不做悬浮，避免常驻浮层遮挡上一条消息 */
+  .msg.grouped .meta {
+    position: static;
+    margin-bottom: 5px;
+    padding: 0 6px;
+    background: none;
+    border: none;
+    box-shadow: none;
+    opacity: 1;
+  }
 }
 
 /* ============================================================

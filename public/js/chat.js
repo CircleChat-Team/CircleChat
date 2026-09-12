@@ -622,8 +622,18 @@
         return el;
     }
 
+    // 同一人 5 分钟内连发视为一组，第二条起隐藏头像与昵称
+    var GROUP_GAP_MS = 5 * 60 * 1000;
+
+    function canGroup(prev, cur) {
+        return !!(prev && cur && prev.idx != null && cur.idx != null &&
+                  prev.from === cur.from && !prev.recalled && !cur.recalled &&
+                  (cur.ts - prev.ts) < GROUP_GAP_MS);
+    }
+
     // 构建单条消息 DOM（不插入、不滚动），返回 wrap 或 null（非法资源）
-    function buildMsg(m) {
+    // grouped=true 表示与上一条同属一组（隐藏头像和昵称）
+    function buildMsg(m, grouped) {
         // 已撤回的消息：直接渲染为系统提示，刷新后依然保留位置
         if (m.recalled) {
             var tip = document.createElement('div');
@@ -633,7 +643,7 @@
         }
 
         var wrap = document.createElement('div');
-        wrap.className = 'msg ' + (m.from === ME ? 'self' : 'other');
+        wrap.className = 'msg ' + (m.from === ME ? 'self' : 'other') + (grouped ? ' grouped' : '');
         if (m.idx != null) wrap.dataset.idx = m.idx;
         // 自己被 @ 的消息：加黄色描边突出显示
         if (m.type === 'text' && mentionsMe(m.content)) wrap.classList.add('mention-me');
@@ -675,26 +685,36 @@
             contentEl = bubble;
         }
 
-        var meta = document.createElement('div');
-        meta.className = 'meta';
-        meta.textContent = (m.from === ME ? '' : m.from + ' · ') + fmtTime(m.ts);
         // 自己发送的消息显示「撤回」；管理员可在任意人的消息旁撤回
-        if ((m.from === ME || IS_ADMIN) && m.idx != null) {
-            var rb = document.createElement('button');
-            rb.type = 'button';
-            rb.className = 'recall-btn';
-            rb.textContent = '撤回';
-            rb.addEventListener('click', function () {
-                var ask = (IS_ADMIN && m.from !== ME)
-                    ? '确定以管理员身份撤回 ' + m.from + ' 的消息吗？'
-                    : '确定撤回这条消息吗？';
-                if (!window.confirm(ask)) return;
-                sendWs({ type: 'recall', data: { idx: m.idx } });
-            });
-            meta.appendChild(rb);
+        var canRecall = (m.from === ME || IS_ADMIN) && m.idx != null;
+
+        // 时间/昵称行：分组消息不显示文案，且无可用操作时整行省略，保证同一组紧凑
+        if (!grouped || canRecall) {
+            var meta = document.createElement('div');
+            meta.className = 'meta';
+
+            var metaText = document.createElement('span');
+            metaText.className = 'meta-text';
+            metaText.textContent = (m.from === ME ? '' : m.from + ' · ') + fmtTime(m.ts);
+            meta.appendChild(metaText);
+
+            if (canRecall) {
+                var rb = document.createElement('button');
+                rb.type = 'button';
+                rb.className = 'recall-btn';
+                rb.textContent = '撤回';
+                rb.addEventListener('click', function () {
+                    var ask = (IS_ADMIN && m.from !== ME)
+                        ? '确定以管理员身份撤回 ' + m.from + ' 的消息吗？'
+                        : '确定撤回这条消息吗？';
+                    if (!window.confirm(ask)) return;
+                    sendWs({ type: 'recall', data: { idx: m.idx } });
+                });
+                meta.appendChild(rb);
+            }
+            body.appendChild(meta);
         }
 
-        body.appendChild(meta);
         body.appendChild(contentEl);
 
         var avatar = makeAvatarEl(m.from, 'msg-avatar');
@@ -712,7 +732,8 @@
             if (renderedIdx[m.idx]) return;
             renderedIdx[m.idx] = true;
         }
-        var wrap = buildMsg(m);
+        var prev = historyAll.length ? historyAll[historyAll.length - 1] : null;
+        var wrap = buildMsg(m, canGroup(prev, m));
         if (!wrap) return;
         historyAll.push(m); // 与历史合并，保证一致性
         msgList.appendChild(wrap);
@@ -762,11 +783,21 @@
         var frag = document.createDocumentFragment();
         // 倒序构建后整体插入顶部，保证视觉顺序为旧 -> 新
         for (var i = batch.length - 1; i >= 0; i--) {
-            var el = buildMsg(batch[i]);
+            var el = buildMsg(batch[i], i > 0 && canGroup(batch[i - 1], batch[i]));
             if (el) frag.appendChild(el);
         }
+        var oldFirstMsg = historyAll[topIndex]; // 插入前已渲染的最早一条
         msgList.insertBefore(frag, msgList.firstChild);
         topIndex = newTop;
+
+        // 边界重算：原本最早的那条现在多了个更早的邻居，可能并入同一组
+        if (oldFirstMsg && oldFirstMsg.idx != null) {
+            var oldFirstEl = msgList.querySelector('.msg[data-idx="' + oldFirstMsg.idx + '"]');
+            if (oldFirstEl) {
+                if (canGroup(batch[batch.length - 1], oldFirstMsg)) oldFirstEl.classList.add('grouped');
+                else oldFirstEl.classList.remove('grouped');
+            }
+        }
 
         if (topIndex === 0) {
             var tip = document.createElement('div');
@@ -794,11 +825,12 @@
         }
 
         var initial = historyAll.slice(topIndex);
-        initial.forEach(function (m) {
+        for (var i = 0; i < initial.length; i++) {
+            var m = initial[i];
             if (m.idx != null) renderedIdx[m.idx] = true;
-            var el = buildMsg(m);
+            var el = buildMsg(m, i > 0 && canGroup(initial[i - 1], m));
             if (el) msgList.appendChild(el);
-        });
+        }
         if (topIndex === 0) {
             var tip0 = document.createElement('div');
             tip0.className = 'sys-msg';
