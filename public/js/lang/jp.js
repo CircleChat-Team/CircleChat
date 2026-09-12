@@ -281,7 +281,49 @@
     'api.upload.noFile': 'ファイルがありません',
     'api.upload.tooLarge': 'ファイルが大きすぎます（最大20MB）',
     'api.upload.failed': 'アップロードに失敗しました',
-    'api.register.submitted': '登録を送信しました。ログイン前に管理者の承認をお待ちください'
+    'api.register.submitted': '登録を送信しました。ログイン前に管理者の承認をお待ちください',
+
+    // ---------- 監査ログ詳細（サーバー生成、言語ごとに翻訳） ----------
+    'log.detail.login.ok': 'ログインしました',
+    'log.detail.login.fail.rateLimited': 'ログイン制限を超えました（10分間に失敗が多すぎます）',
+    'log.detail.login.fail.bad': 'ログイン失敗：ユーザー名またはパスワードが違います',
+    'log.detail.login.blockedPending': 'ログイン拒否：アカウントは承認待ちです',
+    'log.detail.login.blockedRejected': 'ログイン拒否：アカウントは拒否されました',
+    'log.detail.logout': 'ログアウトしました',
+    'log.detail.msg.text': 'テキスト：{text}',
+    'log.detail.msg.image': '画像',
+    'log.detail.msg.file': 'ファイル：{name}',
+    'log.detail.recall.self': '自分のメッセージを削除しました',
+    'log.detail.recall.byAdmin': '管理者として {user} のメッセージを削除しました',
+    'log.detail.register': '登録を送信しました（承認待ち）：{name}',
+    'log.detail.friend.request': '{name} に友達リクエストを送信',
+    'log.detail.friend.accept': '{name} の友達リクエストを承認',
+    'log.detail.settings': '設定を変更：{json}',
+    'log.detail.review.approve': '登録を承認：{name}',
+    'log.detail.review.reject': '登録を拒否：{name}',
+    'log.detail.user.add': 'アカウントを作成：{name}',
+    'log.detail.user.del': 'アカウントを削除：{name}',
+    'log.detail.user.pass': 'パスワードをリセット：{name}',
+    'log.detail.group.create': 'グループ作成：{name}',
+    'log.detail.group.dissolve': 'グループ解散：{name}',
+    'log.detail.group.join': 'グループに参加',
+    'log.detail.group.leave': 'グループ退出',
+    'log.detail.group.rename': 'グループ名変更：{name}',
+    'log.detail.upload.image': '画像をアップロード：{name}（{size} バイト）',
+    'log.detail.upload.file': 'ファイルをアップロード：{name}（{size} バイト）',
+
+    // ---------- 監査アクションラベル（追加） ----------
+    'admin.action.groupMsg': 'グループメッセージ',
+    'admin.action.groupCreate': 'グループ作成',
+    'admin.action.groupDissolve': 'グループ解散',
+    'admin.action.groupJoin': 'グループ参加',
+    'admin.action.groupLeave': 'グループ退出',
+    'admin.action.groupRename': 'グループ名変更',
+    'admin.action.dmMsg': 'ダイレクトメッセージ',
+    'admin.action.dmRecall': 'DM削除',
+    'admin.action.groupRecall': 'グループ削除',
+    'admin.action.friendRequest': '友達リクエスト',
+    'admin.action.friendAccept': '友達追加'
 
   };
 });

@@ -28,6 +28,12 @@ const wsproto = require('./lib/ws');
 const logger = require('./lib/log');
 const migrate = require('./lib/migrate');
 
+// 审计详情结构化：以 {k: i18n 键, v: 占位变量} 形式写入 detail 字段，
+// 前端按当前语言翻译；旧版直接写死的中文详情作为兜底原样显示
+function auditDetail(key, vars) {
+  return JSON.stringify({ k: key, v: vars || {} });
+}
+
 // ---------- 配置 ----------
 const PORT = parseInt(process.env.PORT, 10) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -424,9 +430,9 @@ function handleWsText(client, text) {
       actor: from,
       action: dm != null ? 'dm.msg' : (gid == null ? 'msg' : 'group.msg'),
       target: dm != null ? record.idx : (gid == null ? record.idx : gid),
-      detail: type === 'text'
-        ? '文本：' + content.slice(0, 40)
-        : (type === 'image' ? '图片：' : '文件：') + String(d.name || '未命名'),
+      detail: auditDetail(type === 'text'
+        ? 'log.detail.msg.text' : (type === 'image' ? 'log.detail.msg.image' : 'log.detail.msg.file'),
+        type === 'text' ? { text: content.slice(0, 40) } : { name: String(d.name || '未命名') }),
       ip: client.user.ip
     });
     broadcastRoom(gid, dm, { type: 'msg', data: record });
@@ -469,9 +475,9 @@ function handleWsText(client, text) {
       actor: client.user.username,
       action: target.dm != null ? 'dm.recall' : (room == null ? 'recall' : 'group.recall'),
       target: idx,
-      detail: target.from === client.user.username
-        ? '撤回了自己的消息'
-        : '以管理员身份撤回了 ' + target.from + ' 的消息',
+      detail: auditDetail(target.from === client.user.username
+        ? 'log.detail.recall.self' : 'log.detail.recall.byAdmin',
+        target.from === client.user.username ? {} : { user: target.from }),
       ip: client.user.ip
     });
     broadcastRoom(room, target.dm, {
@@ -508,7 +514,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         logger.write({ ip, method: req.method, url: pathname, status: 409, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
-      audit.add({ actor: name, action: 'register', detail: '提交注册申请（待审核）：' + name, ip });
+      audit.add({ actor: name, action: 'register', detail: auditDetail('log.detail.register', { name }), ip });
       sendJSON(res, 200, { ok: true, message: 'api.register.submitted' });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -520,7 +526,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/login
   if (pathname === '/api/login' && req.method === 'POST') {
     if (auth.isLocked(ip)) {
-      audit.add({ actor: '', action: 'login.fail', detail: '触发登录限速（10 分钟内失败次数过多）', ip });
+      audit.add({ actor: '', action: 'login.fail', detail: auditDetail('log.detail.login.fail.rateLimited'), ip });
       sendJSON(res, 429, { ok: false, error: 'api.login.rateLimited' });
       logger.write({ ip, method: req.method, url: pathname, status: 429, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       return;
@@ -537,21 +543,21 @@ function handleApi(req, res, urlObj, pathname, ip) {
       const user = auth.login(u.trim(), p);
       if (!user) {
         auth.recordFail(ip);
-        audit.add({ actor: u.trim(), action: 'login.fail', detail: 'api.login.badCredentials', ip });
+        audit.add({ actor: u.trim(), action: 'login.fail', detail: auditDetail('log.detail.login.fail.bad'), ip });
         sendJSON(res, 401, { ok: false, error: 'api.login.badCredentials' });
         logger.write({ ip, method: req.method, url: pathname, status: 401, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
       // 未激活账号禁止登录（管理员审核通过前不可用）
       if (user.status !== auth.STATUS.ACTIVE) {
-        audit.add({ actor: u.trim(), action: 'login.fail', detail: user.status === auth.STATUS.PENDING ? '登录被拦截：账号待审核' : '登录被拦截：账号被拒绝', ip });
+        audit.add({ actor: u.trim(), action: 'login.fail', detail: auditDetail(user.status === auth.STATUS.PENDING ? 'log.detail.login.blockedPending' : 'log.detail.login.blockedRejected'), ip });
         sendJSON(res, 403, { ok: false, error: user.status === auth.STATUS.PENDING ? '账号待管理员审核，通过后才能登录' : '账号已被拒绝，无法登录' });
         logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
       const token = auth.createSession(user.username, ip);
       auth.clearFails(ip);
-      audit.add({ actor: user.username, action: 'login', detail: '登录成功', ip });
+      audit.add({ actor: user.username, action: 'login', detail: auditDetail('log.detail.login.ok'), ip });
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',
@@ -570,7 +576,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   if (pathname === '/api/logout' && req.method === 'POST') {
     const token = auth.tokenFromCookie(req.headers.cookie);
     const sess = auth.getSession(token);
-    if (sess) audit.add({ actor: sess.username, action: 'logout', detail: '退出登录', ip });
+    if (sess) audit.add({ actor: sess.username, action: 'logout', detail: auditDetail('log.detail.logout'), ip });
     if (token) auth.destroySession(token);
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
@@ -664,7 +670,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         logger.write({ ip, method: req.method, url: pathname, status: 409, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
-      audit.add({ actor: me.username, action: 'friend.request', target: to, detail: '向 ' + to + ' 发送好友申请', ip });
+      audit.add({ actor: me.username, action: 'friend.request', target: to, detail: auditDetail('log.detail.friend.request', { name: to }), ip });
       broadcast({ type: 'friends.changed' });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -685,7 +691,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
-      audit.add({ actor: me.username, action: 'friend.accept', target: from, detail: '同意 ' + from + ' 的好友申请', ip });
+      audit.add({ actor: me.username, action: 'friend.accept', target: from, detail: auditDetail('log.detail.friend.accept', { name: from }), ip });
       broadcast({ type: 'friends.changed' });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -755,7 +761,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         return;
       }
       auth.setSettings(me.username, patch);
-      audit.add({ actor: me.username, action: 'settings', detail: '修改设置：' + JSON.stringify(patch), ip });
+      audit.add({ actor: me.username, action: 'settings', detail: auditDetail('log.detail.settings', { json: JSON.stringify(patch) }), ip });
       sendJSON(res, 200, { ok: true, settings: auth.getSettings(me.username) });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -808,7 +814,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
           sendJSON(res, 404, { ok: false, error: 'api.friend.reqGone' });
           return;
         }
-        audit.add({ actor: me.username, action: 'admin.review.approve', target: name, detail: '通过注册申请：' + name, ip });
+        audit.add({ actor: me.username, action: 'admin.review.approve', target: name, detail: auditDetail('log.detail.review.approve', { name }), ip });
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
@@ -828,7 +834,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
           sendJSON(res, 404, { ok: false, error: 'api.friend.reqGone' });
           return;
         }
-        audit.add({ actor: me.username, action: 'admin.review.reject', target: name, detail: '拒绝注册申请：' + name, ip });
+        audit.add({ actor: me.username, action: 'admin.review.reject', target: name, detail: auditDetail('log.detail.review.reject', { name }), ip });
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
@@ -866,7 +872,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
           sendJSON(res, 409, { ok: false, error: 'api.user.nameTaken' });
           return;
         }
-        audit.add({ actor: me.username, action: 'admin.user.add', target: name, detail: '新建账号：' + name, ip });
+        audit.add({ actor: me.username, action: 'admin.user.add', target: name, detail: auditDetail('log.detail.user.add', { name }), ip });
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
@@ -888,7 +894,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         groups.removeUserAll(name); // 清理该用户在各群的全部成员关系，避免遗留孤儿
         friends.removeUserAll(name); // 清理该用户全部好友关系与好友申请
         broadcast({ type: 'friends.changed' });
-        audit.add({ actor: me.username, action: 'admin.user.del', target: name, detail: '删除账号：' + name, ip });
+        audit.add({ actor: me.username, action: 'admin.user.del', target: name, detail: auditDetail('log.detail.user.del', { name }), ip });
         // 立即断开该用户的所有在线连接
         for (const c of [...clients]) {
           if (c.user.username === name) { try { c.close(); } catch (e) { /* 忽略 */ } }
@@ -916,7 +922,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
           sendJSON(res, 404, { ok: false, error: 'api.user.notFound' });
           return;
         }
-        audit.add({ actor: me.username, action: 'admin.user.pass', target: name, detail: '重置密码：' + name, ip });
+        audit.add({ actor: me.username, action: 'admin.user.pass', target: name, detail: auditDetail('log.detail.user.pass', { name }), ip });
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
@@ -953,7 +959,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         return;
       }
       const g = groups.createGroup(name, me.username);
-      audit.add({ actor: me.username, action: 'group.create', target: g.id, detail: '创建群：' + g.name, ip });
+      audit.add({ actor: me.username, action: 'group.create', target: g.id, detail: auditDetail('log.detail.group.create', { name: g.name }), ip });
       sendJSON(res, 200, { ok: true, id: g.id, name: g.name, owner: g.owner });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -974,7 +980,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
       if (!canManage) { sendJSON(res, 403, { ok: false, error: 'api.group.noDismiss' }); return; }
       store.dissolveMessages(gid);
       groups.dissolveGroup(gid);
-      audit.add({ actor: me.username, action: 'group.dissolve', target: gid, detail: '解散群：' + g.name, ip });
+      audit.add({ actor: me.username, action: 'group.dissolve', target: gid, detail: auditDetail('log.detail.group.dissolve', { name: g.name }), ip });
       broadcastGid(gid, { type: 'groups.changed', data: { gid } });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -1008,7 +1014,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         return;
       }
       groups.addMember(gid, me.username);
-      audit.add({ actor: me.username, action: 'group.join', target: gid, detail: '加入群', ip });
+      audit.add({ actor: me.username, action: 'group.join', target: gid, detail: auditDetail('log.detail.group.join'), ip });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -1031,7 +1037,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         sendJSON(res, 404, { ok: false, error: 'api.group.notMember' });
         return;
       }
-      audit.add({ actor: me.username, action: 'group.leave', target: gid, detail: '退出群', ip });
+      audit.add({ actor: me.username, action: 'group.leave', target: gid, detail: auditDetail('log.detail.group.leave'), ip });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -1056,7 +1062,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         return;
       }
       groups.renameGroup(gid, name);
-      audit.add({ actor: me.username, action: 'group.rename', target: gid, detail: '群改名：' + name, ip });
+      audit.add({ actor: me.username, action: 'group.rename', target: gid, detail: auditDetail('log.detail.group.rename', { name }), ip });
       broadcastGid(gid, { type: 'groups.changed', data: { gid } });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -1137,7 +1143,8 @@ function handleApi(req, res, urlObj, pathname, ip) {
       audit.add({
         actor: me.username,
         action: 'upload',
-        detail: (kind === 'image' ? '图片：' : '文件：') + origName + '（' + buf.length + ' 字节）',
+        detail: auditDetail(kind === 'image' ? 'log.detail.upload.image' : 'log.detail.upload.file',
+          { name: origName, size: buf.length }),
         ip
       });
       sendJSON(res, 200, {

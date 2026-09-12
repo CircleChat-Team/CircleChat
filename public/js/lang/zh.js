@@ -282,7 +282,49 @@
     'api.upload.noFile': '缺少文件',
     'api.upload.tooLarge': '文件过大（上限 20MB）',
     'api.upload.failed': '上传失败',
-    'api.register.submitted': '注册申请已提交，请等待管理员审核通过后登录'
+    'api.register.submitted': '注册申请已提交，请等待管理员审核通过后登录',
+
+    // ---------- 审计日志详情（服务端生成，按当前语言翻译） ----------
+    'log.detail.login.ok': '登录成功',
+    'log.detail.login.fail.rateLimited': '触发登录限速（10 分钟内失败次数过多）',
+    'log.detail.login.fail.bad': '登录失败：用户名或密码错误',
+    'log.detail.login.blockedPending': '登录被拦截：账号待审核',
+    'log.detail.login.blockedRejected': '登录被拦截：账号被拒绝',
+    'log.detail.logout': '退出登录',
+    'log.detail.msg.text': '文本：{text}',
+    'log.detail.msg.image': '图片',
+    'log.detail.msg.file': '文件：{name}',
+    'log.detail.recall.self': '撤回了自己的消息',
+    'log.detail.recall.byAdmin': '以管理员身份撤回了 {user} 的消息',
+    'log.detail.register': '提交注册申请（待审核）：{name}',
+    'log.detail.friend.request': '向 {name} 发送好友申请',
+    'log.detail.friend.accept': '同意 {name} 的好友申请',
+    'log.detail.settings': '修改设置：{json}',
+    'log.detail.review.approve': '通过注册申请：{name}',
+    'log.detail.review.reject': '拒绝注册申请：{name}',
+    'log.detail.user.add': '新建账号：{name}',
+    'log.detail.user.del': '删除账号：{name}',
+    'log.detail.user.pass': '重置密码：{name}',
+    'log.detail.group.create': '创建群：{name}',
+    'log.detail.group.dissolve': '解散群：{name}',
+    'log.detail.group.join': '加入群',
+    'log.detail.group.leave': '退出群',
+    'log.detail.group.rename': '群改名：{name}',
+    'log.detail.upload.image': '上传图片：{name}（{size} 字节）',
+    'log.detail.upload.file': '上传文件：{name}（{size} 字节）',
+
+    // ---------- 审计动作标签补充 ----------
+    'admin.action.groupMsg': '群消息',
+    'admin.action.groupCreate': '创建群',
+    'admin.action.groupDissolve': '解散群',
+    'admin.action.groupJoin': '加入群',
+    'admin.action.groupLeave': '退出群',
+    'admin.action.groupRename': '重命名群',
+    'admin.action.dmMsg': '私聊消息',
+    'admin.action.dmRecall': '私聊撤回',
+    'admin.action.groupRecall': '群撤回',
+    'admin.action.friendRequest': '好友申请',
+    'admin.action.friendAccept': '通过好友申请'
 
   };
 });

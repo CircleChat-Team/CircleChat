@@ -281,7 +281,49 @@
     'api.upload.noFile': 'Missing file',
     'api.upload.tooLarge': 'File too large (max 20MB)',
     'api.upload.failed': 'Upload failed',
-    'api.register.submitted': 'Registration submitted; please wait for admin approval before signing in'
+    'api.register.submitted': 'Registration submitted; please wait for admin approval before signing in',
+
+    // ---------- Audit log details (server-generated, translated per locale) ----------
+    'log.detail.login.ok': 'Login succeeded',
+    'log.detail.login.fail.rateLimited': 'Login rate limit triggered (too many failures in 10 minutes)',
+    'log.detail.login.fail.bad': 'Login failed: wrong username or password',
+    'log.detail.login.blockedPending': 'Login blocked: account pending review',
+    'log.detail.login.blockedRejected': 'Login blocked: account rejected',
+    'log.detail.logout': 'Logged out',
+    'log.detail.msg.text': 'Text: {text}',
+    'log.detail.msg.image': 'Image',
+    'log.detail.msg.file': 'File: {name}',
+    'log.detail.recall.self': 'Recalled own message',
+    'log.detail.recall.byAdmin': "Recalled {user}'s message as admin",
+    'log.detail.register': 'Submitted registration (pending review): {name}',
+    'log.detail.friend.request': 'Sent friend request to {name}',
+    'log.detail.friend.accept': 'Accepted {name}\'s friend request',
+    'log.detail.settings': 'Changed settings: {json}',
+    'log.detail.review.approve': 'Approved registration: {name}',
+    'log.detail.review.reject': 'Rejected registration: {name}',
+    'log.detail.user.add': 'Created account: {name}',
+    'log.detail.user.del': 'Deleted account: {name}',
+    'log.detail.user.pass': 'Reset password: {name}',
+    'log.detail.group.create': 'Created group: {name}',
+    'log.detail.group.dissolve': 'Dissolved group: {name}',
+    'log.detail.group.join': 'Joined group',
+    'log.detail.group.leave': 'Left group',
+    'log.detail.group.rename': 'Renamed group: {name}',
+    'log.detail.upload.image': 'Uploaded image: {name} ({size} bytes)',
+    'log.detail.upload.file': 'Uploaded file: {name} ({size} bytes)',
+
+    // ---------- Audit action labels (extra) ----------
+    'admin.action.groupMsg': 'Group message',
+    'admin.action.groupCreate': 'Create group',
+    'admin.action.groupDissolve': 'Dissolve group',
+    'admin.action.groupJoin': 'Join group',
+    'admin.action.groupLeave': 'Leave group',
+    'admin.action.groupRename': 'Rename group',
+    'admin.action.dmMsg': 'Direct message',
+    'admin.action.dmRecall': 'DM recall',
+    'admin.action.groupRecall': 'Group recall',
+    'admin.action.friendRequest': 'Friend request',
+    'admin.action.friendAccept': 'Accept friend'
 
   };
 });

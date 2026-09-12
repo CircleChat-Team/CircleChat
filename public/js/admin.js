@@ -258,20 +258,44 @@
         'login.fail': 'admin.action.loginFail',
         'logout': 'admin.action.logout',
         'msg': 'admin.action.msg',
+        'group.msg': 'admin.action.groupMsg',
+        'dm.msg': 'admin.action.dmMsg',
         'recall': 'admin.action.recall',
+        'group.recall': 'admin.action.groupRecall',
+        'dm.recall': 'admin.action.dmRecall',
         'upload': 'admin.action.upload',
         'settings': 'admin.action.settings',
         'register': 'admin.action.register',
+        'friend.request': 'admin.action.friendRequest',
+        'friend.accept': 'admin.action.friendAccept',
         'admin.review.approve': 'admin.action.approve',
         'admin.review.reject': 'admin.action.reject',
         'admin.user.add': 'admin.action.userAdd',
         'admin.user.del': 'admin.action.userDel',
-        'admin.user.pass': 'admin.action.userPass'
+        'admin.user.pass': 'admin.action.userPass',
+        'group.create': 'admin.action.groupCreate',
+        'group.dissolve': 'admin.action.groupDissolve',
+        'group.join': 'admin.action.groupJoin',
+        'group.leave': 'admin.action.groupLeave',
+        'group.rename': 'admin.action.groupRename'
     };
 
     function actionLabel(a) {
         var k = ACTION_KEYS[a];
         return k ? tr(k) : a;
+    }
+
+    // 审计详情：新格式为 JSON {k: i18n 键, v: 变量}，按当前语言翻译；
+    // 旧版写死的中文详情无法解析时原样显示
+    function formatDetail(d) {
+        if (!d) return '';
+        try {
+            var o = JSON.parse(d);
+            if (o && typeof o === 'object' && typeof o.k === 'string') {
+                return tr(o.k, o.v || {});
+            }
+        } catch (e) { /* 旧版中文详情，原样显示 */ }
+        return d;
     }
 
     function fmtDateTime(ts) {
@@ -300,7 +324,7 @@
 
         var detail = document.createElement('span');
         detail.className = 'lg-detail';
-        detail.textContent = e.detail || '';
+        detail.textContent = formatDetail(e.detail);
 
         row.appendChild(time);
         row.appendChild(actor);
