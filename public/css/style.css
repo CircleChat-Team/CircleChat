@@ -707,22 +707,31 @@ body {
 .msg.self.grouped .meta  { right: 0; }
 .msg.other.grouped .meta { left: 0; }
 
-/* 撤回按钮：默认隐藏，悬停消息时显现 */
-.recall-btn {
-  padding: 0 3px;
-  font-size: 12px;
-  line-height: 1.5;
+/* 消息操作条：默认隐藏，悬停消息时显现 */
+.msg-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity .15s var(--ease);
+}
+.msg-body:hover .msg-tools,
+.msg-tools:focus-within { opacity: 1; }
+
+.msg-tool {
+  padding: 1px 7px;
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 1.6;
   color: var(--muted);
   background: none;
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity .15s var(--ease), color .15s var(--ease);
+  transition: background .15s var(--ease), color .15s var(--ease);
 }
-.msg-body:hover .recall-btn,
-.recall-btn:focus { opacity: 1; }
-.recall-btn:hover { color: var(--primary); }
+.msg-tool:hover { color: var(--primary); background: var(--fill); }
+.msg-tool.danger:hover { color: #e5484d; }
 
 /* ---------- 轻量 Markdown 渲染样式 ---------- */
 .md-text { margin: 0; }
@@ -1306,8 +1315,8 @@ body {
   .msg-body { max-width: 82%; }
   .msg-list { padding: 16px 12px 20px; }
   .emoji-grid  { grid-template-columns: repeat(8, 1fr); }
-  /* 触屏无 hover：撤回按钮常驻显示 */
-  .recall-btn { opacity: 1; }
+  /* 触屏无 hover：操作条常驻显示 */
+  .msg-tools { opacity: 1; }
   /* 分组消息的昵称行不做悬浮，避免常驻浮层遮挡上一条消息 */
   .msg.grouped .meta {
     position: static;

@@ -622,6 +622,48 @@
         return el;
     }
 
+    // 通用文本复制（优先剪贴板 API，降级 execCommand）
+    function copyText(text, okMsg) {
+        function done() { toast(okMsg || '已复制'); }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
+        } else {
+            fallbackCopy(text, done);
+        }
+    }
+
+    // 消息操作条（悬停时显现）：复制 / 撤回
+    function buildMsgTools(m) {
+        var tools = document.createElement('span');
+        tools.className = 'msg-tools';
+
+        if (m.type === 'text' && m.content) {
+            var cp = document.createElement('button');
+            cp.type = 'button';
+            cp.className = 'msg-tool';
+            cp.textContent = '复制';
+            cp.addEventListener('click', function () { copyText(m.content, '已复制消息'); });
+            tools.appendChild(cp);
+        }
+
+        if ((m.from === ME || IS_ADMIN) && m.idx != null) {
+            var rb = document.createElement('button');
+            rb.type = 'button';
+            rb.className = 'msg-tool danger';
+            rb.textContent = '撤回';
+            rb.addEventListener('click', function () {
+                var ask = (IS_ADMIN && m.from !== ME)
+                    ? '确定以管理员身份撤回 ' + m.from + ' 的消息吗？'
+                    : '确定撤回这条消息吗？';
+                if (!window.confirm(ask)) return;
+                sendWs({ type: 'recall', data: { idx: m.idx } });
+            });
+            tools.appendChild(rb);
+        }
+
+        return tools.childNodes.length ? tools : null;
+    }
+
     // 同一人 5 分钟内连发视为一组，第二条起隐藏头像与昵称
     var GROUP_GAP_MS = 5 * 60 * 1000;
 
@@ -685,11 +727,10 @@
             contentEl = bubble;
         }
 
-        // 自己发送的消息显示「撤回」；管理员可在任意人的消息旁撤回
-        var canRecall = (m.from === ME || IS_ADMIN) && m.idx != null;
+        var tools = buildMsgTools(m);
 
         // 时间/昵称行：分组消息不显示文案，且无可用操作时整行省略，保证同一组紧凑
-        if (!grouped || canRecall) {
+        if (!grouped || tools) {
             var meta = document.createElement('div');
             meta.className = 'meta';
 
@@ -698,20 +739,7 @@
             metaText.textContent = (m.from === ME ? '' : m.from + ' · ') + fmtTime(m.ts);
             meta.appendChild(metaText);
 
-            if (canRecall) {
-                var rb = document.createElement('button');
-                rb.type = 'button';
-                rb.className = 'recall-btn';
-                rb.textContent = '撤回';
-                rb.addEventListener('click', function () {
-                    var ask = (IS_ADMIN && m.from !== ME)
-                        ? '确定以管理员身份撤回 ' + m.from + ' 的消息吗？'
-                        : '确定撤回这条消息吗？';
-                    if (!window.confirm(ask)) return;
-                    sendWs({ type: 'recall', data: { idx: m.idx } });
-                });
-                meta.appendChild(rb);
-            }
+            if (tools) meta.appendChild(tools);
             body.appendChild(meta);
         }
 
