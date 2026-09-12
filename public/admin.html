@@ -77,6 +77,17 @@
 
       <section class="admin-card">
         <div class="admin-card-title log-title">
+          <span><span data-i18n="admin.files.title">文件管理</span><span id="fileCount" class="admin-count"></span></span>
+          <span class="log-tools">
+            <input id="fileSearch" class="admin-input" type="text" maxlength="64" placeholder="按文件名搜索" data-i18n-placeholder="admin.files.searchPlaceholder">
+            <button id="fileRefresh" class="admin-act" type="button" data-i18n="common.refresh">刷新</button>
+          </span>
+        </div>
+        <div id="adminFileList" class="admin-file-list"></div>
+      </section>
+
+      <section class="admin-card">
+        <div class="admin-card-title log-title">
           <span><span data-i18n="admin.log.title">审计日志</span><span id="logCount" class="admin-count"></span></span>
           <span class="log-tools">
             <input id="logActor" class="admin-input" type="text" maxlength="40" placeholder="按用户筛选" data-i18n-placeholder="admin.log.actorPlaceholder">
@@ -92,6 +103,7 @@
               <option value="admin.user.add" data-i18n="admin.action.userAdd">新建账号</option>
               <option value="admin.user.del" data-i18n="admin.action.userDel">删除账号</option>
               <option value="admin.user.pass" data-i18n="admin.action.userPass">重置密码</option>
+              <option value="admin.file.del" data-i18n="admin.action.fileDel">删除文件</option>
             </select>
             <button id="logRefresh" class="admin-act" type="button" data-i18n="common.refresh">刷新</button>
           </span>

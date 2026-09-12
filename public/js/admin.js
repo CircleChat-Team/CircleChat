@@ -25,6 +25,7 @@
       document.title = tr('admin.title');
       refreshApprovals();
       refreshUsers();
+      refreshFiles();
       refreshLogs();
     }
 
@@ -281,6 +282,113 @@
         });
     }
 
+    // ---------- 文件管理（全服上传文件） ----------
+
+    var FILE_ICON = '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"></path>';
+
+    function fmtSize(n) {
+        var b = Number(n) || 0;
+        if (b < 1024) return b + ' B';
+        if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+        return (b / 1024 / 1024).toFixed(1) + ' MB';
+    }
+
+    function refreshFiles() {
+        var box = $('adminFileList');
+        if (!box) return;
+        var kw = $('fileSearch').value.trim();
+        var url = '/api/admin/files?limit=200';
+        if (kw) url += '&q=' + encodeURIComponent(kw);
+        fetch(api(url), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.ok) { emptyTip(box, j.error || tr('common.loadFailed')); return; }
+                box.innerHTML = '';
+                $('fileCount').textContent = trn('admin.count.files', j.total) +
+                    (j.total ? tr('admin.files.totalSize', { size: fmtSize(j.totalSize) }) : '');
+                if (!j.files.length) { emptyTip(box, tr('admin.files.empty')); return; }
+                j.files.forEach(function (f) { box.appendChild(buildFileRow(f)); });
+            })
+            .catch(function () { emptyTip(box, tr('common.loadFailed')); });
+    }
+
+    function buildFileRow(f) {
+        var row = document.createElement('div');
+        row.className = 'admin-file' + (f.used ? '' : ' orphan');
+        var label = f.origin || f.name;
+
+        // 缩略图：图片直接内联显示，其它类型显示文件图标
+        var thumb = document.createElement('span');
+        thumb.className = 'f-thumb';
+        if (f.kind === 'image') {
+            var img = document.createElement('img');
+            img.className = 'f-thumb-img';
+            img.src = api('/uploads/' + f.name);
+            img.alt = '';
+            img.loading = 'lazy';
+            thumb.appendChild(img);
+        } else {
+            thumb.innerHTML = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">' + FILE_ICON + '</svg>';
+        }
+        row.appendChild(thumb);
+
+        var name = document.createElement('span');
+        name.className = 'f-name';
+        name.textContent = label;
+        name.title = f.name + (f.origin ? '\n' + f.origin : '');
+        row.appendChild(name);
+
+        var kind = document.createElement('span');
+        kind.className = 'f-kind';
+        kind.textContent = tr(f.kind === 'image' ? 'admin.files.kindImage' : 'admin.files.kindFile');
+        row.appendChild(kind);
+
+        var size = document.createElement('span');
+        size.className = 'f-size';
+        size.textContent = fmtSize(f.size);
+        row.appendChild(size);
+
+        var time = document.createElement('span');
+        time.className = 'f-time';
+        time.textContent = fmtDateTime(f.ts);
+        row.appendChild(time);
+
+        var state = document.createElement('span');
+        state.className = 'f-state' + (f.used ? ' on' : '');
+        state.textContent = f.used ? trn('admin.files.used', f.used) : tr('admin.files.orphan');
+        row.appendChild(state);
+
+        var dl = document.createElement('a');
+        dl.className = 'admin-act';
+        dl.textContent = tr('admin.files.download');
+        dl.href = api('/uploads/' + f.name);
+        dl.setAttribute('download', label);
+        row.appendChild(dl);
+
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'admin-act danger';
+        del.textContent = tr('admin.files.delBtn');
+        del.addEventListener('click', function () {
+            UI.confirm({
+                title: tr('admin.files.delTitle'),
+                text: f.used
+                    ? tr('admin.files.delConfirmUsed', { name: label, n: f.used })
+                    : tr('admin.files.delConfirm', { name: label }),
+                okText: tr('admin.files.delBtn')
+            }).then(function (ok) {
+                if (!ok) return;
+                adminApi('/api/admin/file/del', { name: f.name }).then(function (j) {
+                    toast(j.ok ? tr('admin.files.deleted', { name: label }) : (j.error || tr('common.opFailed')));
+                    if (j.ok) { refreshFiles(); refreshLogs(); }
+                });
+            });
+        });
+        row.appendChild(del);
+
+        return row;
+    }
+
     // ---------- 审计日志 ----------
 
     // 审计动作 → 文案 key（下拉框选项与日志标签共用同一批 key）
@@ -304,6 +412,7 @@
         'admin.user.add': 'admin.action.userAdd',
         'admin.user.del': 'admin.action.userDel',
         'admin.user.pass': 'admin.action.userPass',
+        'admin.file.del': 'admin.action.fileDel',
         'group.create': 'admin.action.groupCreate',
         'group.dissolve': 'admin.action.groupDissolve',
         'group.join': 'admin.action.groupJoin',
@@ -472,9 +581,17 @@
                     if (e.key === 'Enter') { e.preventDefault(); refreshLogs(); }
                 });
 
+                // 文件管理：搜索与刷新
+                $('fileRefresh').addEventListener('click', refreshFiles);
+                $('fileSearch').addEventListener('keydown', function (e) {
+                    if (e.isComposing || e.keyCode === 229) return;
+                    if (e.key === 'Enter') { e.preventDefault(); refreshFiles(); }
+                });
+
                 refreshUsers();
                 refreshApprovals();
                 $('approvalRefresh').addEventListener('click', refreshApprovals);
+                refreshFiles();
                 refreshLogs();
             })
             .catch(function () { location.replace('/login.html'); });
