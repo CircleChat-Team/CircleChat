@@ -347,6 +347,21 @@ function handleWsText(client, text) {
     });
     broadcast({ type: 'msg', data: record });
   }
+  if (msg.type === 'react') {
+    const d = msg.data || {};
+    const idx = Number(d.idx);
+    if (!Number.isInteger(idx) || idx <= 0) return;
+    // 按码点截断，避免把一个 emoji（可能由多个码点组成）截坏
+    const emoji = Array.from(String(d.emoji || '')).slice(0, 4).join('').trim();
+    if (!emoji) return;
+    const target = store.get(idx);
+    if (!target || target.recalled) return; // 不存在的或已撤回的消息不能回应
+    const state = store.toggleReaction(idx, emoji, client.user.username);
+    broadcast({
+      type: 'reaction',
+      data: { idx, emoji, added: state.added, reactions: state.reactions, by: client.user.username }
+    });
+  }
   if (msg.type === 'recall') {
     const d = msg.data || {};
     const idx = Number(d.idx);
