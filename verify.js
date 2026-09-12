@@ -19,7 +19,7 @@ const ROOT = __dirname;
 
 // MD5 完整性清单（与各源文件内容一一对应）
 const MANIFEST = {
-  'server.js': '45f03e376d6917c34884920096304ac2',
+  'server.js': '1e08a99867f31fddda46cf549f5720aa',
   'lib/auth.js': 'fdd38af5eb243f31e5236fa77cb69277',
   'lib/store.js': 'b585a8e075818bd6185a97da6c08781b',
   'lib/ws.js': '8eb09d11bc20e592e092b5955b498f1e',

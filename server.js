@@ -42,10 +42,35 @@ const MAX_PASS_LEN = 64;
 // 允许的图片扩展名
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 // 允许的文件扩展名（白名单）
+// 图片单独由 IMAGE_EXTS + 魔数校验处理，避免上传伪装文件。
+// 说明：.html/.svg/.xml 等可被浏览器渲染的类型也允许上传，但 serveStatic 会把
+//       上传目录里的非图片文件一律以附件（application/octet-stream）下发，
+//       因此它们只会被下载，不会以本站同源页面身份执行。
 const FILE_EXTS = new Set([
-  '.txt', '.md', '.csv', '.json', '.log',
-  '.pdf', '.zip', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-  '.mp3', '.mp4', '.wav', '.flac'
+  // 文档与文本
+  '.txt', '.md', '.markdown', '.csv', '.json', '.log', '.rtf', '.ics', '.vcf',
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.odt', '.ods', '.odp', '.epub',
+  // 压缩包
+  '.zip', '.rar', '.7z', '.tar', '.tgz', '.gz', '.bz2', '.xz',
+  // 音视频与字幕
+  '.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.opus',
+  '.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.flv', '.wmv',
+  '.srt', '.ass', '.vtt',
+  // 安装包与种子
+  '.apk', '.ipa', '.exe', '.msi', '.dmg', '.pkg', '.deb', '.rpm', '.torrent',
+  // 代码：脚本与前端
+  '.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.vue', '.svelte', '.dart',
+  '.py', '.pyw', '.rb', '.php', '.pl', '.lua', '.r', '.jl', '.ipynb',
+  '.html', '.htm', '.xhtml', '.xml', '.xsl', '.xslt', '.svg',
+  '.css', '.scss', '.sass', '.less', '.styl',
+  // 代码：后端与系统级
+  '.java', '.kt', '.kts', '.scala', '.groovy', '.cs', '.go', '.rs', '.swift',
+  '.c', '.h', '.cpp', '.cc', '.cxx', '.hpp', '.hxx', '.m', '.mm', '.asm', '.s',
+  '.sh', '.bash', '.zsh', '.fish', '.bat', '.cmd', '.ps1',
+  // 配置与数据描述
+  '.sql', '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf', '.properties',
+  '.env', '.gradle', '.cmake', '.mk', '.tex', '.bib', '.proto', '.graphql', '.gql'
 ]);
 
 // ---------- 工具函数 ----------
@@ -119,18 +144,26 @@ function serveStatic(req, res, pathname) {
       res.writeHead(404); res.end('Not Found'); return;
     }
     const ext = path.extname(filePath).toLowerCase();
-    const type = MIME[ext] || 'application/octet-stream';
+    let type = MIME[ext] || 'application/octet-stream';
+    // 上传目录防存储型 XSS：除图片外一律作为附件下载，
+    // 避免 .html / .svg / .xml 等被浏览器以本站同源页面身份渲染并执行脚本。
+    let attachment = false;
+    if (filePath.startsWith(UPLOAD_DIR + path.sep) && !/^image\/(png|jpeg|gif|webp)$/.test(type)) {
+      type = 'application/octet-stream';
+      attachment = true;
+    }
     // JS/CSS/HTML 不缓存，保证更新后立即生效；图片类资源随机文件名，可长期缓存
     const cache = /\.(png|jpg|jpeg|gif|webp|ico|svg)$/.test(ext) ? 'public, max-age=86400' : 'no-cache';
     fs.readFile(filePath, (e2, data) => {
       if (e2) { res.writeHead(500); res.end(); return; }
       const acceptGzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
-      const big = data.length > 512 && /\.(html|css|js|json|svg|txt|md)$/.test(ext);
+      const big = !attachment && data.length > 512 && /\.(html|css|js|json|svg|txt|md)$/.test(ext);
       const headers = {
         'Content-Type': type,
         'Cache-Control': cache,
         'X-Content-Type-Options': 'nosniff'
       };
+      if (attachment) headers['Content-Disposition'] = 'attachment';
       // 先压缩再发头，避免 writeHead 后 setHeader 报错
       if (acceptGzip && big) {
         try {
@@ -298,7 +331,7 @@ function handleWsText(client, text) {
     if (type === 'text') {
       if (!content.trim()) return;
     } else {
-      if (!/^\/uploads\/[a-zA-Z0-9]+\.[a-z0-9]{2,5}$/i.test(content)) return;
+      if (!/^\/uploads\/[a-zA-Z0-9]+\.[a-z0-9]{1,8}$/i.test(content)) return;
       if (d.name !== undefined && typeof d.name !== 'string') return;
       if (d.size !== undefined && (!Number.isInteger(d.size) || d.size < 0 || d.size > MAX_UPLOAD)) return;
     }
@@ -578,7 +611,10 @@ function handleApi(req, res, urlObj, pathname, ip) {
       if (IMAGE_EXTS.has(ext) && sniffed) kind = 'image';
       else if (FILE_EXTS.has(ext)) kind = 'file';
       if (!kind) {
-        sendJSON(res, 400, { ok: false, error: '不支持的文件类型' });
+        sendJSON(res, 400, {
+          ok: false,
+          error: '不支持的文件类型「' + (ext || '无扩展名') + '」，支持文档 / 压缩包 / 音视频 / 图片等常见格式'
+        });
         logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
