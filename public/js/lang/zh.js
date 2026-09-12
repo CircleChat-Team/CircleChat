@@ -324,7 +324,32 @@
     'admin.action.dmRecall': '私聊撤回',
     'admin.action.groupRecall': '群撤回',
     'admin.action.friendRequest': '好友申请',
-    'admin.action.friendAccept': '通过好友申请'
+    'admin.action.friendAccept': '通过好友申请',
+
+    // ---------- 文件管理（管理面板） ----------
+    'admin.files.title': '文件管理',
+    'admin.files.empty': '暂无上传文件',
+    'admin.files.searchPlaceholder': '按文件名搜索',
+    'admin.count.files': ' · {n} 个',
+    'admin.count.files.one': ' · {n} 个',
+    'admin.count.files.other': ' · {n} 个',
+    'admin.files.totalSize': ' · 共 {size}',
+    'admin.files.kindImage': '图片',
+    'admin.files.kindFile': '文件',
+    'admin.files.used': '被 {n} 条消息引用',
+    'admin.files.used.one': '被 {n} 条消息引用',
+    'admin.files.used.other': '被 {n} 条消息引用',
+    'admin.files.orphan': '未被引用',
+    'admin.files.download': '下载',
+    'admin.files.delBtn': '删除',
+    'admin.files.delTitle': '删除文件',
+    'admin.files.delConfirm': '确定删除文件「{name}」吗？该操作不可恢复。',
+    'admin.files.delConfirmUsed': '「{name}」正被 {n} 条消息引用，删除后聊天记录中的该文件将显示为「已过期」。确定删除吗？',
+    'admin.files.deleted': '已删除文件 {name}',
+    'admin.action.fileDel': '删除文件',
+    'log.detail.file.del': '删除上传文件：{name}',
+    'api.admin.fileInvalid': '文件名不合法',
+    'api.admin.fileNotFound': '文件不存在或已被删除'
 
   };
 });

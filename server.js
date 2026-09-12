@@ -56,6 +56,10 @@ const MAX_PASS_LEN = 64;
 // 图片扩展名（仅用于「扩展名伪装成图片但内容不是图片」时降级处理）
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 
+// 上传目录内的合法文件名：随机 hex + 扩展名（与上传落盘、消息校验同一套规则）。
+// 文件管理的「列出 / 删除」据此严格校验，杜绝 ../ 之类的路径穿越。
+const UPLOAD_NAME_RE = /^[a-zA-Z0-9]+\.[a-z0-9]{1,8}$/;
+
 // ---------- 工具函数 ----------
 
 const MIME = {
@@ -955,6 +959,89 @@ function handleApi(req, res, urlObj, pathname, ip) {
         }
         audit.add({ actor: me.username, action: 'admin.user.pass', target: name, detail: auditDetail('log.detail.user.pass', { name }), ip });
         sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
+    // ---------- 文件管理（全服上传文件） ----------
+
+    // GET /api/admin/files —— 上传文件列表（按修改时间倒序，支持按文件名 / 原始名搜索）
+    if (pathname === '/api/admin/files' && req.method === 'GET') {
+      const kw = (urlObj.searchParams.get('q') || '').trim().toLowerCase();
+      const limit = Math.min(Math.max(parseInt(urlObj.searchParams.get('limit'), 10) || 200, 1), 1000);
+      const offset = Math.max(parseInt(urlObj.searchParams.get('offset'), 10) || 0, 0);
+      let names = [];
+      try { names = fs.readdirSync(UPLOAD_DIR); } catch (e) { names = []; } // 目录不存在时按空列表处理
+      const usage = store.fileUsage();
+      const all = [];
+      for (const n of names) {
+        if (!UPLOAD_NAME_RE.test(n)) continue; // 只认本服务器落盘的随机名，忽略 .gitkeep 等无关文件
+        let st;
+        try { st = fs.statSync(path.join(UPLOAD_DIR, n)); } catch (e) { continue; }
+        if (!st.isFile()) continue;
+        const u = usage.get(n);
+        all.push({
+          name: n,
+          origin: u && u.name ? u.name : '',
+          size: st.size,
+          ts: Math.floor(st.mtimeMs),
+          kind: IMAGE_EXTS.has(path.extname(n).toLowerCase()) ? 'image' : 'file',
+          used: u ? u.count : 0
+        });
+      }
+      const matched = kw
+        ? all.filter((f) => f.name.toLowerCase().indexOf(kw) !== -1 || String(f.origin).toLowerCase().indexOf(kw) !== -1)
+        : all;
+      matched.sort((a, b) => b.ts - a.ts);
+      let totalSize = 0;
+      let usedCount = 0;
+      for (const f of matched) { totalSize += f.size; if (f.used > 0) usedCount++; }
+      sendJSON(res, 200, {
+        ok: true,
+        total: matched.length,
+        files: matched.slice(offset, offset + limit),
+        totalSize,
+        usedCount,
+        limit,
+        offset
+      });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // POST /api/admin/file/del —— 删除上传文件 {name}
+    if (pathname === '/api/admin/file/del' && req.method === 'POST') {
+      readBody(req, 2048).then((body) => {
+        let o = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+        if (!UPLOAD_NAME_RE.test(name)) {
+          sendJSON(res, 400, { ok: false, error: 'api.admin.fileInvalid' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        const fp = path.join(UPLOAD_DIR, name);
+        // 纵深防御：解析后的真实路径必须仍落在上传目录内
+        if (fp !== path.join(UPLOAD_DIR, path.basename(fp))) {
+          sendJSON(res, 400, { ok: false, error: 'api.admin.fileInvalid' });
+          return;
+        }
+        let removed = false;
+        try {
+          if (fs.existsSync(fp)) { fs.unlinkSync(fp); removed = true; }
+        } catch (e) { removed = false; }
+        if (!removed) {
+          sendJSON(res, 404, { ok: false, error: 'api.admin.fileNotFound' });
+          logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        // 仍被消息引用的，标记为已过期：聊天记录显示「图片/文件已过期」，而不是留下打不开的坏链
+        const expired = store.expireByFile(name);
+        audit.add({ actor: me.username, action: 'admin.file.del', target: name, detail: auditDetail('log.detail.file.del', { name }), ip });
+        sendJSON(res, 200, { ok: true, expired });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
         sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });

@@ -323,7 +323,32 @@
     'admin.action.dmRecall': 'DM削除',
     'admin.action.groupRecall': 'グループ削除',
     'admin.action.friendRequest': '友達リクエスト',
-    'admin.action.friendAccept': '友達追加'
+    'admin.action.friendAccept': '友達追加',
+
+    // ---------- ファイル管理（管理パネル） ----------
+    'admin.files.title': 'ファイル管理',
+    'admin.files.empty': 'アップロードされたファイルはありません',
+    'admin.files.searchPlaceholder': 'ファイル名で検索',
+    'admin.count.files': ' · {n}',
+    'admin.count.files.one': ' · 1ファイル',
+    'admin.count.files.other': ' · {n}ファイル',
+    'admin.files.totalSize': ' · 合計 {size}',
+    'admin.files.kindImage': '画像',
+    'admin.files.kindFile': 'ファイル',
+    'admin.files.used': '{n}件のメッセージで使用中',
+    'admin.files.used.one': '{n}件のメッセージで使用中',
+    'admin.files.used.other': '{n}件のメッセージで使用中',
+    'admin.files.orphan': '未使用',
+    'admin.files.download': 'ダウンロード',
+    'admin.files.delBtn': '削除',
+    'admin.files.delTitle': 'ファイルを削除',
+    'admin.files.delConfirm': 'ファイル「{name}」を削除しますか？ この操作は元に戻せません。',
+    'admin.files.delConfirmUsed': '「{name}」は {n} 件のメッセージで使用されています。削除するとチャット上では「期限切れ」と表示されます。削除しますか？',
+    'admin.files.deleted': 'ファイル {name} を削除しました',
+    'admin.action.fileDel': 'ファイルを削除',
+    'log.detail.file.del': 'アップロードファイルを削除：{name}',
+    'api.admin.fileInvalid': 'ファイル名が無効です',
+    'api.admin.fileNotFound': 'ファイルが存在しないか、すでに削除されています'
 
   };
 });

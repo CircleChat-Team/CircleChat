@@ -323,7 +323,32 @@
     'admin.action.dmRecall': 'DM recall',
     'admin.action.groupRecall': 'Group recall',
     'admin.action.friendRequest': 'Friend request',
-    'admin.action.friendAccept': 'Accept friend'
+    'admin.action.friendAccept': 'Accept friend',
+
+    // ---------- File management (admin panel) ----------
+    'admin.files.title': 'Files',
+    'admin.files.empty': 'No uploaded files',
+    'admin.files.searchPlaceholder': 'Search by file name',
+    'admin.count.files': ' · {n}',
+    'admin.count.files.one': ' · 1 file',
+    'admin.count.files.other': ' · {n} files',
+    'admin.files.totalSize': ' · {size} total',
+    'admin.files.kindImage': 'Image',
+    'admin.files.kindFile': 'File',
+    'admin.files.used': 'Used by {n} messages',
+    'admin.files.used.one': 'Used by 1 message',
+    'admin.files.used.other': 'Used by {n} messages',
+    'admin.files.orphan': 'Unused',
+    'admin.files.download': 'Download',
+    'admin.files.delBtn': 'Delete',
+    'admin.files.delTitle': 'Delete file',
+    'admin.files.delConfirm': 'Delete "{name}"? This cannot be undone.',
+    'admin.files.delConfirmUsed': '"{name}" is used by {n} message(s). After deletion it will show as "expired" in chat. Continue?',
+    'admin.files.deleted': 'Deleted {name}',
+    'admin.action.fileDel': 'Deleted a file',
+    'log.detail.file.del': 'Deleted uploaded file: {name}',
+    'api.admin.fileInvalid': 'Invalid file name',
+    'api.admin.fileNotFound': 'File not found or already deleted'
 
   };
 });
