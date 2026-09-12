@@ -348,7 +348,16 @@
     'admin.action.fileDel': 'ファイルを削除',
     'log.detail.file.del': 'アップロードファイルを削除：{name}',
     'api.admin.fileInvalid': 'ファイル名が無効です',
-    'api.admin.fileNotFound': 'ファイルが存在しないか、すでに削除されています'
+    'api.admin.fileNotFound': 'ファイルが存在しないか、すでに削除されています',
+
+    // ---------- アバター設定（管理ページ） ----------
+    'admin.users.avatarSet': 'アバター設定',
+    'admin.users.avatarChange': 'アバター変更',
+    'admin.users.avatarTitle': 'アバターを設定',
+    'admin.users.avatarPrompt': '「{name}」のアバターを設定します。画像URL（http/https）を入力してください。空にすると解除されます：',
+    'admin.users.avatarPlaceholder': 'https://…',
+    'admin.users.avatarOk': '保存',
+    'admin.users.avatarUpdated': 'アバターを更新しました'
 
   };
 });

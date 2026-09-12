@@ -349,7 +349,16 @@
     'admin.action.fileDel': '删除文件',
     'log.detail.file.del': '删除上传文件：{name}',
     'api.admin.fileInvalid': '文件名不合法',
-    'api.admin.fileNotFound': '文件不存在或已被删除'
+    'api.admin.fileNotFound': '文件不存在或已被删除',
+
+    // ---------- 头像设置（管理页） ----------
+    'admin.users.avatarSet': '设头像',
+    'admin.users.avatarChange': '改头像',
+    'admin.users.avatarTitle': '设置头像',
+    'admin.users.avatarPrompt': '为「{name}」设置头像，输入图片地址（http/https），留空可清除：',
+    'admin.users.avatarPlaceholder': 'https://…',
+    'admin.users.avatarOk': '保存',
+    'admin.users.avatarUpdated': '已更新头像'
 
   };
 });

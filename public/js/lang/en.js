@@ -348,7 +348,16 @@
     'admin.action.fileDel': 'Deleted a file',
     'log.detail.file.del': 'Deleted uploaded file: {name}',
     'api.admin.fileInvalid': 'Invalid file name',
-    'api.admin.fileNotFound': 'File not found or already deleted'
+    'api.admin.fileNotFound': 'File not found or already deleted',
+
+    // ---------- Avatar (admin panel) ----------
+    'admin.users.avatarSet': 'Set avatar',
+    'admin.users.avatarChange': 'Change avatar',
+    'admin.users.avatarTitle': 'Set avatar',
+    'admin.users.avatarPrompt': 'Set avatar for "{name}": enter an image URL (http/https), leave empty to clear:',
+    'admin.users.avatarPlaceholder': 'https://…',
+    'admin.users.avatarOk': 'Save',
+    'admin.users.avatarUpdated': 'Avatar updated'
 
   };
 });
