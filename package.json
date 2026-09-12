@@ -1,0 +1,16 @@
+{
+  "name": "chatplus",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ChatPlus 私人聊天服务器（纯公益，仅供两人使用）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "adduser": "node tools/adduser.js",
+    "verify": "node verify.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "SEE LICENSE IN README.md"
+}
