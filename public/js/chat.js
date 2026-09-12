@@ -15,6 +15,14 @@
     var onlineUsers = [];   // 在线用户列表
     var allUsers = [];      // 全部账号列表
     var userImages = {};    // 用户名 -> 头像图片地址（来自用户配置，未配置则为 null）
+
+    // ---------- 历史消息懒加载 ----------
+    var historyAll = [];    // 全量历史（旧 -> 新）
+    var topIndex = 0;       // 当前已渲染的最早一条在 historyAll 中的下标
+    var renderedIdx = {};   // 已渲染消息 idx 去重（断线重连不重复）
+    var PAGE = 30;          // 每批渲染条数
+    var nearBottom = true;  // 用户是否贴近底部（决定是否自动滚动）
+    var SCROLL_TOP_THRESHOLD = 80; // 接近顶部多少像素时加载更早消息
     var notifyOn = false;   // 系统通知开关
     var connectedOnce = false; // 是否曾成功建立 WS 连接（用于判断会话是否过期）
 
@@ -108,6 +116,15 @@
     function scrollToBottom() {
         msgList.scrollTop = msgList.scrollHeight;
     }
+
+    // 监听滚动：维护“是否贴近底部”，并在接近顶部时懒加载更早消息
+    msgList.addEventListener('scroll', function () {
+        var dist = msgList.scrollHeight - msgList.scrollTop - msgList.clientHeight;
+        nearBottom = dist < 60;
+        if (msgList.scrollTop < SCROLL_TOP_THRESHOLD && topIndex > 0) {
+            loadOlder();
+        }
+    });
 
     // ---------- 头像（确定性配色首字母头像，前端生成，无需改服务端） ----------
     var AVATAR_PALETTE = ['#07c160', '#ff9f0a', '#ff375f', '#5856d6', '#0a84ff',
@@ -252,7 +269,8 @@
         return null;
     }
 
-    function renderMsg(m) {
+    // 构建单条消息 DOM（不插入、不滚动），返回 wrap 或 null（非法资源）
+    function buildMsg(m) {
         var wrap = document.createElement('div');
         wrap.className = 'msg ' + (m.from === ME ? 'self' : 'other');
 
@@ -264,11 +282,13 @@
 
         if (m.type === 'image') {
             var src = safeUploadUrl(m.content);
-            if (!src) return;
+            if (!src) return null;
             var img = document.createElement('img');
             img.src = src;
             img.alt = m.name || '图片';
             img.loading = 'lazy';
+            // 图片加载完成后，若用户贴近底部则补滚到底部
+            img.addEventListener('load', function () { if (nearBottom) scrollToBottom(); });
             img.addEventListener('click', function () {
                 var w = window.open('', '_blank');
                 if (w) { w.document.write('<html><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center"><img src="' + src + '" style="max-width:100vw;max-height:100vh"></body></html>'); w.document.close(); }
@@ -276,7 +296,7 @@
             bubble.appendChild(img);
         } else if (m.type === 'file') {
             var href = safeUploadUrl(m.content);
-            if (!href) return;
+            if (!href) return null;
             var a = document.createElement('a');
             a.className = 'file-card';
             a.href = href;
@@ -299,25 +319,81 @@
         wrap.appendChild(avatar);
         wrap.appendChild(body);
 
-        msgList.appendChild(wrap);
-        scrollToBottom();
+        return wrap;
     }
 
+    // 渲染单条消息（实时消息）：去重 -> 追加到底部 -> 贴近底部时自动滚动
+    function renderMsg(m) {
+        if (!m) return;
+        if (m.idx != null) {
+            if (renderedIdx[m.idx]) return;
+            renderedIdx[m.idx] = true;
+        }
+        var wrap = buildMsg(m);
+        if (!wrap) return;
+        historyAll.push(m); // 与历史合并，保证一致性
+        msgList.appendChild(wrap);
+        if (nearBottom) scrollToBottom();
+    }
+
+    // 懒加载：向前追加更早的一批历史，并保持滚动位置不跳动
+    function loadOlder() {
+        if (topIndex <= 0) return;
+        var prevHeight = msgList.scrollHeight;
+        var newTop = Math.max(0, topIndex - PAGE);
+        var batch = historyAll.slice(newTop, topIndex);
+
+        var frag = document.createDocumentFragment();
+        // 倒序构建后整体插入顶部，保证视觉顺序为旧 -> 新
+        for (var i = batch.length - 1; i >= 0; i--) {
+            var el = buildMsg(batch[i]);
+            if (el) frag.appendChild(el);
+        }
+        msgList.insertBefore(frag, msgList.firstChild);
+        topIndex = newTop;
+
+        if (topIndex === 0) {
+            var tip = document.createElement('div');
+            tip.className = 'sys-msg';
+            tip.textContent = '— 没有更多消息了 —';
+            msgList.insertBefore(tip, msgList.firstChild);
+        }
+        // 补偿新增高度，避免视图跳动
+        msgList.scrollTop += (msgList.scrollHeight - prevHeight);
+    }
+
+    // 渲染历史：仅先渲染最近一页，贴近底部并补偿图片延迟加载
     function renderHistory(list) {
+        historyAll = (list || []).slice();
+        renderedIdx = {};
+        topIndex = Math.max(0, historyAll.length - PAGE);
         msgList.innerHTML = '';
-        if (!list || !list.length) {
+
+        if (!historyAll.length) {
             var empty = document.createElement('div');
             empty.className = 'sys-msg';
             empty.textContent = '暂无消息，说点什么吧～';
             msgList.appendChild(empty);
-        } else {
-            var tip = document.createElement('div');
-            tip.className = 'sys-msg';
-            tip.textContent = '— 仅保留最近 500 条消息 —';
-            msgList.appendChild(tip);
-            list.forEach(renderMsg);
+            return;
         }
+
+        var initial = historyAll.slice(topIndex);
+        initial.forEach(function (m) {
+            if (m.idx != null) renderedIdx[m.idx] = true;
+            var el = buildMsg(m);
+            if (el) msgList.appendChild(el);
+        });
+        if (topIndex === 0) {
+            var tip0 = document.createElement('div');
+            tip0.className = 'sys-msg';
+            tip0.textContent = '— 仅保留最近 500 条消息 —';
+            msgList.insertBefore(tip0, msgList.firstChild);
+        }
+        // 多次补偿：图片/字体延迟加载会改变高度
         scrollToBottom();
+        requestAnimationFrame(scrollToBottom);
+        setTimeout(scrollToBottom, 80);
+        setTimeout(scrollToBottom, 400);
     }
 
     // ---------- 在线用户（侧边栏） ----------
