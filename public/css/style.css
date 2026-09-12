@@ -546,12 +546,36 @@ body {
 
 .msg {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  gap: 10px;
+  align-items: flex-end;
   animation: pop .3s var(--ease) both;
 }
-.msg.self  { align-items: flex-end; }
-.msg.other { align-items: flex-start; }
+.msg.self  { flex-direction: row-reverse; }
+.msg.other { flex-direction: row; }
+
+.msg-avatar {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  border-radius: 50%;
+  user-select: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .15);
+}
+
+.msg-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 72%;
+}
+.msg.self .msg-body  { align-items: flex-end; }
+.msg.other .msg-body { align-items: flex-start; }
 
 @keyframes pop {
   from { opacity: 0; transform: translateY(6px); }
@@ -560,7 +584,7 @@ body {
 
 .bubble {
   position: relative;
-  max-width: 72%;
+  max-width: 100%;
   padding: 10px 15px;
   font-size: 15px;
   line-height: 1.48;
@@ -778,7 +802,7 @@ body {
 
 /* ---------- 桌面端（≥768px）：侧边栏常驻，折叠按钮在侧边栏头部 ---------- */
 @media (min-width: 768px) {
-  .bubble { max-width: 60%; }
+  .msg-body { max-width: 60%; }
 }
 
 /* ---------- 移动端（<768px）：侧边栏为抽屉，汉堡展开 ---------- */
@@ -814,7 +838,7 @@ body {
   .logout-btn span { display: none; } /* 移动端只留图标 */
   .logout-btn { padding: 8px; }
 
-  .bubble { max-width: 82%; }
+  .msg-body { max-width: 82%; }
   .msg-list { padding: 16px 12px 20px; }
   .emoji-panel { grid-template-columns: repeat(8, 1fr); }
 }
