@@ -48,6 +48,11 @@
           <span id="chatTitle">ChatPlus</span>
         </div>
         <div class="chat-actions">
+          <button id="adminBtn" class="icon-btn hidden" title="管理员面板" aria-label="管理员面板">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"></path>
+            </svg>
+          </button>
           <label class="switch" title="系统通知">
             <input type="checkbox" id="notifyToggle">
             <span class="slider"></span>
@@ -95,6 +100,52 @@
         </button>
       </footer>
     </main>
+  </div>
+
+  <!-- 管理员面板 -->
+  <div id="adminModal" class="modal hidden">
+    <div class="modal-mask" data-close></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <span class="modal-title">管理员面板</span>
+        <button id="adminClose" class="icon-btn" title="关闭" aria-label="关闭">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+
+        <section class="admin-block">
+          <div class="admin-block-title">发送消息</div>
+          <div class="admin-send">
+            <textarea id="adminMsgInput" class="text-input" rows="1" maxlength="4096" placeholder="以管理员身份发送消息…"></textarea>
+            <button id="adminSendBtn" class="send-btn" type="button" title="发送" aria-label="发送">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+              </svg>
+              <span>发送</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="admin-block">
+          <div class="admin-block-title">用户管理</div>
+          <div class="admin-add">
+            <input id="adminNewName" class="admin-input" type="text" maxlength="20" placeholder="用户名">
+            <input id="adminNewPass" class="admin-input" type="password" maxlength="64" placeholder="密码（≥6 位）">
+            <button id="adminAddBtn" class="admin-btn" type="button">添加</button>
+          </div>
+          <div id="adminUserList" class="admin-user-list"></div>
+        </section>
+
+        <section class="admin-block">
+          <div class="admin-block-title">消息管理 · 可撤回任意人的消息</div>
+          <div id="adminMsgList" class="admin-msg-list"></div>
+        </section>
+
+      </div>
+    </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>
