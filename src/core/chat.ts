@@ -44,6 +44,7 @@ export interface ChatState {
   me: string;
   role: string;
   isAdmin: boolean;
+  mustChange: boolean;
   online: string[];
   allUsers: ChatUser[];
   userImages: Record<string, string | null>;
@@ -81,6 +82,7 @@ const state = reactive<ChatState>({
   me: '',
   role: 'user',
   isAdmin: false,
+  mustChange: false,
   online: [],
   allUsers: [],
   userImages: {},
@@ -379,6 +381,7 @@ function loadMe(): Promise<boolean> {
     state.me = String(j.username || '');
     state.role = String(j.role || 'user');
     state.isAdmin = state.role === 'admin';
+    state.mustChange = !!j.mustChange;
     state.online = (j.online as string[]) || [];
     return true;
   });

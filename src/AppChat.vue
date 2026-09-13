@@ -12,6 +12,7 @@ import ContextMenu from './components/chat/ContextMenu.vue';
 import ForwardPicker from './components/chat/ForwardPicker.vue';
 import LangMenu from './components/common/LangMenu.vue';
 import ThemeToggle from './components/common/ThemeToggle.vue';
+import ForceChangePassword from './components/common/ForceChangePassword.vue';
 
 const title = computed(() => {
   if (chatState.activeDmPeer != null) return tr('chat.dm.title', { name: chatState.activeDmPeer });
@@ -31,6 +32,11 @@ const settingsOpen = ref(false);
 function onNotify(e: Event): void {
   const v = (e.target as HTMLInputElement).checked;
   saveSettings({ notify: v });
+}
+
+// 强制改密成功后，解除拦截并关闭弹窗
+function onPassChanged(): void {
+  chatState.mustChange = false;
 }
 </script>
 
@@ -151,5 +157,8 @@ function onNotify(e: Event): void {
         </button>
       </div>
     </aside>
+
+    <!-- 强制改密拦截层：仍需改密时覆盖整个聊天界面 -->
+    <ForceChangePassword v-if="chatState.mustChange" :username="chatState.me" forced @done="onPassChanged" />
   </div>
 </template>

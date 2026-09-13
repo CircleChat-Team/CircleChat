@@ -6,6 +6,7 @@ import { ref } from 'vue';
 import { post } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { redirectAfterLogin } from '../../core/nav';
+import ForceChangePassword from '../common/ForceChangePassword.vue';
 
 const props = defineProps<{ initialUser?: string }>();
 
@@ -14,6 +15,7 @@ const pass = ref('');
 const showPass = ref(false);
 const loading = ref(false);
 const err = ref('');
+const pendingForce = ref(false);
 
 function submit(): void {
   const u = user.value.trim();
@@ -26,6 +28,12 @@ function submit(): void {
   post('/api/login', { username: u, password: pass.value })
     .then((j) => {
       if (j.ok) {
+        if (j.mustChange) {
+          // 首次登录仍需强制改密，弹窗拦截
+          pendingForce.value = true;
+          loading.value = false;
+          return;
+        }
         redirectAfterLogin();
         return;
       }
@@ -95,4 +103,6 @@ function submit(): void {
 
     <p v-if="err" class="text-center text-xs text-danger">{{ err }}</p>
   </form>
+
+  <ForceChangePassword v-if="pendingForce" :username="user" forced @done="redirectAfterLogin" />
 </template>

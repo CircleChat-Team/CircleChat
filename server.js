@@ -564,7 +564,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         'Set-Cookie': 'circlechat_token=' + encodeURIComponent(token) +
           '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + (7 * 24 * 3600)
       });
-      res.end(JSON.stringify({ ok: true, username: user.username }));
+      res.end(JSON.stringify({ ok: true, username: user.username, mustChange: !!(user.mustChange) }));
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
       sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
@@ -593,6 +593,12 @@ function handleApi(req, res, urlObj, pathname, ip) {
     return;
   }
 
+  // GET /api/setup（公开：内置管理员是否仍用默认密码，供登录页提示）
+  if (pathname === '/api/setup' && req.method === 'GET') {
+    sendJSON(res, 200, { ok: true, defaultAdmin: auth.defaultAdminPassword() });
+    return;
+  }
+
   // 以下接口均需登录
   const me = auth.authByCookie(req.headers.cookie);
   if (!me) {
@@ -604,8 +610,38 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // GET /api/me
   if (pathname === '/api/me' && req.method === 'GET') {
     const online = [...clients].map(clientId);
-    sendJSON(res, 200, { ok: true, username: me.username, role: auth.getRole(me.username), online });
+    sendJSON(res, 200, { ok: true, username: me.username, role: auth.getRole(me.username), online, mustChange: auth.mustChange(me.username) });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/pass（本人修改密码，需校验当前密码；用于首次登录强制改密与日常自助改密）
+  if (pathname === '/api/pass' && req.method === 'POST') {
+    readBody(req, 8192).then((body) => {
+      let cur, np;
+      try { ({ current: cur, password: np } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 解析失败走下面校验 */ }
+      if (typeof cur !== 'string' || typeof np !== 'string') {
+        sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      if (!auth.login(me.username, cur)) {
+        sendJSON(res, 400, { ok: false, error: 'pass.currentWrong' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      if (np.length < 6) {
+        sendJSON(res, 400, { ok: false, error: 'reg.short' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      auth.setPassword(me.username, np);
+      audit.add({ actor: me.username, action: 'self.pass', detail: auditDetail('log.detail.user.pass', { name: me.username }), ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
     return;
   }
 
