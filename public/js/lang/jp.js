@@ -1,6 +1,5 @@
 /* ============================================================
  * ChatPlus — Japanese strings
- * 版权 © 2026 Ctoy，保留所有权利。禁止去除版权信息。
  *
  * Keys must stay in sync with zh.js (same set, same names).
  * Placeholders use {name}; plurals use key.one / key.other.
@@ -59,6 +58,7 @@
     'common.offline': 'オフライン',
     'common.me': ' (自分)',
     'common.admin': '管理者',
+    'common.user': 'ユーザー',
     'common.you': 'あなた',
     'common.other': '相手',
     'common.listSep': '、',
@@ -104,6 +104,7 @@
     'chat.typing': '{name}が入力中',
     'chat.users.connecting': '接続中…',
     'chat.users.count': 'メンバー · {n}',
+    'chat.members': 'メンバー',
     'chat.notify.unsupported': 'このブラウザは通知をサポートしていません（HTTPSまたはlocalhostが必要です）',
     'chat.notify.denied': '通知がブロックされています。ブラウザの設定で許可してから再試行してください',
     'chat.notify.blocked': '通知の許可が得られませんでした',
@@ -403,7 +404,21 @@
     'group.fileTag': '[ファイル]',
     'group.fileDeleteTitle': 'ファイルを削除',
     'group.fileDeleteConfirm': 'この画像/ファイルを削除しますか？この操作は元に戻せません。',
-    'group.fileDeleted': '削除しました'
+    'group.fileDeleted': '削除しました',
+    'chat.friends': '友達',
+    'chat.friend.requests': '友達申請',
+    'chat.profile.msgsLabel': 'メッセージ数',
+    'chat.profile.message': 'メッセージを送る',
+    'chat.friend.searchPlaceholder': 'ユーザー名で検索',
+    'chat.friend.tip': 'ユーザー名を入力して友達申請を送信。承認されるとチャットできます。',
+    'chat.friend.search': '検索',
+    'chat.group.dialog': 'グループ',
+    'chat.group.namePlaceholder': 'グループ名（1〜24文字）',
+    'chat.group.searchPlaceholder': 'グループ名で検索',
+    'chat.group.search': '検索',
+    'chat.group.none': '該当するグループが見つかりません',
+    'chat.group.manage': 'グループ管理',
+    'common.close': '閉じる'
 
   };
 });

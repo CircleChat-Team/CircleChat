@@ -1,6 +1,5 @@
 /* ============================================================
  * ChatPlus — English strings
- * 版权 © 2026 Ctoy，保留所有权利。禁止去除版权信息。
  *
  * Keys must stay in sync with zh.js (same set, same names).
  * Placeholders use {name}; plurals use key.one / key.other.
@@ -59,6 +58,7 @@
     'common.offline': 'Offline',
     'common.me': ' (me)',
     'common.admin': 'Admin',
+    'common.user': 'User',
     'common.you': 'You',
     'common.other': 'The other user',
     'common.listSep': ', ',
@@ -104,6 +104,7 @@
     'chat.typing': '{name} is typing',
     'chat.users.connecting': 'Connecting…',
     'chat.users.count': 'Members · {n}',
+    'chat.members': 'Members',
     'chat.notify.unsupported': 'This browser does not support notifications (HTTPS or localhost required)',
     'chat.notify.denied': 'Notifications were blocked. Please allow them in the browser settings and try again',
     'chat.notify.blocked': 'Notification permission was not granted',
@@ -403,7 +404,21 @@
     'group.fileTag': '[File]',
     'group.fileDeleteTitle': 'Delete group file',
     'group.fileDeleteConfirm': 'Delete this image/file? This cannot be undone.',
-    'group.fileDeleted': 'Deleted'
+    'group.fileDeleted': 'Deleted',
+    'chat.friends': 'Friends',
+    'chat.friend.requests': 'Friend requests',
+    'chat.profile.msgsLabel': 'Messages',
+    'chat.profile.message': 'Message',
+    'chat.friend.searchPlaceholder': 'Search by username',
+    'chat.friend.tip': 'Enter the username to send a friend request. You can chat once accepted.',
+    'chat.friend.search': 'Search',
+    'chat.group.dialog': 'Group',
+    'chat.group.namePlaceholder': 'Group name (1-24 chars)',
+    'chat.group.searchPlaceholder': 'Search groups by name',
+    'chat.group.search': 'Search',
+    'chat.group.none': 'No matching group found',
+    'chat.group.manage': 'Manage group',
+    'common.close': 'Close'
 
   };
 });

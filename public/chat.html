@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <!--
-  ChatPlus 私人聊天 — 聊天页
+  ChatPlus 私人聊天 — 聊天页（Vue 3 + TypeScript + Tailwind）
+  界面由 src/main-chat.ts 构建出的 /dist/assets/chat.js 挂载，
+  主聊天样式复用 /css/style.css，弹层使用 Tailwind（主题色复用同一套变量）。
 -->
 <html lang="zh-CN">
 <head>
@@ -8,185 +10,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#07c160">
-  <title data-i18n="chat.title">ChatPlus · 聊天</title>
+  <title>ChatPlus · 聊天</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/dist/assets/tailwind.css">
+  <link rel="stylesheet" href="/css/chat-vue.css">
+  <style>#app{height:100%}</style>
   <link rel="icon" href="./favicon.svg">
 </head>
 <body>
-  <div id="chatView" class="chat-view">
+  <div id="app"></div>
 
-    <!-- 侧边栏：用户列表（桌面端常驻，移动端抽屉） -->
-    <aside id="sidebar" class="sidebar">
-      <div class="sidebar-head">
-        <div class="sidebar-brand">ChatPlus</div>
-        <button id="sidebarCollapse" class="icon-btn" title="收起侧边栏" data-i18n-title="chat.sidebar.collapse" aria-label="收起侧边栏" data-i18n-aria="chat.sidebar.collapse">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path>
-          </svg>
-        </button>
-      </div>
-      <div id="sidebarUsers" class="sidebar-list"></div>
-
-      <!-- 好友区 -->
-      <div class="sidebar-friend-section">
-        <div class="sidebar-section-title sidebar-title-row">
-          <span>好友</span>
-          <button type="button" id="friendAddBtn" class="group-action-btn" title="搜索用户名添加好友">+ 加好友</button>
-        </div>
-        <div id="friendList" class="sidebar-friend-list"></div>
-        <div class="sidebar-sub-title">好友申请</div>
-        <div id="friendRequestList" class="sidebar-friend-list"></div>
-      </div>
-
-      <!-- 群组 / 会话区 -->
-      <div class="sidebar-group-section">
-        <div class="sidebar-section-title" data-i18n="chat.sessions">会话</div>
-        <button type="button" class="group-item" id="roomPublic" data-i18n="chat.publicRoom">公共聊天</button>
-        <div id="groupList"></div>
-        <div class="group-actions">
-          <button type="button" id="groupCreateBtn" class="group-action-btn" title="新建群" data-i18n-title="chat.group.create">+ <span data-i18n="chat.group.create">新建群</span></button>
-          <button type="button" id="groupJoinBtn" class="group-action-btn" title="加入群" data-i18n-title="chat.group.join" data-i18n="chat.group.join">加入群</button>
-        </div>
-      </div>
-
-      <div class="sidebar-foot">
-        <span class="sidebar-me-label" data-i18n="chat.signedInAs">登录身份</span>
-        <span id="sidebarMe" class="sidebar-me">—</span>
-      </div>
-    </aside>
-    <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
-
-    <!-- 主聊天区 -->
-    <main class="chat-main">
-      <div id="dropMask" class="drop-mask hidden">
-        <div class="drop-tip" data-i18n="chat.dropTip">松开鼠标即可发送</div>
-      </div>
-      <header class="chat-header">
-        <button id="sidebarToggle" class="icon-btn" title="成员列表" data-i18n-title="chat.members" aria-label="成员列表" data-i18n-aria="chat.members">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"></path>
-          </svg>
-        </button>
-        <div class="chat-title">
-          <span class="dot" id="connDot"></span>
-          <span id="chatTitle">ChatPlus</span>
-        </div>
-        <div class="chat-actions">
-          <a id="adminBtn" class="admin-entry hidden" href="/admin.html" title="管理面板" data-i18n-title="chat.adminPanel" aria-label="管理面板" data-i18n-aria="chat.adminPanel">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"></path>
-            </svg>
-            <span data-i18n="chat.adminPanel">管理面板</span>
-          </a>
-          <p data-i18n="chat.notify.label">系统通知</p>
-          <label class="switch" title="系统通知" data-i18n-title="chat.notify.label">
-            <input type="checkbox" id="notifyToggle">
-            <span class="slider"></span>
-          </label>
-          <div class="lang-switch">
-            <button type="button" id="langBtn" class="icon-btn" title="切换语言" aria-label="切换语言"
-                    aria-haspopup="true" aria-expanded="false"
-                    data-i18n-title="common.lang" data-i18n-aria="common.lang">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-2.95a15.6 15.6 0 0 0-1.4-3.6A8 8 0 0 1 18.9 8zM12 4.06c.83 1.2 1.5 2.53 1.93 3.94h-3.86A14.6 14.6 0 0 1 12 4.06zM4.26 14A8.1 8.1 0 0 1 4 12c0-.69.09-1.36.26-2h3.38c-.09.66-.14 1.32-.14 2s.05 1.34.14 2H4.26zm.84 2h2.95c.34 1.28.82 2.5 1.4 3.6A8 8 0 0 1 5.1 16zm2.95-8H5.1a8 8 0 0 1 4.35-3.6A15.6 15.6 0 0 0 8.05 8zM12 19.94A14.6 14.6 0 0 1 10.07 16h3.86A14.6 14.6 0 0 1 12 19.94zM14.34 14H9.66c-.1-.66-.16-1.32-.16-2s.06-1.35.16-2h4.68c.1.65.16 1.32.16 2s-.06 1.34-.16 2zm.21 5.6c.58-1.1 1.06-2.32 1.4-3.6h2.95a8 8 0 0 1-4.35 3.6zM16.36 14c.09-.66.14-1.32.14-2s-.05-1.34-.14-2h3.38c.17.64.26 1.31.26 2s-.09 1.36-.26 2h-3.38z"></path>
-              </svg>
-            </button>
-            <div id="langMenu" class="lang-menu hidden" role="menu"></div>
-          </div>
-          <button id="themeBtn" class="icon-btn" title="切换深色模式" data-i18n-title="common.theme" aria-label="切换深色模式" data-i18n-aria="common.theme">
-            <svg class="icon" id="themeIcon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-3.33-9.62A9.05 9.05 0 0 0 12 3z"></path>
-            </svg>
-          </button>
-          <button id="logoutBtn" class="logout-btn" title="退出登录" data-i18n-title="common.logout">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"></path>
-            </svg>
-            <span data-i18n="chat.logoutShort">退出</span>
-          </button>
-        </div>
-      </header>
-
-      <div id="msgList" class="msg-list"></div>
-
-      <footer class="chat-inputbar">
-        <div id="dmGateTip" class="dm-gate-tip hidden">尚未互加好友：仅可发送文字和图片。互相成为好友后可发送文件、引用回复与 @提及。</div>
-        <div id="emojiPanel" class="emoji-panel hidden"></div>
-        <div id="typingBar" class="typing-bar hidden"></div>
-        <div id="replyBar" class="reply-bar hidden">
-          <span class="reply-label" data-i18n="chat.tool.reply">回复</span>
-          <span id="replyFrom" class="reply-from"></span>
-          <span id="replyText" class="reply-text"></span>
-          <button id="replyCancel" class="reply-cancel" type="button" title="取消回复" data-i18n-title="chat.reply.cancel" aria-label="取消回复" data-i18n-aria="chat.reply.cancel">×</button>
-        </div>
-        <button id="emojiBtn" class="tool-btn" title="表情" data-i18n-title="chat.emoji.title" aria-label="表情" data-i18n-aria="chat.emoji.title">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.03 0 3.8-1.11 4.75-2.75H7.25C8.2 16.39 9.97 17.5 12 17.5z"></path>
-          </svg>
-        </button>
-        <button id="imageBtn" class="tool-btn" title="发送图片" data-i18n-title="chat.sendImage" aria-label="发送图片" data-i18n-aria="chat.sendImage">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"></path>
-          </svg>
-        </button>
-        <button id="fileBtn" class="tool-btn" title="发送文件 / 图片" data-i18n-title="chat.sendFile" aria-label="发送文件 / 图片" data-i18n-aria="chat.sendFile">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M16.5 6v11.5a4 4 0 1 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"></path>
-          </svg>
-        </button>
-        <input id="fileInput" type="file" hidden>
-        <textarea id="textInput" class="text-input" placeholder="输入消息…（Enter 发送，Shift+Enter 换行）" data-i18n-placeholder="chat.input.placeholder" maxlength="4096" rows="1"></textarea>
-        <button id="sendBtn" class="send-btn" title="发送" data-i18n-title="chat.send" aria-label="发送" data-i18n-aria="chat.send">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
-          </svg>
-          <span data-i18n="chat.send">发送</span>
-        </button>
-      </footer>
-    </main>
-  </div>
-
-  <!-- 用户资料卡 -->
-  <div id="profileCard" class="profile-mask hidden">
-    <div class="profile-card">
-      <div id="profileAvatar" class="profile-avatar"></div>
-      <div id="profileName" class="profile-name">—</div>
-      <div id="profileRole" class="profile-role"></div>
-      <div class="profile-rows">
-        <div class="profile-row"><span data-i18n="chat.profile.status">状态</span><b id="profileOnline">—</b></div>
-        <div class="profile-row"><span data-i18n="chat.profile.joinedAt">加入时间</span><b id="profileCreated">—</b></div>
-        <div class="profile-row"><span data-i18n="chat.profile.msgsLabel">消息数</span><b id="profileMsgs">—</b></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 添加好友（搜索用户名） -->
-  <div id="friendSearchMask" class="profile-mask hidden">
-    <div class="profile-card friend-search-card">
-      <div class="friend-search-head">
-        <span class="profile-name">添加好友</span>
-        <button id="friendSearchClose" class="reply-cancel" type="button" title="关闭" aria-label="关闭">×</button>
-      </div>
-      <div class="friend-search-row">
-        <input id="friendSearchInput" type="text" placeholder="输入用户名搜索" maxlength="64" autocomplete="off">
-        <button id="friendSearchBtn" class="group-action-btn" type="button">搜索</button>
-      </div>
-      <div class="friend-search-tip">输入对方用户名，发送好友申请。对方同意后即可互为好友。</div>
-      <div id="friendSearchResult" class="friend-search-result"></div>
-    </div>
-  </div>
-
-  <div id="toast" class="toast hidden"></div>
-
+  <!-- 先加载 i18n（提供 window.I18N，含 chat.* 文案）与配置，再挂载 Vue 应用 -->
   <script src="/js/i18n.js"></script>
   <script src="/js/lang/zh.js"></script>
   <script src="/js/lang/en.js"></script>
   <script src="/js/lang/jp.js"></script>
   <script src="/js/config.js"></script>
-  <script src="/js/ui.js"></script>
   <!-- 代码高亮（本地自托管，无 CDN）：由 npm run build:hljs 生成 -->
   <script src="/vendor/highlight.min.js?v=11.12.0"></script>
-  <script src="/js/chat.js"></script>
+  <script type="module" src="/dist/assets/chat.js"></script>
 </body>
 </html>

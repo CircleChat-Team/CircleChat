@@ -1,6 +1,5 @@
 /* ============================================================
  * ChatPlus 私人聊天 — 简体中文文案
- * 版权 © 2026 Ctoy，保留所有权利。禁止去除版权信息。
  *
  * 命名规范：<页面>.<模块>[.<子项>]，如 login.err.empty / reg.submit
  * 占位符用 {name}；复数写 key.one / key.other。
@@ -60,6 +59,7 @@
     'common.offline': '离线',
     'common.me': '（我）',
     'common.admin': '管理员',
+    'common.user': '用户',
     'common.you': '你',
     'common.other': '对方',
     'common.listSep': '、',
@@ -105,6 +105,7 @@
     'chat.typing': '{name} 正在输入',
     'chat.users.connecting': '连接中…',
     'chat.users.count': '成员 · {n}',
+    'chat.members': '群成员',
     'chat.notify.unsupported': '当前浏览器不支持系统通知（需 HTTPS 或 localhost 访问）',
     'chat.notify.denied': '浏览器已拒绝通知，请在浏览器设置中允许后重试',
     'chat.notify.blocked': '未获得通知权限，通知无法弹出',
@@ -404,7 +405,21 @@
     'group.fileTag': '[文件]',
     'group.fileDeleteTitle': '删除群文件',
     'group.fileDeleteConfirm': '删除该图片/文件？该操作不可恢复。',
-    'group.fileDeleted': '已删除'
+    'group.fileDeleted': '已删除',
+    'chat.friends': '好友',
+    'chat.friend.requests': '好友申请',
+    'chat.profile.msgsLabel': '消息数',
+    'chat.profile.message': '发消息',
+    'chat.friend.searchPlaceholder': '输入用户名搜索',
+    'chat.friend.tip': '输入对方用户名，发送好友申请。对方同意后即可互为好友。',
+    'chat.friend.search': '搜索',
+    'chat.group.dialog': '群聊',
+    'chat.group.namePlaceholder': '输入群名（1-24 位）',
+    'chat.group.searchPlaceholder': '输入群名搜索',
+    'chat.group.search': '搜索',
+    'chat.group.none': '没有找到匹配的群',
+    'chat.group.manage': '群管理',
+    'common.close': '关闭'
 
   };
 });

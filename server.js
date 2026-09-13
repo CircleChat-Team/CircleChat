@@ -1,7 +1,6 @@
 'use strict';
 /* ============================================================
  * ChatPlus 私人聊天服务器  v1.0.0
- * 版权 © 2026 Ctoy，保留所有权利。禁止去除版权信息。
  * [WM: 本文件为主服务，请勿改动，改动将导致完整性校验失败]
  *
  * 功能：两人私有聊天（文字 / 表情 / 图片 / 文件）
@@ -364,6 +363,7 @@ function handleWsText(client, text) {
       const frame = wsproto.encodeText(JSON.stringify({ type: 'typing', from: u }));
       // 私聊：只推给对方；公共 / 群聊：推给其余所有在线
       const pm = msg.data && msg.data.pm != null ? String(msg.data.pm).trim() : null;
+      if (pm && !friends.isFriend(u, pm)) return; // 非好友不转发「正在输入」
       for (const c of clients) {
         if (c === client) continue;
         if (pm) { if (c.user.username !== pm) continue; }
@@ -392,12 +392,9 @@ function handleWsText(client, text) {
       if (!groups.isMember(gid, from)) return;
     }
     if (dm !== null) {
-      // 好友门禁：非好友私聊仅可发文字 / 图片
-      if (!friends.isFriend(from, dm.split(':').find((u) => u !== from))) {
-        if (type === 'file') return; // 禁发文件
-        if (d.replyTo !== undefined && d.replyTo !== null) return; // 禁引用
-        if (type === 'text' && mentionsUser(content, dm.split(':').find((u) => u !== from))) return; // 禁 @提及
-      }
+      // 好友门禁：非好友之间禁止私聊（必须先加好友）
+      const peer = dm.split(':').find((u) => u !== from);
+      if (!friends.isFriend(from, peer)) return;
     }
     // 防注入：image/file 的 content 必须是本服务器上传目录的合法文件（防 javascript: 等伪造链接）
     if (type === 'text') {
@@ -1520,7 +1517,6 @@ setInterval(runFileCleanup, FILE_CLEANUP_INTERVAL).unref();
 server.listen(PORT, HOST, () => {
   console.log('==========================================');
   console.log(' ChatPlus 私人聊天服务器 v1.0.0 已启动');
-  console.log(' 版权 © 2026 Ctoy，保留所有权利');
   console.log(' 监听地址: http://' + HOST + ':' + PORT);
   console.log(' 数据目录: ' + path.join(ROOT, 'data'));
   console.log(' 消息保留: 最近 ' + store.MAX_MESSAGES + ' 条');

@@ -7,14 +7,25 @@
   "scripts": {
     "start": "node server.js",
     "adduser": "node tools/adduser.js",
-    "build:hljs": "esbuild tools/hljs-entry.mjs --bundle --minify --format=iife --legal-comments=inline --banner:js=\"/*! highlight.js v11.12.0 | (c) 2006-2024 Josh Goebel and other contributors | BSD-3-Clause | https://github.com/highlightjs/highlight.js | 完整许可证: public/vendor/highlight.LICENSE.txt */\" --outfile=public/vendor/highlight.min.js"
+    "build:hljs": "esbuild tools/hljs-entry.mjs --bundle --minify --format=iife --legal-comments=inline --banner:js=\"/*! highlight.js v11.12.0 | (c) 2006-2024 Josh Goebel and other contributors | BSD-3-Clause | https://github.com/highlightjs/highlight.js | 完整许可证: public/vendor/highlight.LICENSE.txt */\" --outfile=public/vendor/highlight.min.js",
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit"
   },
   "engines": {
     "node": ">=16"
   },
   "license": "SEE LICENSE IN README.md",
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-vue": "^6.0.8",
     "esbuild": "^0.28.2",
-    "highlight.js": "^11.12.0"
+    "highlight.js": "^11.12.0",
+    "jsdom": "^30.0.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.0",
+    "vue": "^3.5.42",
+    "vue-tsc": "^3.3.11"
   }
 }

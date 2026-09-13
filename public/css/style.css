@@ -2349,6 +2349,9 @@ body {
   .admin-file .f-name { flex: 1 1 100%; order: -1; }
 }
 
+/* Vue 应用挂载前先隐藏，避免模板源码短暂闪现 */
+[v-cloak] { display: none; }
+
 /* ---------- 无障碍：降低动效 ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
