@@ -61,3 +61,6 @@ chat_history*
 .vscode/*
 .directory
 node_modules
+# 构建产物（由源码构建，不纳入版本管理）
+public/dist/
+.codebuddy/memory/

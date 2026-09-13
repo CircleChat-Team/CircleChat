@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  ChatPlus 私人聊天 — 群管理面板
-  版权 © 2026 Ctoy，保留所有权利。禁止去除版权信息。
+  CircleChat 私人聊天 — 群管理面板（Vue 3 + TypeScript + Tailwind）
   仅群主本人或系统管理员可访问对应群；系统管理员可管理任意群。
+  界面由 src/main-group.ts 构建出的 /dist/assets/group.js 挂载。
 -->
 <html lang="zh-CN">
 <head>
@@ -10,71 +10,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#07c160">
-  <title>ChatPlus · 群管理</title>
+  <title>CircleChat · 群管理</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/css/style.css">
   <link rel="icon" href="./favicon.svg">
+  <link rel="stylesheet" href="/dist/assets/tailwind.css">
 </head>
 <body>
-  <div class="admin-view">
-
-    <header class="admin-header">
-      <div class="admin-brand">
-        <button id="groupBack" class="icon-btn" title="返回聊天" aria-label="返回聊天">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"></path>
-          </svg>
-        </button>
-        <span class="admin-title">群管理</span>
-        <select id="groupSelect" class="admin-input group-select" title="选择要管理的群"></select>
-      </div>
-      <div class="admin-actions">
-        <button id="themeBtn" class="icon-btn" title="切换深色模式" aria-label="切换深色模式">
-          <svg class="icon" id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
-        </button>
-        <button id="logoutBtn" class="logout-btn" title="退出登录">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"></path>
-          </svg>
-          <span>退出</span>
-        </button>
-      </div>
-    </header>
-
-    <main class="admin-main">
-
-      <section class="admin-card">
-        <div class="admin-card-title">群信息</div>
-        <div class="group-info" id="groupInfo"></div>
-        <div class="group-actions gmg-actions">
-          <button id="gmgRename" class="admin-btn" type="button">重命名群聊</button>
-          <button id="gmgTransfer" class="admin-btn" type="button">转移群聊</button>
-          <button id="gmgDelete" class="admin-btn danger" type="button">删除群聊</button>
-        </div>
-      </section>
-
-      <section class="admin-card">
-        <div class="admin-card-title">入群申请审核<span id="reqCount" class="admin-count"></span></div>
-        <div id="reqList" class="admin-user-list"></div>
-      </section>
-
-      <section class="admin-card">
-        <div class="admin-card-title">成员管理<span id="memCount" class="admin-count"></span></div>
-        <div id="memList" class="admin-user-list"></div>
-      </section>
-
-      <section class="admin-card">
-        <div class="admin-card-title">群文件管理<span id="fileCount" class="admin-count"></span></div>
-        <div id="fileList" class="admin-log-list"></div>
-      </section>
-
-    </main>
-  </div>
-
-  <div id="toast" class="toast hidden"></div>
+  <div id="app"></div>
 
   <script src="/js/config.js"></script>
-  <script src="/js/ui.js"></script>
-  <script src="/js/group.js"></script>
+  <script type="module" src="/dist/assets/group.js"></script>
 </body>
 </html>

@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/* 把原有通用样式 style.css 作为 base 层引入。
+ * 关键点：style.css 原本是「未分层」的普通 CSS，而未分层规则优先级高于
+ * Tailwind 的 @layer 工具类，会导致 style.css 顶部的 `*{margin:0;padding:0}`
+ * 等重置规则压过 Login/Group/Admin 里几乎所有 Tailwind 布局类，造成大面积错乱。
+ * 纳入 base 层后：preflight < style.css(base) < Tailwind utilities，层级正确。 */
+@import "../../public/css/style.css" layer(base);
+
+/* ============================================================
+ * CircleChat — Tailwind 入口
+ * 版权 © 2026 Ctoy && EndlessPixel。
+ *
+ * 主题色直接复用 style.css 里已有的 CSS 变量：
+ * 用 @theme inline，Tailwind 会原样输出 var(--x)，
+ * 因此 [data-theme="dark"] 切换时颜色自动跟随，无需重复维护一套配色。
+ * ============================================================ */
+
+/* 项目的深色模式是 [data-theme="dark"]，不是默认的 .dark 类 */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-fill: var(--fill);
+  --color-fill-hover: var(--fill-hover);
+
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--border);
+
+  --color-danger: #e5484d;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+
+  --radius-card: 14px;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Vue 挂载前隐藏，避免未编译内容闪现 */
+  [v-cloak] {
+    display: none;
+  }
+}

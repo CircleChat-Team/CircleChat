@@ -1,8 +1,6 @@
 'use strict';
 /* ============================================================
- * ChatPlus 私人聊天服务器  v1.0.0
- * 版权 © 2026 Ctoy，保留所有权利。禁止去除版权信息。
- * [WM: 本文件为主服务，请勿改动，改动将导致完整性校验失败]
+ * CircleChat 私人聊天服务器  v1.0.0
  *
  * 功能：两人私有聊天（文字 / 表情 / 图片 / 文件）
  * 技术：Node.js 原生 HTTP + 自研 WebSocket（零第三方依赖）
@@ -364,6 +362,7 @@ function handleWsText(client, text) {
       const frame = wsproto.encodeText(JSON.stringify({ type: 'typing', from: u }));
       // 私聊：只推给对方；公共 / 群聊：推给其余所有在线
       const pm = msg.data && msg.data.pm != null ? String(msg.data.pm).trim() : null;
+      if (pm && !friends.isFriend(u, pm)) return; // 非好友不转发「正在输入」
       for (const c of clients) {
         if (c === client) continue;
         if (pm) { if (c.user.username !== pm) continue; }
@@ -392,12 +391,9 @@ function handleWsText(client, text) {
       if (!groups.isMember(gid, from)) return;
     }
     if (dm !== null) {
-      // 好友门禁：非好友私聊仅可发文字 / 图片
-      if (!friends.isFriend(from, dm.split(':').find((u) => u !== from))) {
-        if (type === 'file') return; // 禁发文件
-        if (d.replyTo !== undefined && d.replyTo !== null) return; // 禁引用
-        if (type === 'text' && mentionsUser(content, dm.split(':').find((u) => u !== from))) return; // 禁 @提及
-      }
+      // 好友门禁：非好友之间禁止私聊（必须先加好友）
+      const peer = dm.split(':').find((u) => u !== from);
+      if (!friends.isFriend(from, peer)) return;
     }
     // 防注入：image/file 的 content 必须是本服务器上传目录的合法文件（防 javascript: 等伪造链接）
     if (type === 'text') {
@@ -565,10 +561,10 @@ function handleApi(req, res, urlObj, pathname, ip) {
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',
-        'Set-Cookie': 'chatplus_token=' + encodeURIComponent(token) +
+        'Set-Cookie': 'circlechat_token=' + encodeURIComponent(token) +
           '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + (7 * 24 * 3600)
       });
-      res.end(JSON.stringify({ ok: true, username: user.username }));
+      res.end(JSON.stringify({ ok: true, username: user.username, mustChange: !!(user.mustChange) }));
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
       sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
@@ -584,7 +580,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     if (token) auth.destroySession(token);
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
-      'Set-Cookie': 'chatplus_token=; Path=/; HttpOnly; Max-Age=0'
+      'Set-Cookie': 'circlechat_token=; Path=/; HttpOnly; Max-Age=0'
     });
     res.end(JSON.stringify({ ok: true }));
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -594,6 +590,12 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // GET /api/health（公开探活）
   if (pathname === '/api/health' && req.method === 'GET') {
     sendJSON(res, 200, { ok: true, uptime: Math.round(process.uptime()) });
+    return;
+  }
+
+  // GET /api/setup（公开：内置管理员是否仍用默认密码，供登录页提示）
+  if (pathname === '/api/setup' && req.method === 'GET') {
+    sendJSON(res, 200, { ok: true, defaultAdmin: auth.defaultAdminPassword() });
     return;
   }
 
@@ -608,8 +610,38 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // GET /api/me
   if (pathname === '/api/me' && req.method === 'GET') {
     const online = [...clients].map(clientId);
-    sendJSON(res, 200, { ok: true, username: me.username, role: auth.getRole(me.username), online });
+    sendJSON(res, 200, { ok: true, username: me.username, role: auth.getRole(me.username), online, mustChange: auth.mustChange(me.username) });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/pass（本人修改密码，需校验当前密码；用于首次登录强制改密与日常自助改密）
+  if (pathname === '/api/pass' && req.method === 'POST') {
+    readBody(req, 8192).then((body) => {
+      let cur, np;
+      try { ({ current: cur, password: np } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 解析失败走下面校验 */ }
+      if (typeof cur !== 'string' || typeof np !== 'string') {
+        sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      if (!auth.login(me.username, cur)) {
+        sendJSON(res, 400, { ok: false, error: 'pass.currentWrong' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      if (np.length < 6) {
+        sendJSON(res, 400, { ok: false, error: 'reg.short' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      auth.setPassword(me.username, np);
+      audit.add({ actor: me.username, action: 'self.pass', detail: auditDetail('log.detail.user.pass', { name: me.username }), ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
     return;
   }
 
@@ -1519,8 +1551,7 @@ setInterval(runFileCleanup, FILE_CLEANUP_INTERVAL).unref();
 
 server.listen(PORT, HOST, () => {
   console.log('==========================================');
-  console.log(' ChatPlus 私人聊天服务器 v1.0.0 已启动');
-  console.log(' 版权 © 2026 Ctoy，保留所有权利');
+  console.log(' CircleChat 私人聊天服务器 v1.0.0 已启动');
   console.log(' 监听地址: http://' + HOST + ':' + PORT);
   console.log(' 数据目录: ' + path.join(ROOT, 'data'));
   console.log(' 消息保留: 最近 ' + store.MAX_MESSAGES + ' 条');

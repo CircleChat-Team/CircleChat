@@ -1,7 +1,7 @@
 /* ============================================================
  * ChatPlus 私人聊天 — highlight.js 浏览器包入口
  * （第三方署名由 npm run build:hljs 的 --banner 注入到产物开头）
- * 版权 © 2026 Ctoy，保留所有权利。禁止去除版权信息。
+ * 版权 © 2026 Ctoy && EndlessPixel。
  *
  * 用途：npm run build:hljs 会以本文件为入口，把 highlight.js 的
  *       「common」语言集（约 35 种常见语言）打包成单文件放到
