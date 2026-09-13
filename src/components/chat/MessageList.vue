@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
-import { chatState, loadOlder } from '../../core/chat';
+import { chatState, loadOlder, openForward, toggleSelectMode } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import MessageItem from './MessageItem.vue';
 
@@ -52,5 +52,24 @@ watch(
       :msg="m"
       :prev="i > 0 ? visible[i - 1] : undefined"
     />
-  </div>
-</template>
+    </div>
+
+    <div v-if="chatState.selectMode" class="select-bar">
+    <span class="select-count">{{ tr('chat.select.count', { n: chatState.selected.length }) }}</span>
+    <div class="select-actions">
+    <button
+      type="button"
+      class="sel-btn"
+      :disabled="!chatState.selected.length"
+      @click="openForward(chatState.selected.slice(), 'single')"
+    >{{ tr('chat.forward.individual') }}</button>
+    <button
+      type="button"
+      class="sel-btn primary"
+      :disabled="!chatState.selected.length"
+      @click="openForward(chatState.selected.slice(), 'merge')"
+    >{{ tr('chat.forward.merge') }}</button>
+    <button type="button" class="sel-btn" @click="toggleSelectMode">{{ tr('chat.select.cancel') }}</button>
+    </div>
+    </div>
+    </template>

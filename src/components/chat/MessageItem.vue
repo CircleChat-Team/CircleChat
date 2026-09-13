@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { ChatMessage } from '../../types';
 import {
   chatState,
@@ -14,7 +14,9 @@ import {
   mentionsMe,
   fmtSize,
   getProfile,
-  copyToClipboard
+  copyToClipboard,
+  openContextMenu,
+  toggleSelect
 } from '../../core/chat';
 import { QUICK_EMOJIS } from '../../core/emojis';
 import TextContent from './TextContent.vue';
@@ -29,6 +31,7 @@ const expired = computed(() => !!props.msg.file_expired);
 const self = computed(() => props.msg.from === chatState.me);
 const canRecall = computed(() => self.value || chatState.isAdmin);
 const mentionMe = computed(() => props.msg.type === 'text' && mentionsMe(props.msg.content));
+const isSelected = computed(() => props.msg.idx != null && chatState.selected.indexOf(props.msg.idx) !== -1);
 
 const recallTip = computed(() => {
   const by = props.msg.recalled_by || '';
@@ -74,6 +77,9 @@ function onReply(): void {
   chatState.replyTo = props.msg;
   showPicker.value = false;
 }
+function onCtx(e: MouseEvent): void {
+  if (props.msg.idx != null) openContextMenu(props.msg.idx, e.clientX, e.clientY);
+}
 function openProfile(): void {
   getProfile(props.msg.from);
 }
@@ -86,6 +92,17 @@ function jumpTo(idx?: number): void {
     setTimeout(() => el.classList.remove('highlight'), 1400);
   }
 }
+
+// 右键菜单选择「回应」后，由全局状态触发本消息弹出表情选择器
+watch(
+  () => chatState.reactTargetIdx,
+  (v) => {
+    if (v != null && v === props.msg.idx) {
+      showPicker.value = true;
+      chatState.reactTargetIdx = null;
+    }
+  }
+);
 </script>
 
 <template>
@@ -95,28 +112,20 @@ function jumpTo(idx?: number): void {
     class="msg"
     :class="[self ? 'self' : 'other', { grouped: grouped, 'mention-me': mentionMe }]"
     :data-idx="msg.idx"
+    @contextmenu.prevent="onCtx"
   >
     <div class="msg-avatar" @click="!grouped && openProfile()">
       <img v-if="avatarFor(msg.from)" :src="avatarFor(msg.from)!" :alt="msg.from" />
       <span v-else class="avatar-letter" :style="{ background: avatarColor(msg.from) }">{{ initial(msg.from) }}</span>
     </div>
 
+    <div v-if="chatState.selectMode" class="msg-select-check" :class="{ on: isSelected }" @click.stop="toggleSelect(msg.idx)">
+      <span v-if="isSelected">✓</span>
+    </div>
+
     <div class="msg-body">
       <div class="meta">
         <span class="meta-text">{{ (self ? '' : msg.from + ' · ') + clock(msg.ts || msg.time) }}</span>
-      </div>
-
-      <div class="msg-tools">
-        <button type="button" class="tool" :title="tr('chat.tool.react')" @click="showPicker = !showPicker">😊</button>
-        <button v-if="msg.type === 'text'" type="button" class="tool" :title="tr('common.copy')" @click="copyText">
-          {{ tr('common.copy') }}
-        </button>
-        <button type="button" class="tool" :title="tr('chat.tool.reply')" @click="onReply">
-          {{ tr('chat.tool.reply') }}
-        </button>
-        <button v-if="canRecall" type="button" class="tool danger" :title="tr('chat.tool.recall')" @click="doRecall">
-          {{ tr('chat.tool.recall') }}
-        </button>
       </div>
 
       <div v-if="msg.reply" class="quote" @click="jumpTo(msg.reply.idx)">

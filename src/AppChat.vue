@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { chatState, logout, saveSettings } from './core/chat';
+import { chatState, logout, saveSettings, toggleSelectMode } from './core/chat';
 import { tr } from './core/i18n';
 import Sidebar from './components/chat/Sidebar.vue';
 import MessageList from './components/chat/MessageList.vue';
@@ -8,6 +8,8 @@ import InputBar from './components/chat/InputBar.vue';
 import ProfileCard from './components/chat/ProfileCard.vue';
 import FriendSearch from './components/chat/FriendSearch.vue';
 import GroupDialog from './components/chat/GroupDialog.vue';
+import ContextMenu from './components/chat/ContextMenu.vue';
+import ForwardPicker from './components/chat/ForwardPicker.vue';
 import LangMenu from './components/common/LangMenu.vue';
 import ThemeToggle from './components/common/ThemeToggle.vue';
 
@@ -45,6 +47,13 @@ function onNotify(e: Event): void {
             </svg>
             <span>{{ tr('chat.adminPanel') }}</span>
           </a>
+          <button
+            v-if="chatState.activeGid != null || chatState.activeDmPeer != null"
+            type="button"
+            class="header-btn"
+            :title="tr('chat.ctx.multi')"
+            @click="toggleSelectMode"
+          >{{ tr('chat.ctx.multi') }}</button>
           <label class="switch" :title="tr('chat.notify.label')">
             <input type="checkbox" :checked="chatState.notifyOn" @change="onNotify" />
             <span class="slider"></span>
@@ -67,5 +76,7 @@ function onNotify(e: Event): void {
     <ProfileCard />
     <FriendSearch />
     <GroupDialog />
+    <ContextMenu />
+    <ForwardPicker />
   </div>
 </template>

@@ -68,6 +68,13 @@ export interface ChatState {
   groupDialogTab: 'create' | 'join' | 'search';
   error: string;
   loadingHistory: boolean;
+  contextMenu: { idx: number; x: number; y: number } | null;
+  selectMode: boolean;
+  selected: number[];
+  forwardOpen: boolean;
+  forwardSource: number[];
+  forwardMode: 'single' | 'merge';
+  reactTargetIdx: number | null;
 }
 
 const state = reactive<ChatState>({
@@ -97,7 +104,14 @@ const state = reactive<ChatState>({
   groupDialogOpen: false,
   groupDialogTab: 'create',
   error: '',
-  loadingHistory: false
+  loadingHistory: false,
+  contextMenu: null,
+  selectMode: false,
+  selected: [],
+  forwardOpen: false,
+  forwardSource: [],
+  forwardMode: 'single',
+  reactTargetIdx: null
 });
 
 let ws: WebSocket | null = null;
@@ -293,6 +307,11 @@ function mentionsOf(text: string): string[] {
 // ---------------- 历史 / 会话 ----------------
 
 function loadHistory(): void {
+  // 移除公共频道：未选择任何会话（原先的公共房 gid=null&dm=null）时不加载
+  if (state.activeGid == null && state.activeDmPeer == null) {
+    state.loadingHistory = false;
+    return;
+  }
   state.loadingHistory = true;
   const ready = usersReady || Promise.resolve();
   ready
@@ -491,6 +510,83 @@ export function recall(idx: number): void {
   send({ type: 'recall', data: { idx } });
 }
 
+// ---------------- 右键菜单 / 多选 / 转发 ----------------
+
+export function openContextMenu(idx: number, x: number, y: number): void {
+  state.contextMenu = { idx, x, y };
+}
+
+export function closeContextMenu(): void {
+  state.contextMenu = null;
+}
+
+export function toggleSelectMode(): void {
+  state.selectMode = !state.selectMode;
+  if (!state.selectMode) state.selected = [];
+}
+
+export function toggleSelect(idx: number | undefined): void {
+  if (idx == null) return;
+  const i = state.selected.indexOf(idx);
+  if (i >= 0) state.selected.splice(i, 1);
+  else state.selected.push(idx);
+}
+
+export function startSelectWith(idx: number | undefined): void {
+  if (idx == null) return;
+  state.selectMode = true;
+  state.selected = [idx];
+}
+
+export function clearSelect(): void {
+  state.selected = [];
+}
+
+export function openForward(source: number[], mode: 'single' | 'merge'): void {
+  state.forwardSource = source.filter((x) => x != null);
+  state.forwardMode = mode;
+  state.forwardOpen = true;
+}
+
+export function closeForward(): void {
+  state.forwardOpen = false;
+}
+
+function findMsg(idx: number): ChatMessage | undefined {
+  return state.messages.find((m) => m.idx === idx);
+}
+
+function fmtForward(m: ChatMessage): string {
+  if (m.type === 'text') return m.content || '';
+  if (m.type === 'image') return '[图片]';
+  if (m.type === 'file') return '[文件] ' + (m.name || '');
+  return '';
+}
+
+/** 转发：逐条 = 每条各自发送；合并 = 拼成一条文本消息发送。target 形如 { gid } 或 { pm } */
+export function forwardTo(target: { gid?: string; pm?: string }): void {
+  const msgs = (state.forwardSource || []).map(findMsg).filter((m): m is ChatMessage => !!m);
+  if (!msgs.length) return;
+  const merge = state.forwardMode === 'merge';
+  if (merge) {
+    const lines = msgs.map((m) => (m.from || '?') + '：' + fmtForward(m));
+    const content = '「合并转发 ' + msgs.length + ' 条消息」\n' + lines.join('\n');
+    send({ type: 'msg', data: { type: 'text', content, ...target } });
+  } else {
+    for (const m of msgs) {
+      const data: Record<string, unknown> = { type: m.type, content: m.content };
+      if (m.type !== 'text') {
+        data.name = m.name;
+        data.size = m.size;
+      }
+      send({ type: 'msg', data: { ...data, ...target } });
+    }
+  }
+  closeForward();
+  clearSelect();
+  closeContextMenu();
+}
+
 export function isFriend(name: string): boolean {
   return state.myFriends.some((f) => f.name === name);
 }
@@ -550,9 +646,13 @@ export async function saveSettings(patch: Record<string, unknown>): Promise<void
 export function initChat(): void {
   loadMe().then((ok) => {
     if (!ok) return;
-    loadUsers();
-    loadFriends();
-    loadGroups();
+    Promise.all([loadUsers(), loadFriends(), loadGroups()]).then(() => {
+      // 移除公共频道：默认进入第一个群组；若没有任何会话则保持空状态由用户自选
+      if (state.activeGid == null && state.activeDmPeer == null && state.myGroups.length) {
+        switchRoom(state.myGroups[0].id);
+      }
+      connectWs();
+    });
     get('/api/settings')
       .then((j) => {
         if (j.ok && j.settings && (j.settings as any).notify != null) state.notifyOn = !!(j.settings as any).notify;
@@ -560,7 +660,6 @@ export function initChat(): void {
       .catch(() => {
         /* 忽略 */
       });
-    connectWs();
   });
 }
 

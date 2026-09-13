@@ -32,9 +32,6 @@ function openDm(name: string): void {
 function openProfile(name: string): void {
   getProfile(name);
 }
-function openPublic(): void {
-  switchRoom(null);
-}
 function openGroup(g: ChatGroup): void {
   switchRoom(g.id);
 }
@@ -132,14 +129,6 @@ function openJoinGroup(): void {
 
       <!-- 群组 / 会话 -->
       <div class="sidebar-section-title">{{ tr('chat.sessions') }}</div>
-      <button
-        type="button"
-        class="group-item"
-        :class="{ active: activeGid == null && activeDmPeer == null }"
-        @click="openPublic"
-      >
-        {{ tr('chat.publicRoom') }}
-      </button>
       <div class="sidebar-group-list">
         <div v-for="g in groups" :key="g.id" class="group-item-wrap">
           <button
