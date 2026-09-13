@@ -221,6 +221,7 @@ const dict: Record<string, string> = {
   "admin.action.userAdd": "新建账号",
   "admin.action.userDel": "删除账号",
   "admin.action.userPass": "重置密码",
+  "admin.action.selfPass": "修改密码",
   "chat.dm.fileGated": "互加好友后可发送文件",
   "chat.dm.sendFiles": "发送文件 / 图片",
   "chat.friend.empty": "暂无好友",

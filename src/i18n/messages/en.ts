@@ -221,6 +221,7 @@ const dict: Record<string, string> = {
   "admin.action.userAdd": "Account created",
   "admin.action.userDel": "Account deleted",
   "admin.action.userPass": "Password reset",
+  "admin.action.selfPass": "Changed own password",
   "chat.dm.fileGated": "Send files after becoming friends",
   "chat.dm.sendFiles": "Send files / images",
   "chat.friend.empty": "No friends yet",

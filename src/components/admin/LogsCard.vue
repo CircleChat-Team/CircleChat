@@ -22,6 +22,7 @@ const ACTION_KEYS: Record<string, string> = {
   'dm.recall': 'admin.action.dmRecall',
   'upload': 'admin.action.upload',
   'settings': 'admin.action.settings',
+  'self.pass': 'admin.action.selfPass',
   'register': 'admin.action.register',
   'friend.request': 'admin.action.friendRequest',
   'friend.accept': 'admin.action.friendAccept',

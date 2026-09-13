@@ -221,6 +221,7 @@ const dict: Record<string, string> = {
   "admin.action.userAdd": "アカウントを作成",
   "admin.action.userDel": "アカウントを削除",
   "admin.action.userPass": "パスワードをリセット",
+  "admin.action.selfPass": "自分のパスワード変更",
   "chat.dm.fileGated": "友達になるとファイルを送信できます",
   "chat.dm.sendFiles": "ファイル/画像を送信",
   "chat.friend.empty": "まだ友達がいません",
