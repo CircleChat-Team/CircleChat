@@ -5,6 +5,7 @@
 import { inject } from 'vue';
 import { post } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
+import { confirm } from '../../core/dialog';
 import { fmtDate } from '../../core/format';
 import type { GroupMember } from '../../types';
 
@@ -24,9 +25,7 @@ function isOnline(name: string): boolean {
 }
 
 function remove(m: GroupMember): void {
-  const UI = window.UI;
-  if (!UI) return;
-  UI.confirm({
+  confirm({
     title: tr('group.removeTitle'),
     text: tr('group.removeConfirm', { name: m.name }),
     okText: tr('group.remove')

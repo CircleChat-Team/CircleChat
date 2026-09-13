@@ -5,6 +5,7 @@
 import { ref, inject, onMounted } from 'vue';
 import { get, post } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
+import { confirm, prompt } from '../../core/dialog';
 import { fmtDate } from '../../core/format';
 import type { UserItem } from '../../types';
 
@@ -59,9 +60,7 @@ function focusPass(): void {
 }
 
 function changePass(u: UserItem): void {
-  const UI = window.UI;
-  if (!UI) return;
-  UI.prompt({
+  prompt({
     title: tr('admin.users.resetTitle'),
     text: tr('admin.users.resetPrompt', { name: u.name }),
     okText: tr('admin.users.resetOk'),
@@ -80,9 +79,7 @@ function changePass(u: UserItem): void {
 }
 
 function setAvatar(u: UserItem): void {
-  const UI = window.UI;
-  if (!UI) return;
-  UI.prompt({
+  prompt({
     title: tr('admin.users.avatarTitle'),
     text: tr('admin.users.avatarPrompt', { name: u.name }),
     placeholder: tr('admin.users.avatarPlaceholder'),
@@ -98,9 +95,7 @@ function setAvatar(u: UserItem): void {
 }
 
 function remove(u: UserItem): void {
-  const UI = window.UI;
-  if (!UI) return;
-  UI.confirm({
+  confirm({
     title: tr('admin.users.delTitle'),
     text: tr('admin.users.delConfirm', { name: u.name }),
     okText: tr('admin.users.delBtn')

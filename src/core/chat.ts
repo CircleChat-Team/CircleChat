@@ -6,6 +6,7 @@
 
 import { reactive } from 'vue';
 import { get, post, url } from './api';
+import { config } from './config';
 import { tr } from './i18n';
 import { fmtSize } from './format';
 import type {
@@ -19,7 +20,6 @@ import type {
   ProfileData
 } from '../types';
 
-const CFG = window.CHAT_CONFIG || { apiBase: '', displayBase: '' };
 const PAGE = 30; // 每批渲染 / 加载条数
 const MAX_UPLOAD_SIZE = 20 * 1024 * 1024; // 20MB
 const GROUP_GAP_MS = 5 * 60 * 1000; // 同一人 5 分钟内连发视为一组
@@ -126,7 +126,7 @@ let typingHideTimer: number | undefined;
 // ---------------- WebSocket ----------------
 
 function wsUrl(): string {
-  const base = String(CFG.apiBase || '');
+  const base = config.apiBase;
   if (base) {
     const u = new URL(base);
     return (u.protocol === 'https:' ? 'wss://' : 'ws://') + u.host + '/ws';

@@ -4,9 +4,9 @@
  * ============================================================ */
 
 import type { ApiResult } from '../types';
+import { config } from './config';
 
-const CFG = window.CHAT_CONFIG || { apiBase: '', displayBase: '' };
-const BASE = String(CFG.apiBase || '').replace(/\/+$/, '');
+const BASE = config.apiBase;
 
 /** 拼接请求地址（/uploads 等静态资源也走这里） */
 export function url(path: string): string {
@@ -15,8 +15,7 @@ export function url(path: string): string {
 
 /** 展示用的服务器地址（未配置时取当前页面 origin） */
 export function displayBase(): string {
-  if (CFG.displayBase) return String(CFG.displayBase).replace(/\/+$/, '');
-  return location.origin;
+  return config.displayBase || location.origin;
 }
 
 async function toJson(res: Response): Promise<ApiResult> {

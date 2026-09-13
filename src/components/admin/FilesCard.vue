@@ -5,6 +5,7 @@
 import { ref, inject, onMounted } from 'vue';
 import { get, post, url } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
+import { confirm } from '../../core/dialog';
 import { fmtSize, fmtDateTime } from '../../core/format';
 import type { FileItem } from '../../types';
 
@@ -49,10 +50,8 @@ function titleOf(f: FileItem): string {
 }
 
 function remove(f: FileItem): void {
-  const UI = window.UI;
-  if (!UI) return;
   const label = f.origin || f.name;
-  UI.confirm({
+  confirm({
     title: tr('admin.files.delTitle'),
     text: f.used
       ? tr('admin.files.delConfirmUsed', { name: label, n: f.used })

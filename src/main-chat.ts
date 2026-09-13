@@ -7,8 +7,9 @@ import { createApp } from 'vue';
 import AppChat from './AppChat.vue';
 import { initTheme } from './core/theme';
 import { initChat } from './core/chat';
+import { i18n } from './i18n';
 import './styles/tailwind.css';
 
 initTheme(); // 尽早应用主题，避免首屏闪白
 initChat(); // 鉴权 → 加载数据 → 建立 WebSocket
-createApp(AppChat).mount('#app');
+createApp(AppChat).use(i18n).mount('#app');

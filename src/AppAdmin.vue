@@ -12,6 +12,7 @@ import ApprovalsCard from './components/admin/ApprovalsCard.vue';
 import UsersCard from './components/admin/UsersCard.vue';
 import FilesCard from './components/admin/FilesCard.vue';
 import LogsCard from './components/admin/LogsCard.vue';
+import Dialog from './components/common/Dialog.vue';
 
 const props = defineProps<{ me: string }>();
 
@@ -98,5 +99,7 @@ function logout(): void {
     >
       {{ toastMsg }}
     </div>
+
+    <Dialog />
   </div>
 </template>

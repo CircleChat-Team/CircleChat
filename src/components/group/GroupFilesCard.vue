@@ -5,6 +5,7 @@
 import { inject } from 'vue';
 import { post } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
+import { confirm } from '../../core/dialog';
 import { fmtSize, fmtDate } from '../../core/format';
 import type { GroupFile } from '../../types';
 
@@ -19,9 +20,7 @@ type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
 
 function remove(f: GroupFile): void {
-  const UI = window.UI;
-  if (!UI) return;
-  UI.confirm({
+  confirm({
     title: tr('group.fileDeleteTitle'),
     text: tr('group.fileDeleteConfirm'),
     okText: tr('admin.files.delBtn')

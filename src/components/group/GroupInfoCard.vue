@@ -5,6 +5,7 @@
 import { inject } from 'vue';
 import { post, del } from '../../core/api';
 import { tr } from '../../core/i18n';
+import { confirm, prompt } from '../../core/dialog';
 import { fmtDate } from '../../core/format';
 import type { GroupItem } from '../../types';
 
@@ -20,9 +21,7 @@ type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
 
 function rename(): void {
-  const UI = window.UI;
-  if (!UI) return;
-  UI.prompt({
+  prompt({
     title: tr('group.renameTitle'),
     text: tr('group.renamePrompt'),
     placeholder: tr('group.renamePlaceholder'),
@@ -40,9 +39,7 @@ function rename(): void {
 }
 
 function transfer(): void {
-  const UI = window.UI;
-  if (!UI) return;
-  UI.prompt({
+  prompt({
     title: tr('group.transferTitle'),
     text: tr('group.transferPrompt'),
     placeholder: tr('group.transferPlaceholder'),
@@ -52,7 +49,7 @@ function transfer(): void {
     if (name == null) return;
     const v = name.trim();
     if (!v) return;
-    UI.confirm({
+    confirm({
       title: tr('group.transferTitle'),
       text: tr('group.transferConfirm', { name: v }),
       okText: tr('group.transferOk')
@@ -67,9 +64,7 @@ function transfer(): void {
 }
 
 function remove(): void {
-  const UI = window.UI;
-  if (!UI) return;
-  UI.confirm({
+  confirm({
     title: tr('group.delete'),
     text: tr('group.deleteConfirm'),
     okText: tr('group.delete')

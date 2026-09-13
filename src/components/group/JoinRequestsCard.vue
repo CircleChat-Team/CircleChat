@@ -5,6 +5,7 @@
 import { inject } from 'vue';
 import { post } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
+import { confirm } from '../../core/dialog';
 import { fmtDate } from '../../core/format';
 import type { JoinRequest } from '../../types';
 
@@ -26,9 +27,7 @@ function approve(r: JoinRequest): void {
 }
 
 function reject(r: JoinRequest): void {
-  const UI = window.UI;
-  if (!UI) return;
-  UI.confirm({
+  confirm({
     title: tr('group.rejectTitle'),
     text: tr('group.rejectConfirm', { name: r.name }),
     okText: tr('admin.reject.btn')

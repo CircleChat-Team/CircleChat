@@ -11,6 +11,7 @@ import GroupInfoCard from './components/group/GroupInfoCard.vue';
 import JoinRequestsCard from './components/group/JoinRequestsCard.vue';
 import MembersCard from './components/group/MembersCard.vue';
 import GroupFilesCard from './components/group/GroupFilesCard.vue';
+import Dialog from './components/common/Dialog.vue';
 import type { GroupItem, GroupDetail, GroupMember, JoinRequest, GroupFile } from './types';
 
 const props = defineProps<{
@@ -209,5 +210,7 @@ onMounted(() => {
     >
       {{ toastMsg }}
     </div>
+
+    <Dialog />
   </div>
 </template>
