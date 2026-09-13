@@ -13,10 +13,17 @@ function nest(flat: Dict): any {
     const parts = key.split('.');
     let cur = out;
     for (let i = 0; i < parts.length - 1; i++) {
-      cur[parts[i]] = cur[parts[i]] || {};
-      cur = cur[parts[i]] as Record<string, unknown>;
+      const part = parts[i];
+      // 若当前节点已是「叶子字符串」，说明它本应是个对象
+      // （例如同时定义了 "x" 与 "x.one"/"x.other" 的复数形式），
+      // 在此把它升级为空对象，避免后面给字符串挂属性时报错。
+      if (typeof cur[part] === 'string') cur[part] = {};
+      if (typeof cur[part] !== 'object' || cur[part] === null) cur[part] = {};
+      cur = cur[part] as Record<string, unknown>;
     }
-    cur[parts[parts.length - 1]] = flat[key];
+    const last = parts[parts.length - 1];
+    // 若该叶子已被复数子键（如 .one/.other）占用成对象，则不要被标量覆盖。
+    if (typeof cur[last] !== 'object') cur[last] = flat[key];
   }
   return out;
 }
