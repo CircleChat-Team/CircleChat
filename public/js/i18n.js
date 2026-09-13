@@ -1,5 +1,5 @@
 /* ============================================================
- * ChatPlus 私人聊天 — 国际化运行时
+ * CircleChat 私人聊天 — 国际化运行时
  *
  * 加载顺序（必须在 lang/*.js 之前）：
  *   /js/i18n.js  →  /js/lang/zh.js  →  /js/lang/en.js  →  /js/lang/jp.js  →  页面脚本
@@ -27,7 +27,7 @@
 window.I18N = (function () {
   'use strict';
 
-  var STORAGE_KEY = 'chatplus_lang';
+  var STORAGE_KEY = 'circlechat_lang';
   var FALLBACK = 'zh';
   // 只用来决定下拉框里的显示顺序，不是白名单——
   // 语言能不能用取决于对应字典是否已加载

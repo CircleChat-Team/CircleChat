@@ -1,4 +1,4 @@
-# ChatPlus 私人聊天服务器
+# CircleChat 私人聊天服务器
 
 两人专用的私有聊天网页（文字 / 表情 / 图片 / 文件），纯公益用途。
 版权 © 2026 Ctoy，保留所有权利。禁止去除版权信息。
@@ -30,10 +30,10 @@
 
 ### 2. 上传与启动
 
-将整个项目目录上传到服务器（如 `/opt/chatplus`），然后：
+将整个项目目录上传到服务器（如 `/opt/circlechat`），然后：
 
 ```bash
-cd /opt/chatplus
+cd /opt/circlechat
 node server.js          # 默认监听 0.0.0.0:8080
 ```
 
@@ -64,15 +64,15 @@ server {
 
 ### 4.（推荐）systemd 常驻服务
 
-`/etc/systemd/system/chatplus.service`：
+`/etc/systemd/system/circlechat.service`：
 
 ```ini
 [Unit]
-Description=ChatPlus Private Chat
+Description=CircleChat Private Chat
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/chatplus
+WorkingDirectory=/opt/circlechat
 ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=3
@@ -84,7 +84,7 @@ WantedBy=multi-user.target
 
 ```bash
 systemctl daemon-reload
-systemctl enable --now chatplus
+systemctl enable --now circlechat
 ```
 
 ### 5. 防火墙
@@ -113,7 +113,7 @@ window.CHAT_CONFIG = {
 ## 目录结构
 
 ```
-ChatPlus/
+CircleChat/
 ├── server.js           # 主服务（HTTP + WebSocket + 上传 + 日志）
 ├── lib/
 │   ├── auth.js         # SHA256 认证 / 会话 / 限速

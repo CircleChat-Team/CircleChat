@@ -1,5 +1,5 @@
 /* ============================================================
- * ChatPlus 私人聊天 — 简体中文文案
+ * CircleChat 私人聊天 — 简体中文文案
  *
  * 命名规范：<页面>.<模块>[.<子项>]，如 login.err.empty / reg.submit
  * 占位符用 {name}；复数写 key.one / key.other。
@@ -26,7 +26,7 @@
     'common.lang': '切换语言',
 
     // ---------- 登录页 ----------
-    'login.title': 'ChatPlus · 登录',
+    'login.title': 'CircleChat · 登录',
     'login.tag': '私人聊天',
     'login.sub': '仅限受邀账号登录',
     'login.userPlaceholder': '账号',
@@ -66,7 +66,7 @@
     'common.logout': '退出登录',
 
     // ---------- 聊天页：静态界面 ----------
-    'chat.title': 'ChatPlus · 聊天',
+    'chat.title': 'CircleChat · 聊天',
     'chat.sidebar.collapse': '收起侧边栏',
     'chat.sessions': '会话',
     'chat.tab.sessions': '会话',
@@ -185,7 +185,7 @@
     'common.refresh': '刷新',
 
     // ---------- 管理页 ----------
-    'admin.title': 'ChatPlus · 管理面板',
+    'admin.title': 'CircleChat · 管理面板',
     'admin.back': '返回聊天',
     'admin.me.label': '管理员 {name}',
     'admin.pending': '待审核注册申请',

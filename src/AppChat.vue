@@ -19,7 +19,7 @@ const title = computed(() => {
     const g = chatState.myGroups.find((x) => x.id === chatState.activeGid);
     return g ? g.name : tr('chat.group.untitled');
   }
-  return 'ChatPlus';
+  return 'CircleChat';
 });
 
 const connClass = computed(() => chatState.connState);

@@ -1,6 +1,6 @@
 'use strict';
 /* ============================================================
- * ChatPlus 私人聊天服务器  v1.0.0
+ * CircleChat 私人聊天服务器  v1.0.0
  * [WM: 本文件为主服务，请勿改动，改动将导致完整性校验失败]
  *
  * 功能：两人私有聊天（文字 / 表情 / 图片 / 文件）
@@ -562,7 +562,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',
-        'Set-Cookie': 'chatplus_token=' + encodeURIComponent(token) +
+        'Set-Cookie': 'circlechat_token=' + encodeURIComponent(token) +
           '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + (7 * 24 * 3600)
       });
       res.end(JSON.stringify({ ok: true, username: user.username }));
@@ -581,7 +581,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     if (token) auth.destroySession(token);
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
-      'Set-Cookie': 'chatplus_token=; Path=/; HttpOnly; Max-Age=0'
+      'Set-Cookie': 'circlechat_token=; Path=/; HttpOnly; Max-Age=0'
     });
     res.end(JSON.stringify({ ok: true }));
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -1516,7 +1516,7 @@ setInterval(runFileCleanup, FILE_CLEANUP_INTERVAL).unref();
 
 server.listen(PORT, HOST, () => {
   console.log('==========================================');
-  console.log(' ChatPlus 私人聊天服务器 v1.0.0 已启动');
+  console.log(' CircleChat 私人聊天服务器 v1.0.0 已启动');
   console.log(' 监听地址: http://' + HOST + ':' + PORT);
   console.log(' 数据目录: ' + path.join(ROOT, 'data'));
   console.log(' 消息保留: 最近 ' + store.MAX_MESSAGES + ' 条');

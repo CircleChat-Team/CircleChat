@@ -1,5 +1,5 @@
 /* ============================================================
- * ChatPlus 前端 — 深色模式
+ * CircleChat 前端 — 深色模式
  * 偏好存在 localStorage，与登录页 / 聊天页共用。
  * ============================================================ */
 
@@ -13,7 +13,7 @@ export const theme = ref<ThemeName>(read());
 function read(): ThemeName {
   let s: string | null = null;
   try {
-    s = localStorage.getItem('chatplus_theme');
+    s = localStorage.getItem('circlechat_theme');
   } catch {
     s = null;
   }
@@ -30,7 +30,7 @@ export function applyTheme(t: ThemeName): void {
 export function toggleTheme(): void {
   const t: ThemeName = theme.value === 'dark' ? 'light' : 'dark';
   try {
-    localStorage.setItem('chatplus_theme', t);
+    localStorage.setItem('circlechat_theme', t);
   } catch {
     /* 隐私模式下忽略 */
   }

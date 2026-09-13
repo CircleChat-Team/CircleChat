@@ -42,7 +42,7 @@ function onRegistered(name: string): void {
 
     <div class="w-full max-w-[360px] rounded-2xl border border-line bg-panel p-7 shadow-lg">
       <div class="text-center">
-        <h1 class="text-2xl font-semibold tracking-tight">ChatPlus</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">CircleChat</h1>
         <p class="mt-1 text-xs text-muted">{{ tr('login.tag') }}</p>
         <p class="mt-0.5 text-xs text-muted">{{ tr('login.sub') }}</p>
       </div>

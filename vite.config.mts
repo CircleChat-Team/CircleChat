@@ -3,7 +3,7 @@ import vue from '@vitejs/plugin-vue';
 import tailwindcss from '@tailwindcss/vite';
 
 /* ============================================================
- * ChatPlus 前端构建配置
+ * CircleChat 前端构建配置
  * 版权 © 2026 Ctoy，保留所有权利。禁止去除版权信息。
  *
  * 采用「手写 HTML 壳 + 构建产物」模式：

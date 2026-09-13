@@ -1,5 +1,5 @@
 /* ============================================================
- * ChatPlus — Japanese strings
+ * CircleChat — Japanese strings
  *
  * Keys must stay in sync with zh.js (same set, same names).
  * Placeholders use {name}; plurals use key.one / key.other.
@@ -25,7 +25,7 @@
     'common.lang': '言語切替',
 
     // ---------- Sign-in page ----------
-    'login.title': 'ChatPlus · ログイン',
+    'login.title': 'CircleChat · ログイン',
     'login.tag': 'プライベートチャット',
     'login.sub': '招待アカウントのみ',
     'login.userPlaceholder': 'ユーザー名',
@@ -65,7 +65,7 @@
     'common.logout': 'ログアウト',
 
     // ---------- Chat page: static UI ----------
-    'chat.title': 'ChatPlus · チャット',
+    'chat.title': 'CircleChat · チャット',
     'chat.sidebar.collapse': 'サイドバーを折りたたむ',
     'chat.sessions': 'チャット',
     'chat.tab.sessions': 'チャット',
@@ -184,7 +184,7 @@
     'common.refresh': '更新',
 
     // ---------- Admin page ----------
-    'admin.title': 'ChatPlus · 管理パネル',
+    'admin.title': 'CircleChat · 管理パネル',
     'admin.back': 'チャットに戻る',
     'admin.me.label': '管理者 {name}',
     'admin.pending': '承認待ちの登録',

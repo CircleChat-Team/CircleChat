@@ -67,7 +67,7 @@ function openJoinGroup(): void {
 <template>
   <aside class="sidebar">
     <div class="sidebar-head">
-      <div class="sidebar-brand">ChatPlus</div>
+      <div class="sidebar-brand">CircleChat</div>
     </div>
 
     <div class="sidebar-scroll">

@@ -51,7 +51,7 @@ function wsConnect(cookie) {
 }
 
 (async () => {
-  console.log('=== ChatPlus 安全实测 ===');
+  console.log('=== CircleChat 安全实测 ===');
 
   // 1. 编码路径穿越
   let r = await request({ path: '/%2e%2e%2f%2e%2e%2fWindows%2fwin.ini', method: 'GET' });

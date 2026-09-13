@@ -1,5 +1,5 @@
 /* ============================================================
- * ChatPlus — English strings
+ * CircleChat — English strings
  *
  * Keys must stay in sync with zh.js (same set, same names).
  * Placeholders use {name}; plurals use key.one / key.other.
@@ -25,7 +25,7 @@
     'common.lang': 'Switch language',
 
     // ---------- Sign-in page ----------
-    'login.title': 'ChatPlus · Sign in',
+    'login.title': 'CircleChat · Sign in',
     'login.tag': 'Private chat',
     'login.sub': 'Invited accounts only',
     'login.userPlaceholder': 'Username',
@@ -65,7 +65,7 @@
     'common.logout': 'Sign out',
 
     // ---------- Chat page: static UI ----------
-    'chat.title': 'ChatPlus · Chat',
+    'chat.title': 'CircleChat · Chat',
     'chat.sidebar.collapse': 'Collapse sidebar',
     'chat.sessions': 'Chats',
     'chat.tab.sessions': 'Chats',
@@ -184,7 +184,7 @@
     'common.refresh': 'Refresh',
 
     // ---------- Admin page ----------
-    'admin.title': 'ChatPlus · Admin panel',
+    'admin.title': 'CircleChat · Admin panel',
     'admin.back': 'Back to chat',
     'admin.me.label': 'Admin {name}',
     'admin.pending': 'Pending registrations',
