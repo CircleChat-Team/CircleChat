@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 
 /* ============================================================
  * CircleChat 前端构建配置
- * 版权 © 2026 Ctoy，保留所有权利。禁止去除版权信息。
+ * 版权 © 2026 Ctoy && EndlessPixel。
  *
  * 采用「手写 HTML 壳 + 构建产物」模式：
  *   - 页面 HTML 放在 public/（保持 /admin.html 等 URL 不变），
