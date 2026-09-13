@@ -46,8 +46,8 @@ function submit(): void {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
-    <div class="w-full max-w-[360px] rounded-2xl border border-line bg-panel p-6 shadow-xl">
+  <div class="fixed inset-0 z-60 flex items-center justify-center bg-black/40 px-4">
+    <div class="w-full max-w-105 rounded-2xl border border-line bg-panel p-6 shadow-xl">
       <h2 class="text-lg font-semibold">{{ tr('pass.forceTitle') }}</h2>
       <p v-if="forced" class="mt-1 text-xs text-muted">{{ tr('pass.forceHint') }}</p>
 

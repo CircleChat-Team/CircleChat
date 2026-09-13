@@ -48,7 +48,7 @@ function onRegistered(name: string): void {
       <LangMenu />
     </div>
 
-    <div class="w-full max-w-[360px] rounded-2xl border border-line bg-panel p-7 shadow-lg">
+    <div class="w-full max-w-105 rounded-2xl border border-line bg-panel p-7 shadow-lg">
       <div class="text-center">
         <h1 class="text-2xl font-semibold tracking-tight">CircleChat</h1>
         <p class="mt-1 text-xs text-muted">{{ tr('login.tag') }}</p>

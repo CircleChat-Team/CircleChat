@@ -57,11 +57,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKey, true));
   <Teleport to="body">
     <div
       v-if="dialogState.open"
-      class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-5"
+      class="fixed inset-0 z-60 flex items-center justify-center bg-black/40 p-5"
       @click="onMask"
     >
       <div
-        class="w-[min(320px,100%)] rounded-2xl border border-line bg-panel p-5 shadow-[var(--shadow-pop)]"
+        class="w-[min(420px,100%)] rounded-2xl border border-line bg-panel p-5 shadow-(--shadow-pop)"
         role="dialog"
         aria-modal="true"
       >
@@ -78,7 +78,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey, true));
           :placeholder="dialogState.input.placeholder"
           :maxlength="dialogState.input.maxLength || 64"
           autocomplete="off"
-          class="mt-3.5 h-[38px] w-full rounded-xl border border-line bg-fill px-3 text-sm text-ink outline-none focus:border-primary"
+          class="mt-3.5 h-9.5 w-full rounded-xl border border-line bg-fill px-3 text-sm text-ink outline-none focus:border-primary"
           @keydown.enter.prevent="onOk"
         />
 
@@ -93,7 +93,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey, true));
           <button
             type="button"
             class="flex-1 rounded-xl px-3 py-2 text-sm font-medium text-white transition-colors active:scale-[.97]"
-            :class="dialogState.danger ? 'bg-[#e5484d] hover:bg-[#d13b40]' : 'bg-primary hover:bg-primary-dark'"
+            :class="dialogState.danger ? 'bg-danger hover:bg-[#d13b40]' : 'bg-primary hover:bg-primary-dark'"
             @click="onOk"
           >
             {{ dialogState.okText || tr('common.ok') }}

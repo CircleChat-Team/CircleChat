@@ -107,13 +107,13 @@ onMounted(load);
           v-model="actor"
           type="text"
           maxlength="40"
-          class="h-[30px] w-32 rounded-lg border border-line bg-fill px-2.5 text-xs outline-none transition-colors focus:border-primary"
+          class="h-7.5 w-32 rounded-lg border border-line bg-fill px-2.5 text-xs outline-none transition-colors focus:border-primary"
           :placeholder="tr('admin.log.actorPlaceholder')"
           @keydown.enter.prevent="load"
         >
         <select
           v-model="action"
-          class="h-[30px] rounded-lg border border-line bg-fill px-1.5 text-xs outline-none transition-colors focus:border-primary"
+          class="h-7.5 rounded-lg border border-line bg-fill px-1.5 text-xs outline-none transition-colors focus:border-primary"
           :title="tr('admin.log.actionTitle')"
           @change="load"
         >
@@ -142,8 +142,8 @@ onMounted(load);
         :title="tip(e)"
       >
         <span class="shrink-0 text-muted tabular-nums">{{ fmtDateTime(e.ts) }}</span>
-        <span class="w-[74px] min-w-0 shrink-0 truncate font-semibold">{{ e.actor || '—' }}</span>
-        <span class="shrink-0 rounded bg-primary/12 px-1.5 py-0.5 text-[11px] text-primary">{{ actionLabel(e.action) }}</span>
+        <span class="w-26 min-w-0 shrink-0 truncate font-semibold">{{ e.actor || '—' }}</span>
+        <span class="shrink-0 whitespace-nowrap rounded bg-primary/12 px-1.5 py-0.5 text-[11px] text-primary">{{ actionLabel(e.action) }}</span>
         <span class="min-w-0 flex-1 truncate">{{ formatDetail(e.detail) }}</span>
       </div>
     </div>
