@@ -98,7 +98,7 @@ onMounted(load);
       </div>
     </div>
 
-    <div class="flex max-h-[420px] flex-col gap-1.5 overflow-y-auto">
+    <div class="flex flex-col gap-1.5">
       <p v-if="failed" class="py-2.5 text-center text-xs text-muted">{{ tr(failed) }}</p>
       <p v-else-if="!items.length" class="py-2.5 text-center text-xs text-muted">{{ tr('admin.files.empty') }}</p>
 

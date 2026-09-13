@@ -31,6 +31,14 @@ const toast: ToastFn = (msg, ms) => {
 };
 provide('toast', toast);
 
+const tabs = [
+  { id: 'approvals', label: 'admin.tab.approvals' },
+  { id: 'users', label: 'admin.tab.users' },
+  { id: 'files', label: 'admin.tab.files' },
+  { id: 'logs', label: 'admin.tab.logs' }
+];
+const active = ref('approvals');
+
 // tr 是响应式的，切语言时标题自动更新
 watchEffect(() => {
   document.title = tr('admin.title');
@@ -49,7 +57,7 @@ function logout(): void {
 </script>
 
 <template>
-  <div class="min-h-screen bg-bg text-ink">
+  <div class="flex h-screen flex-col bg-bg text-ink">
     <header
       class="sticky top-0 z-5 flex h-14 items-center gap-2 border-b border-line bg-panel/80 px-4 backdrop-blur-xl"
     >
@@ -86,11 +94,26 @@ function logout(): void {
       </div>
     </header>
 
-    <main class="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 py-5 pb-10">
-      <ApprovalsCard />
-      <UsersCard :me="me" />
-      <FilesCard />
-      <LogsCard />
+    <nav class="flex shrink-0 items-center gap-1 border-b border-line bg-panel/80 px-3 backdrop-blur-xl">
+      <button
+        v-for="t in tabs"
+        :key="t.id"
+        type="button"
+        class="relative -mb-px border-b-2 px-3 py-2.5 text-[13px] transition-colors"
+        :class="active === t.id ? 'border-primary font-medium text-ink' : 'border-transparent text-muted hover:text-ink'"
+        @click="active = t.id"
+      >
+        {{ tr(t.label) }}
+      </button>
+    </nav>
+
+    <main class="min-h-0 flex-1 overflow-y-auto">
+      <div class="mx-auto max-w-[760px] px-4 py-5 pb-10">
+        <ApprovalsCard v-if="active === 'approvals'" />
+        <UsersCard v-if="active === 'users'" :me="me" />
+        <FilesCard v-if="active === 'files'" />
+        <LogsCard v-if="active === 'logs'" />
+      </div>
     </main>
 
     <div

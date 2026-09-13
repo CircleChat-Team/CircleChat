@@ -67,7 +67,7 @@ onMounted(load);
 
     <div class="flex flex-col gap-1.5">
       <p v-if="failed" class="py-2.5 text-center text-xs text-muted">{{ tr(failed) }}</p>
-      <p v-else-if="!items.length" class="py-2.5 text-center text-xs text-muted">{{ tr('admin.pending.empty') }}</p>
+      <p v-else-if="!items.length" class="py-2.5 text-center text-xs text-muted">{{ tr('admin.pendingEmpty') }}</p>
       <div
         v-for="a in items"
         :key="a.name"
