@@ -64,6 +64,7 @@
     'common.other': '对方',
     'common.listSep': '、',
     'common.logout': '退出登录',
+    'common.close': '关闭',
 
     // ---------- 聊天页：静态界面 ----------
     'chat.title': 'CircleChat · 聊天',
@@ -78,6 +79,8 @@
     'chat.members': '成员列表',
     'chat.adminPanel': '管理面板',
     'chat.notify.label': '系统通知',
+    'chat.sidebar.toggle': '菜单',
+    'chat.settings': '设置',
     'chat.logoutShort': '退出',
     'chat.reply.cancel': '取消回复',
     'chat.emoji.title': '表情',

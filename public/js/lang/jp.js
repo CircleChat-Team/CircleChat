@@ -63,6 +63,7 @@
     'common.other': '相手',
     'common.listSep': '、',
     'common.logout': 'ログアウト',
+    'common.close': '閉じる',
 
     // ---------- Chat page: static UI ----------
     'chat.title': 'CircleChat · チャット',
@@ -77,6 +78,8 @@
     'chat.members': 'メンバー',
     'chat.adminPanel': '管理パネル',
     'chat.notify.label': '通知',
+    'chat.sidebar.toggle': 'メニュー',
+    'chat.settings': '設定',
     'chat.logoutShort': '終了',
     'chat.reply.cancel': '返信をキャンセル',
     'chat.emoji.title': '絵文字',

@@ -63,6 +63,7 @@
     'common.other': 'The other user',
     'common.listSep': ', ',
     'common.logout': 'Sign out',
+    'common.close': 'Close',
 
     // ---------- Chat page: static UI ----------
     'chat.title': 'CircleChat · Chat',
@@ -77,6 +78,8 @@
     'chat.members': 'Members',
     'chat.adminPanel': 'Admin panel',
     'chat.notify.label': 'Notifications',
+    'chat.sidebar.toggle': 'Menu',
+    'chat.settings': 'Settings',
     'chat.logoutShort': 'Exit',
     'chat.reply.cancel': 'Cancel reply',
     'chat.emoji.title': 'Emoji',

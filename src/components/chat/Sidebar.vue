@@ -29,17 +29,22 @@ watch(activeGid, (g) => {
   if (!g && tab.value === 'members') tab.value = 'sessions';
 });
 
+const emit = defineEmits(['navigate']);
+
 function initial(name: string): string {
   return (name || '?').slice(0, 1);
 }
 function openDm(name: string): void {
   if (name === chatState.me) return;
+  emit('navigate');
   switchRoomToDm(name);
 }
 function openProfile(name: string): void {
+  emit('navigate');
   getProfile(name);
 }
 function openGroup(g: ChatGroup): void {
+  emit('navigate');
   switchRoom(g.id);
 }
 function toGroupAdmin(g: ChatGroup): void {
@@ -52,13 +57,16 @@ function decline(from: string): void {
   friendDecline(from);
 }
 function openFriendSearch(): void {
+  emit('navigate');
   chatState.friendSearchOpen = true;
 }
 function openCreateGroup(): void {
+  emit('navigate');
   chatState.groupDialogTab = 'create';
   chatState.groupDialogOpen = true;
 }
 function openJoinGroup(): void {
+  emit('navigate');
   chatState.groupDialogTab = 'search';
   chatState.groupDialogOpen = true;
 }
