@@ -213,6 +213,31 @@
 .group-gear:hover { background: var(--fill); color: var(--text); }
 .group-actions { display: flex; gap: 8px; padding: 8px 10px; }
 
+/* ---------- 侧边栏分页签（会话 / 好友 / 成员） ---------- */
+.sidebar-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 4px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+}
+.tab-btn {
+  flex: 1;
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.tab-btn:hover { background: var(--fill); }
+.tab-btn.active { background: var(--fill); color: var(--text); font-weight: 600; }
+.tab-pane { padding-bottom: 4px; }
+
 /* ============================================================
  * 输入栏（Vue 版自定义结构）
  * ============================================================ */
