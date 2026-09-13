@@ -108,7 +108,7 @@ function logout(): void {
     </nav>
 
     <main class="min-h-0 flex-1 overflow-y-auto">
-      <div class="mx-auto max-w-[760px] px-4 py-5 pb-10">
+      <div class="mx-auto max-w-190 px-4 py-5 pb-10">
         <ApprovalsCard v-if="active === 'approvals'" />
         <UsersCard v-if="active === 'users'" :me="me" />
         <FilesCard v-if="active === 'files'" />
