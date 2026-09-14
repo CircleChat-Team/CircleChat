@@ -52,13 +52,13 @@
 ```bash
 cd /opt/circlechat
 npm install          # 安装前端构建依赖（仅开发/构建阶段需要）
-node server.js       # 默认监听 0.0.0.0:8080
+node server.js       # 默认监听 0.0.0.0:8090
 ```
 
-指定端口启动：`PORT=3000 node server.js`
+指定端口启动：`PORT=8080 node server.js`
 指定上传文件保留天数：`FILE_TTL_DAYS=30 node server.js`
 
-浏览器访问 `http://服务器IP:8080` 即可（根路径 `/` 自动跳转登录页）。
+浏览器访问 `http://服务器IP:8090` 即可（根路径 `/` 自动跳转登录页）。
 
 ### 2.（推荐）Nginx 反向代理 + HTTPS
 
@@ -69,7 +69,7 @@ server {
 
     # 可选：HTTPS 证书配置（certbot 等）
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:8090;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -95,7 +95,7 @@ WorkingDirectory=/opt/circlechat
 ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=3
-Environment=PORT=8080
+Environment=PORT=8090
 
 [Install]
 WantedBy=multi-user.target
@@ -108,7 +108,7 @@ systemctl enable --now circlechat
 
 ### 4. 防火墙
 
-放行所用端口（示例）：`ufw allow 8080/tcp`
+放行所用端口（示例）：`ufw allow 8090/tcp`
 
 ## 配置说明（显示地址 / 请求地址分离）
 
@@ -132,7 +132,7 @@ window.CHAT_CONFIG = {
 ```bash
 npm install      # 首次安装构建依赖（仅构建期需要）
 npm run build    # 构建前端到 public/dist/
-npm start        # 启动服务（node server.js），默认监听 0.0.0.0:8080
+npm start        # 启动服务（node server.js），默认监听 0.0.0.0:8090
 ```
 
 也可在构建后直接用 `node server.js` 启动，无需经 npm。

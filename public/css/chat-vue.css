@@ -181,6 +181,9 @@
 .sidebar-group-list { display: flex; flex-direction: column; gap: 2px; padding: 0 2px; margin-bottom: 6px; }
 .group-item-wrap { display: flex; align-items: center; gap: 2px; }
 .group-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex: 1;
   min-width: 0;
   text-align: left;
@@ -191,11 +194,22 @@
   color: var(--text);
   cursor: pointer;
   font-size: 14px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   transition: background .15s var(--ease);
 }
+.group-item .group-avatar {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+}
+.group-item .truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-item:hover { background: var(--fill); }
 .group-item.active { background: var(--fill); font-weight: 600; }
 .group-gear {
@@ -326,6 +340,18 @@
   padding: 11px 6px;
   font-size: 14px;
 }
+.settings-accent { display: flex; align-items: center; gap: 8px; }
+.accent-input {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+}
+.accent-input::-webkit-color-swatch-wrapper { padding: 2px; }
+.accent-input::-webkit-color-swatch { border: none; border-radius: 6px; }
 .settings-link {
   display: flex;
   align-items: center;

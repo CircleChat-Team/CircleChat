@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, nextTick, watch } from 'vue';
-import { chatState, openForward, recall, copyToClipboard, startSelectWith } from '../../core/chat';
+import { chatState, openForward, recall, copyToClipboard, startSelectWith, reportMessage } from '../../core/chat';
 import { tr } from '../../core/i18n';
+import { prompt } from '../../core/dialog';
 
 const menu = computed(() => chatState.contextMenu);
 const msg = computed(() => {
@@ -68,6 +69,25 @@ function onRecall(): void {
   if (msg.value && msg.value.idx != null) recall(msg.value.idx);
   close();
 }
+function onReport(): void {
+  const m = msg.value;
+  if (!m || m.idx == null || m.from === chatState.me) { close(); return; }
+  prompt({
+    title: tr('chat.report.title'),
+    text: tr('chat.report.prompt'),
+    placeholder: tr('chat.report.placeholder'),
+    okText: tr('chat.report.submit'),
+    input: { type: 'text', placeholder: tr('chat.report.placeholder'), maxLength: 200 }
+  }).then((reason) => {
+    close();
+    if (reason == null) return;
+    const v = reason.trim();
+    if (!v) return;
+    reportMessage(m.idx!, v).then((ok) => {
+      alert(ok ? tr('chat.report.done') : tr('chat.report.fail'));
+    });
+  });
+}
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') close();
 }
@@ -98,5 +118,6 @@ onUnmounted(() => {
     <button type="button" class="ctx-item" @click="onForward">{{ tr('chat.ctx.forward') }}</button>
     <button type="button" class="ctx-item" @click="onMulti">{{ tr('chat.ctx.multi') }}</button>
     <button v-if="canRecall" type="button" class="ctx-item danger" @click="onRecall">{{ tr('chat.ctx.recall') }}</button>
+    <button v-if="msg && msg.from !== chatState.me" type="button" class="ctx-item danger" @click="onReport">{{ tr('chat.ctx.report') }}</button>
   </div>
 </template>

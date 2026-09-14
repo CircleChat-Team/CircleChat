@@ -61,4 +61,23 @@
   [v-cloak] {
     display: none;
   }
+
+  /* 输入框占位符（账号/密码等）文字颜色跟随主题，避免深色模式下回退成暗灰/黑 */
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--muted);
+    opacity: 1;
+  }
+
+  /* 深色模式下浏览器自动填充会把输入文字强制成黑色、背景刷成浅色，
+     用 -webkit-text-fill-color 与 box-shadow 内衬修正，使文字/底色跟随主题。 */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--text);
+    -webkit-box-shadow: 0 0 0 1000px var(--fill) inset;
+    box-shadow: 0 0 0 1000px var(--fill) inset;
+    caret-color: var(--text);
+    transition: background-color 9999s ease-in-out 0s;
+  }
 }

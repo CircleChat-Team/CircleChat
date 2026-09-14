@@ -3,9 +3,10 @@
  * 群管理页根组件
  * 群主本人或系统管理员可用；管理员可管理任意群。
  * ============================================================ */
-import { ref, provide, watchEffect, onMounted } from 'vue';
+import { ref, provide, watchEffect, onMounted, onBeforeUnmount } from 'vue';
 import { get, post } from './core/api';
 import { tr } from './core/i18n';
+import { config } from './core/config';
 import ThemeToggle from './components/common/ThemeToggle.vue';
 import GroupInfoCard from './components/group/GroupInfoCard.vue';
 import JoinRequestsCard from './components/group/JoinRequestsCard.vue';
@@ -37,6 +38,70 @@ const groups = ref<GroupItem[]>([]);
 const gid = ref('');
 const detail = ref<GroupDetail | null>(null);
 const err = ref('');
+
+// 在线列表：初始取 /api/me 快照，随后由 WebSocket presence 实时更新
+const online = ref<string[]>(props.online || []);
+
+// ---------------- 在线状态（WebSocket presence 实时同步） ----------------
+let ws: WebSocket | null = null;
+let reconnectTimer: number | undefined;
+let reconnectDelay = 1000;
+
+function wsUrl(): string {
+  const base = config.apiBase;
+  if (base) {
+    const u = new URL(base);
+    return (u.protocol === 'https:' ? 'wss://' : 'ws://') + u.host + '/ws';
+  }
+  const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  return proto + location.host + '/ws';
+}
+
+function connectPresence(): void {
+  let sock: WebSocket;
+  try {
+    sock = new WebSocket(wsUrl());
+  } catch {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = window.setTimeout(connectPresence, reconnectDelay);
+    return;
+  }
+  ws = sock;
+  sock.onopen = () => {
+    reconnectDelay = 1000;
+    // 重新连上后同步一次最新在线名单
+    get('/api/me').then((j) => {
+      if (j.ok) online.value = (j.online as string[]) || [];
+    });
+  };
+  sock.onmessage = (ev: MessageEvent) => {
+    let obj: { type?: string; users?: string[] } | null = null;
+    try {
+      obj = JSON.parse(ev.data as string);
+    } catch {
+      return;
+    }
+    if (obj && obj.type === 'presence' && Array.isArray(obj.users)) {
+      online.value = obj.users;
+    }
+  };
+  sock.onclose = () => {
+    if (ws !== sock) return;
+    ws = null;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = window.setTimeout(() => {
+      connectPresence();
+      reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+    }, reconnectDelay);
+  };
+  sock.onerror = () => {
+    try {
+      sock.close();
+    } catch {
+      /* 忽略 */
+    }
+  };
+}
 
 watchEffect(() => {
   document.title = tr('group.title');
@@ -137,6 +202,19 @@ onMounted(() => {
     const target = hit ? initial : list.length ? list[0].id : '';
     if (target) select(target);
   });
+  connectPresence();
+});
+
+onBeforeUnmount(() => {
+  if (ws) {
+    try {
+      ws.close();
+    } catch {
+      /* 忽略 */
+    }
+    ws = null;
+  }
+  clearTimeout(reconnectTimer);
 });
 </script>
 

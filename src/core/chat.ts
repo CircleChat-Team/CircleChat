@@ -76,6 +76,8 @@ export interface ChatState {
   forwardSource: number[];
   forwardMode: 'single' | 'merge';
   reactTargetIdx: number | null;
+  muted: boolean;
+  mutedUntil: number | null;
 }
 
 const state = reactive<ChatState>({
@@ -113,7 +115,9 @@ const state = reactive<ChatState>({
   forwardOpen: false,
   forwardSource: [],
   forwardMode: 'single',
-  reactTargetIdx: null
+  reactTargetIdx: null,
+  muted: false,
+  mutedUntil: null
 });
 
 let ws: WebSocket | null = null;
@@ -190,7 +194,10 @@ function connectWs(): void {
     if (!obj || typeof obj !== 'object') return;
     switch (obj.type) {
       case 'msg':
-        if (obj.data && msgInActiveRoom(obj.data)) appendMsg(obj.data);
+        if (obj.data) {
+          maybeNotify(obj.data);
+          if (msgInActiveRoom(obj.data)) appendMsg(obj.data);
+        }
         break;
       case 'recall':
         if (obj.data) handleRecall(obj.data);
@@ -206,6 +213,11 @@ function connectWs(): void {
         break;
       case 'groups.changed':
         loadGroups();
+        break;
+      case 'penalty':
+        if (obj.data) {
+          handlePenalty(obj.data);
+        }
         break;
       case 'friends.changed':
         loadFriends();
@@ -423,6 +435,10 @@ function loadGroups(): Promise<void> {
   return get('/api/groups')
     .then((j) => {
       if (j.ok) state.myGroups = (j.groups as ChatGroup[]) || [];
+      // 被移除/退出群后：若当前所在群已不在我的群列表，自动返回首页（首个群或空状态）
+      if (state.activeGid != null && !state.myGroups.some((g) => String(g.id) === String(state.activeGid))) {
+        switchRoom(state.myGroups.length ? state.myGroups[0].id : null);
+      }
     })
     .catch(() => {
       /* 忽略 */
@@ -623,8 +639,11 @@ export function friendDecline(from: string): Promise<void> {
   return post('/api/friends/decline', { from }).then(() => loadFriends());
 }
 
-export function groupCreate(name: string): Promise<void> {
-  return post('/api/groups', { name }).then(() => loadGroups());
+export function groupCreate(name: string): Promise<string | null> {
+  return post('/api/groups', { name }).then((j) => {
+    loadGroups();
+    return j && j.ok && j.id ? String(j.id) : null;
+  });
 }
 
 export function groupJoin(gid: string): Promise<void> {
@@ -641,9 +660,85 @@ export function groupLeave(gid: string): Promise<void> {
   return post('/api/groups/leave', { gid }).then(() => loadGroups());
 }
 
+/** 设置/清除群头像（群主或管理员）；avatar 传空串清除 */
+export function groupSetAvatar(gid: string, avatar: string): Promise<void> {
+  return post('/api/groups/avatar', { gid, avatar }).then(() => loadGroups());
+}
+
+/** 举报一条消息（按 idx）。返回 {ok} 或抛错（由调用方提示）。 */
+export function reportMessage(idx: number, reason: string): Promise<boolean> {
+  return post('/api/report', { idx, reason }).then((j) => !!j.ok);
+}
+
+/** 处理服务端下发“处罚”事件：被禁言时客户端停止发送；被封禁则退出登录。 */
+function handlePenalty(data: any): void {
+  state.muted = !!data.muted;
+  state.mutedUntil = typeof data.mutedUntil === 'number' ? data.mutedUntil : null;
+  if (data.banned) {
+    logout();
+    return;
+  }
+}
+
 export async function saveSettings(patch: Record<string, unknown>): Promise<void> {
   await post('/api/settings', patch);
   if (typeof patch.notify === 'boolean') state.notifyOn = patch.notify;
+}
+
+/**
+ * 开启/关闭通知。开启时必须在"用户手势"内请求权限（浏览器要求），
+ * 尤其 Windows/Edge 下否则不会弹权限框。权限被拒则保持关闭。
+ */
+export async function setNotify(enabled: boolean): Promise<boolean> {
+  const on = await (async () => {
+    if (!enabled) return false;
+    if (typeof Notification === 'undefined') return false; // 环境不支持
+    if (Notification.permission === 'granted') return true;
+    if (Notification.permission === 'denied') return false;
+    try {
+      // 在用户手势(点击/切换)内同步发起请求，Edge/Chrome 才会唤醒权限弹窗
+      return (await Notification.requestPermission()) === 'granted';
+    } catch {
+      return false;
+    }
+  })();
+  state.notifyOn = on;
+  void post('/api/settings', { notify: on }).catch(() => {
+    /* 忽略 */
+  });
+  return on;
+}
+
+/** 新消息到达：不在当前会话 或 页面隐藏 时弹出系统通知 */
+export function maybeNotify(m: ChatMessage): void {
+  if (!state.notifyOn || typeof Notification === 'undefined') return;
+  if (Notification.permission !== 'granted') return;
+  if (msgInActiveRoom(m) && !document.hidden) return; // 正在看的会话不打扰
+  let room = '';
+  let title = m.from || '';
+  if (m.gid != null) {
+    const g = state.myGroups.find((x) => x.id === m.gid);
+    room = g ? g.name : '';
+  } else if (m.dm != null) {
+    const peer = m.dm.split(':').find((u) => u !== state.me);
+    room = peer || '';
+    title = title || peer || '';
+  }
+  if (!title) title = room || 'CircleChat';
+  const body = m.type === 'image' ? '📷 图片' : m.type === 'file' ? '📎 文件' : String(m.content || '');
+  try {
+    const n = new Notification(title, { body: body.slice(0, 200), tag: 'cc-' + (m.id || Date.now()) });
+    n.onclick = () => {
+      window.focus();
+      try {
+        n.close();
+      } catch {
+        /* 忽略 */
+      }
+    };
+  } catch {
+    /* 忽略 */
+  }
 }
 
 export function initChat(): void {

@@ -6,6 +6,7 @@
 import { ref } from 'vue';
 import { post } from '../../core/api';
 import { tr } from '../../core/i18n';
+import { passwordOk } from '../../core/password';
 
 const props = defineProps<{ username: string; forced?: boolean }>();
 const emit = defineEmits<{ done: [] }>();
@@ -18,7 +19,7 @@ const loading = ref(false);
 const err = ref('');
 
 function submit(): void {
-  if (np.value.length < 6) {
+  if (!passwordOk(np.value)) {
     err.value = tr('reg.short');
     return;
   }

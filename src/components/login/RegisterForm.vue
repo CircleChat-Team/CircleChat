@@ -5,17 +5,23 @@
 import { ref } from 'vue';
 import { post } from '../../core/api';
 import { tr } from '../../core/i18n';
+import { passwordOk } from '../../core/password';
 
 const emit = defineEmits<{ submitted: [name: string] }>();
 
 const user = ref('');
+const email = ref('');
 const pass = ref('');
 const pass2 = ref('');
 const loading = ref(false);
 const hint = ref('');
 
-function submit(): void {
+// 简单邮箱格式校验
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+async function submit(): Promise<void> {
   const u = user.value.trim();
+  const em = email.value.trim();
   const p = pass.value;
   hint.value = '';
 
@@ -23,7 +29,11 @@ function submit(): void {
     hint.value = tr('login.err.empty');
     return;
   }
-  if (p.length < 6) {
+  if (!EMAIL_RE.test(em)) {
+    hint.value = tr('reg.emailInvalid');
+    return;
+  }
+  if (!passwordOk(p)) {
     hint.value = tr('reg.short');
     return;
   }
@@ -33,11 +43,12 @@ function submit(): void {
   }
 
   loading.value = true;
-  post('/api/register', { name: u, password: p })
+  post('/api/register', { name: u, email: em, password: p })
     .then((j) => {
       loading.value = false;
       if (j.ok) {
         user.value = '';
+        email.value = '';
         pass.value = '';
         pass2.value = '';
         hint.value = tr(j.message || 'reg.ok');
@@ -62,6 +73,14 @@ function submit(): void {
       required
       class="h-11 w-full rounded-xl border border-line bg-fill px-3 text-[15px] outline-none transition-colors focus:border-primary"
       :placeholder="tr('reg.userPlaceholder')"
+    >
+    <input
+      v-model="email"
+      type="email"
+      maxlength="190"
+      required
+      class="h-11 w-full rounded-xl border border-line bg-fill px-3 text-[15px] outline-none transition-colors focus:border-primary"
+      :placeholder="tr('reg.emailPlaceholder')"
     >
     <input
       v-model="pass"

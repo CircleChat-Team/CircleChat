@@ -23,6 +23,11 @@ const replyText = computed(() => {
   return String(r.content || '').replace(/\s+/g, ' ').trim();
 });
 
+const mutedText = computed(() => {
+  if (!chatState.muted) return '';
+  return tr('chat.muted.banner');
+});
+
 // @提及候选：检测光标前未完成的 @词
 const mention = computed(() => {
   const m = /@([^\s@]*)$/.exec(text.value);
@@ -67,6 +72,22 @@ function onKey(e: KeyboardEvent): void {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     send();
+  }
+}
+// 支持粘贴图片/文件：从剪贴板提取文件类内容直接上传
+function onPaste(e: ClipboardEvent): void {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items || !items.length) return;
+  const files: File[] = [];
+  for (const it of Array.from(items)) {
+    if (it.kind === 'file') {
+      const f = it.getAsFile();
+      if (f) files.push(f);
+    }
+  }
+  if (files.length) {
+    e.preventDefault();
+    uploadFiles(files);
   }
 }
 function insertMention(name: string): void {
@@ -155,6 +176,10 @@ function cancelReply(): void {
       <button class="reply-cancel" type="button" :title="tr('chat.reply.cancel')" @click="cancelReply">×</button>
     </div>
 
+    <div v-if="mutedText" class="reply-bar muted-bar">
+      <span class="reply-text">{{ mutedText }}</span>
+    </div>
+
     <div v-if="mention" class="mention-panel">
       <button
         v-for="n in mention.list"
@@ -191,13 +216,15 @@ function cancelReply(): void {
         ref="textarea"
         v-model="text"
         class="text-input"
-        :placeholder="tr('chat.input.placeholder')"
+        :placeholder="mutedText ? tr('chat.input.mutedPlaceholder') : tr('chat.input.placeholder')"
         maxlength="4096"
         rows="1"
+        :disabled="!!mutedText"
         @input="onInput"
         @keydown="onKey"
+        @paste="onPaste"
       ></textarea>
-      <button type="button" class="send-btn" :title="tr('chat.send')" @click="send">
+      <button type="button" class="send-btn" :title="tr('chat.send')" :disabled="!!mutedText" @click="send">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
         </svg>

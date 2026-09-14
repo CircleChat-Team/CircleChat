@@ -12,6 +12,7 @@ import ApprovalsCard from './components/admin/ApprovalsCard.vue';
 import UsersCard from './components/admin/UsersCard.vue';
 import FilesCard from './components/admin/FilesCard.vue';
 import LogsCard from './components/admin/LogsCard.vue';
+import ModerationCard from './components/admin/ModerationCard.vue';
 import Dialog from './components/common/Dialog.vue';
 
 const props = defineProps<{ me: string }>();
@@ -34,6 +35,7 @@ provide('toast', toast);
 const tabs = [
   { id: 'approvals', label: 'admin.tab.approvals' },
   { id: 'users', label: 'admin.tab.users' },
+  { id: 'moderation', label: 'admin.tab.moderation' },
   { id: 'files', label: 'admin.tab.files' },
   { id: 'logs', label: 'admin.tab.logs' }
 ];
@@ -111,6 +113,7 @@ function logout(): void {
       <div class="mx-auto max-w-190 px-4 py-5 pb-10">
         <ApprovalsCard v-if="active === 'approvals'" />
         <UsersCard v-if="active === 'users'" :me="me" />
+        <ModerationCard v-if="active === 'moderation'" />
         <FilesCard v-if="active === 'files'" />
         <LogsCard v-if="active === 'logs'" />
       </div>

@@ -63,6 +63,7 @@ export interface GroupItem {
   owner: string;
   created?: number | null;
   members?: number;
+  avatar?: string | null;
 }
 
 /** 群成员（/api/groups/manage） */
@@ -95,6 +96,37 @@ export interface GroupDetail {
   requests: JoinRequest[];
   members: GroupMember[];
   files: GroupFile[];
+}
+
+/** 消息举报（GET /api/admin/reports） */
+export interface ReportItem {
+  id: number;
+  msg_idx: number;
+  msg_from?: string | null;
+  msg_type?: string | null;
+  msg_snippet?: string | null;
+  reason?: string | null;
+  reporter?: string | null;
+  reported_ip?: string | null;
+  created?: number | null;
+  status?: string | null;
+}
+
+/** 处罚（GET /api/admin/penalties） */
+export interface PenaltyItem {
+  id: number;
+  type: string;
+  target: string;
+  reason?: string | null;
+  actor?: string | null;
+  created?: number | null;
+  expires?: number | null;
+  duration_ms?: number | null;
+  active?: boolean;
+  permanent?: boolean;
+  revoked?: boolean;
+  revoked_by?: string | null;
+  revoked_at?: number | null;
 }
 
 /** 聊天消息（GET /api/messages、WS 下发 msg） */
@@ -157,6 +189,7 @@ export interface ChatGroup {
   owner: string;
   created?: number | null;
   members?: number;
+  avatar?: string | null;
 }
 
 /** 用户资料卡（GET /api/profile） */

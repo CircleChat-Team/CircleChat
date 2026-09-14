@@ -7,13 +7,16 @@ import type { ChatGroup } from '../../types';
 const name = ref('');
 const kw = ref('');
 const results = ref<ChatGroup[]>([]);
+const createdId = ref('');
 
 const tab = computed(() => chatState.groupDialogTab);
 
 async function create(): Promise<void> {
   const n = name.value.trim();
   if (!n) return;
-  await groupCreate(n);
+  const id = await groupCreate(n);
+  createdId.value = id || '';
+  name.value = '';
   close();
 }
 async function doSearch(): Promise<void> {
@@ -43,6 +46,10 @@ function close(): void {
       <div class="mb-3 flex items-center justify-between">
         <span class="text-base font-semibold">{{ tr('chat.group.dialog') }}</span>
         <button type="button" class="text-2xl leading-none text-muted" :title="tr('common.close')" @click="close">×</button>
+      </div>
+      <div v-if="createdId" class="mb-3 flex items-center justify-between gap-2 rounded-lg bg-fill px-3 py-2 text-xs text-muted">
+        <span>{{ tr('chat.group.createdId', { id: createdId }) }}</span>
+        <button type="button" class="font-semibold text-primary" @click="createdId = ''">OK</button>
       </div>
       <div class="mb-3 flex gap-2">
         <button

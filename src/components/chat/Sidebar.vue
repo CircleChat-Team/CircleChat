@@ -10,7 +10,8 @@ import {
   avatarFor,
   avatarColor,
   isOnline,
-  getProfile
+  getProfile,
+  logout
 } from '../../core/chat';
 import { tr } from '../../core/i18n';
 
@@ -24,6 +25,16 @@ const groupMembers = computed(() => chatState.activeGroupMembers);
 
 // 侧边栏分页签：会话 / 好友 / 成员，三者各自独立，不再混在同一滚动区
 const tab = ref<'sessions' | 'friends' | 'members'>('sessions');
+// 底部用户菜单：点击头像/名称弹出（个人资料 + 退出登录）
+const userMenuOpen = ref(false);
+function openMyProfile(): void {
+  userMenuOpen.value = false;
+  if (chatState.me) getProfile(chatState.me);
+}
+function doLogout(): void {
+  userMenuOpen.value = false;
+  logout();
+}
 // 退出群聊（切到私聊）时，若停留在成员页签则回退到会话页签
 watch(activeGid, (g) => {
   if (!g && tab.value === 'members') tab.value = 'sessions';
@@ -97,7 +108,11 @@ function openJoinGroup(): void {
               :title="tr('chat.group.owner', { name: g.owner })"
               @click="openGroup(g)"
             >
-              {{ g.name }}<span v-if="g.owner === chatState.me"> {{ tr('common.me') }}</span>
+              <img v-if="g.avatar" class="group-avatar" :src="g.avatar" :alt="g.name" />
+              <span v-else class="group-avatar placeholder" :style="{ background: avatarColor(g.id) }">
+                {{ initial(g.name) }}
+              </span>
+              <span class="truncate">{{ g.name }}<i v-if="g.owner === chatState.me"> {{ tr('common.me') }}</i></span>
             </button>
             <button
               v-if="g.owner === chatState.me || chatState.isAdmin"
@@ -180,8 +195,24 @@ function openJoinGroup(): void {
     </div>
 
     <div class="sidebar-foot">
-      <span class="sidebar-me-label">{{ tr('chat.signedInAs') }}</span>
-      <span class="sidebar-me">{{ chatState.me }}</span>
+      <button type="button" class="sidebar-user" :title="tr('chat.profile.self')" @click="userMenuOpen = !userMenuOpen">
+        <div class="user-avatar">
+          <img v-if="avatarFor(chatState.me)" :src="avatarFor(chatState.me)!" :alt="chatState.me" />
+          <span v-else class="avatar-letter" :style="{ background: avatarColor(chatState.me) }">{{ initial(chatState.me) }}</span>
+        </div>
+        <span class="sidebar-me">{{ chatState.me }}</span>
+        <svg class="user-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z" /></svg>
+      </button>
+      <div v-if="userMenuOpen" class="user-menu">
+        <button type="button" class="user-menu-item" @click="openMyProfile">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
+          <span>{{ tr('chat.profile.self') }}</span>
+        </button>
+        <button type="button" class="user-menu-item danger" @click="doLogout">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" /></svg>
+          <span>{{ tr('common.logout') }}</span>
+        </button>
+      </div>
     </div>
   </aside>
 </template>

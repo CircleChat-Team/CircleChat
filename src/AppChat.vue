@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { chatState, logout, saveSettings, toggleSelectMode } from './core/chat';
+import { chatState, toggleSelectMode, setNotify } from './core/chat';
 import { tr } from './core/i18n';
+import { accent, setAccent } from './core/theme';
 import Sidebar from './components/chat/Sidebar.vue';
 import MessageList from './components/chat/MessageList.vue';
 import InputBar from './components/chat/InputBar.vue';
@@ -31,7 +32,14 @@ const settingsOpen = ref(false);
 
 function onNotify(e: Event): void {
   const v = (e.target as HTMLInputElement).checked;
-  saveSettings({ notify: v });
+  void setNotify(v);
+}
+
+function onAccent(e: Event): void {
+  setAccent((e.target as HTMLInputElement).value);
+}
+function resetAccent(): void {
+  setAccent('');
 }
 
 // 强制改密成功后，解除拦截并关闭弹窗
@@ -62,7 +70,7 @@ function onPassChanged(): void {
 
         <div class="chat-title">
           <span class="dot" :class="connClass"></span>
-          <span id="chatTitle">{{ title }}{{ chatState.me ? ' · ' + chatState.me : '' }}</span>
+          <span id="chatTitle">{{ title }}</span>
         </div>
 
         <div class="chat-actions">
@@ -79,18 +87,8 @@ function onPassChanged(): void {
             :title="tr('chat.ctx.multi')"
             @click="toggleSelectMode"
           >{{ tr('chat.ctx.multi') }}</button>
-          <label class="switch" :title="tr('chat.notify.label')">
-            <input type="checkbox" :checked="chatState.notifyOn" @change="onNotify" />
-            <span class="slider"></span>
-          </label>
           <LangMenu />
           <ThemeToggle />
-          <button class="logout-btn" :title="tr('common.logout')" @click="logout">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" />
-            </svg>
-            <span>{{ tr('chat.logoutShort') }}</span>
-          </button>
         </div>
 
         <button
@@ -139,6 +137,13 @@ function onPassChanged(): void {
           <span>{{ tr('common.theme') }}</span>
           <ThemeToggle />
         </div>
+        <div class="settings-row">
+          <span>{{ tr('chat.settings.accent') }}</span>
+          <div class="settings-accent">
+            <input type="color" class="accent-input" :value="accent || '#07c160'" @input="onAccent" />
+            <button v-if="accent" type="button" class="mini-btn no" @click="resetAccent">{{ tr('chat.settings.accentReset') }}</button>
+          </div>
+        </div>
         <a v-if="chatState.isAdmin" href="/admin.html" class="settings-link" @click="settingsOpen = false">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" /></svg>
           <span>{{ tr('chat.adminPanel') }}</span>
@@ -150,10 +155,6 @@ function onPassChanged(): void {
           @click="settingsOpen = false; toggleSelectMode()"
         >
           <span>{{ tr('chat.ctx.multi') }}</span>
-        </button>
-        <button type="button" class="settings-link danger" @click="logout">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" /></svg>
-          <span>{{ tr('common.logout') }}</span>
         </button>
       </div>
     </aside>

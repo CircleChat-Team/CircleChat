@@ -17,7 +17,7 @@ const loading = ref(false);
 const err = ref('');
 const pendingForce = ref(false);
 
-function submit(): void {
+async function submit(): Promise<void> {
   const u = user.value.trim();
   if (!u || !pass.value) {
     err.value = tr('login.err.empty');

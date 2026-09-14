@@ -49,8 +49,8 @@ async function main() {
   if (!password) {
     password = await promptHidden('请输入新密码（输入不回显）: ');
   }
-  if (password.length < 6) {
-    console.log('密码长度至少 6 位');
+  if (password.length < 8 || !/[0-9]/.test(password) || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+    console.log('密码需至少 8 位，且同时包含数字、大小写字母和特殊符号');
     process.exit(1);
   }
 

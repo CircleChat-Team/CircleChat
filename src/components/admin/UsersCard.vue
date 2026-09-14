@@ -7,6 +7,7 @@ import { get, post } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
 import { confirm, prompt } from '../../core/dialog';
 import { fmtDate } from '../../core/format';
+import { passwordOk } from '../../core/password';
 import type { UserItem } from '../../types';
 
 const props = defineProps<{ me: string }>();
@@ -39,7 +40,7 @@ function load(): void {
 
 function add(): void {
   const name = newName.value.trim();
-  if (!name || newPass.value.length < 6) {
+  if (!name || !passwordOk(newPass.value)) {
     toast(tr('admin.add.validate'));
     return;
   }
@@ -68,7 +69,7 @@ function changePass(u: UserItem): void {
     input: { type: 'password', placeholder: tr('admin.users.newPassPlaceholder'), maxLength: 64 }
   }).then((p) => {
     if (p == null) return;
-    if (p.length < 6) {
+    if (!passwordOk(p)) {
       toast(tr('reg.short'));
       return;
     }
