@@ -78,6 +78,7 @@ export interface ChatState {
   reactTargetIdx: number | null;
   muted: boolean;
   mutedUntil: number | null;
+  lastTs: Record<string, number>;
 }
 
 const state = reactive<ChatState>({
@@ -117,9 +118,9 @@ const state = reactive<ChatState>({
   forwardMode: 'single',
   reactTargetIdx: null,
   muted: false,
-  mutedUntil: null
+  mutedUntil: null,
+  lastTs: {}
 });
-
 let ws: WebSocket | null = null;
 let reconnectDelay = 1000;
 let reconnectTimer: number | undefined;
@@ -195,6 +196,7 @@ function connectWs(): void {
     switch (obj.type) {
       case 'msg':
         if (obj.data) {
+          bumpRoom(obj.data);
           maybeNotify(obj.data);
           if (msgInActiveRoom(obj.data)) appendMsg(obj.data);
         }
@@ -270,6 +272,16 @@ function appendMsg(m: ChatMessage): void {
     state.renderedIdx[k] = true;
   }
   state.messages.push(m);
+}
+
+// 收到新消息时，将该消息所属会话（群 g:id / 私聊 d:peer）置顶
+function bumpRoom(m: ChatMessage): void {
+  if (m.gid != null) {
+    state.lastTs['g:' + String(m.gid)] = Date.now();
+  } else if (m.dm) {
+    const peer = String(m.dm).split(':').filter(Boolean).find((n) => n !== state.me);
+    if (peer) state.lastTs['d:' + peer] = Date.now();
+  }
 }
 
 function handleRecall(data: { idx?: number; by?: string; owner?: string; admin?: boolean }): void {

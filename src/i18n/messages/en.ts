@@ -58,6 +58,8 @@ const dict: Record<string, string> = {
   "chat.tab.sessions": "Chats",
   "chat.tab.friends": "Friends",
   "chat.tab.members": "Members",
+  "sidebar.group": "Groups",
+  "sidebar.search.placeholder": "Search groups / friends",
   "chat.publicRoom": "Public chat",
   "chat.signedInAs": "Signed in as",
   "chat.dropTip": "Drop to send",

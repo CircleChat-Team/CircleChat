@@ -1,6 +1,5 @@
 /* ============================================================
  * CircleChat 私人聊天 — 样式（极简 · Apple 风格）
- * 版权 © 2026 Ctoy && EndlessPixel。
  * 登录页与聊天页共用；图标使用内联 SVG，无任何外部 CDN。
  * ============================================================ */
 
@@ -515,6 +514,77 @@ body {
   flex-shrink: 0;
 }
 .user-item.online .user-dot { background: var(--primary); box-shadow: 0 0 0 3px rgba(7, 193, 96, .15); }
+
+/* ---------- 侧边栏顶部工具：搜索框 + “+” ---------- */
+.sidebar-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 18px 12px;
+  flex-shrink: 0;
+}
+.sidebar-search-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.sidebar-search {
+  flex: 0 1 200px;
+  max-width: calc(100% - 48px);
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--faint);
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.sidebar-search:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(7, 193, 96, .18);
+}
+.sidebar-search::placeholder { color: var(--faint); }
+.sidebar-plus {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform .12s var(--ease), opacity .12s var(--ease);
+}
+.sidebar-plus:hover { opacity: .88; transform: translateY(-1px); }
+.sidebar-plus:active { opacity: .75; transform: translateY(0); }
+.sidebar-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--faint);
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .06);
+}
+.sidebar-scroll {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 18px 10px;
+}
+.sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
 
 .sidebar-foot {
   position: relative;

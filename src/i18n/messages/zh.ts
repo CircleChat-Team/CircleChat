@@ -58,6 +58,8 @@ const dict: Record<string, string> = {
   "chat.tab.sessions": "会话",
   "chat.tab.friends": "好友",
   "chat.tab.members": "成员",
+  "sidebar.group": "群聊",
+  "sidebar.search.placeholder": "搜索群聊 / 好友",
   "chat.publicRoom": "公共聊天",
   "chat.signedInAs": "登录身份",
   "chat.dropTip": "松开鼠标即可发送",

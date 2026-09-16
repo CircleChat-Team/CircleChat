@@ -597,3 +597,80 @@
 }
 .sel-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .sel-btn:disabled { opacity: .5; cursor: default; }
+
+/* ---------- 侧边栏顶部工具：搜索框 + “+” ---------- */
+.sidebar-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 18px 12px;
+  flex-shrink: 0;
+}
+.sidebar-search-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.sidebar-search {
+  flex: 0 1 200px;
+  max-width: calc(100% - 48px);
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--faint);
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.sidebar-search:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(7, 193, 96, .18);
+}
+.sidebar-search::placeholder { color: var(--faint); }
+.sidebar-plus {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform .12s var(--ease), opacity .12s var(--ease);
+}
+.sidebar-plus:hover { opacity: .88; transform: translateY(-1px); }
+.sidebar-plus:active { opacity: .75; transform: translateY(0); }
+.sidebar-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 176px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--faint);
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .06);
+}
+.sidebar-scroll {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 18px 10px;
+}
+.sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }

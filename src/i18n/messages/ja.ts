@@ -58,6 +58,8 @@ const dict: Record<string, string> = {
   "chat.tab.sessions": "チャット",
   "chat.tab.friends": "友達",
   "chat.tab.members": "メンバー",
+  "sidebar.group": "グループ",
+  "sidebar.search.placeholder": "グループ・友達を検索",
   "chat.publicRoom": "公開チャット",
   "chat.signedInAs": "ログイン中: ",
   "chat.dropTip": "ドロップして送信",
