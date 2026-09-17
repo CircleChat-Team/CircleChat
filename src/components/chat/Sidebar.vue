@@ -11,9 +11,13 @@ import {
   avatarColor,
   isOnline,
   getProfile,
+  openMyProfile,
+  openStyle,
   logout
 } from '../../core/chat';
 import { tr } from '../../core/i18n';
+import LangMenu from '../common/LangMenu.vue';
+import ThemeToggle from '../common/ThemeToggle.vue';
 
 const friends = computed(() => chatState.myFriends);
 const requests = computed(() => chatState.friendRequests);
@@ -89,9 +93,13 @@ function openJoinGroup(): void {
   chatState.groupDialogTab = 'search';
   chatState.groupDialogOpen = true;
 }
-function openMyProfile(): void {
+function openMyProfileCb(): void {
   userMenuOpen.value = false;
-  if (chatState.me) getProfile(chatState.me);
+  openMyProfile();
+}
+function openStyleCb(): void {
+  userMenuOpen.value = false;
+  openStyle();
 }
 function doLogout(): void {
   userMenuOpen.value = false;
@@ -178,18 +186,28 @@ const emit = defineEmits(['navigate']);
     </div>
 
     <div class="sidebar-foot">
-      <button type="button" class="sidebar-user" :title="tr('chat.profile.self')" @click="userMenuOpen = !userMenuOpen">
-        <div class="user-avatar">
-          <img v-if="avatarFor(chatState.me)" :src="avatarFor(chatState.me)!" :alt="chatState.me" />
-          <span v-else class="avatar-letter" :style="{ background: avatarColor(chatState.me) }">{{ initial(chatState.me) }}</span>
+      <div class="sidebar-user-wrap">
+        <button type="button" class="sidebar-user" :title="tr('chat.profile.self')" @click="userMenuOpen = !userMenuOpen">
+          <div class="user-avatar">
+            <img v-if="avatarFor(chatState.me)" :src="avatarFor(chatState.me)!" :alt="chatState.me" />
+            <span v-else class="avatar-letter" :style="{ background: avatarColor(chatState.me) }">{{ initial(chatState.me) }}</span>
+          </div>
+          <span class="sidebar-me">{{ chatState.me }}</span>
+          <svg class="user-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z" /></svg>
+        </button>
+        <div class="sidebar-foot-tools">
+          <LangMenu up />
+          <ThemeToggle />
         </div>
-        <span class="sidebar-me">{{ chatState.me }}</span>
-        <svg class="user-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z" /></svg>
-      </button>
+      </div>
       <div v-if="userMenuOpen" class="user-menu">
-        <button type="button" class="user-menu-item" @click="openMyProfile">
+        <button type="button" class="user-menu-item" @click="openMyProfileCb">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
           <span>{{ tr('chat.profile.self') }}</span>
+        </button>
+        <button type="button" class="user-menu-item" @click="openStyleCb">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0-9 9c0 2.4.95 4.6 2.5 6.2l.7-.7V21a9 9 0 0 0 9-9l-.4-2.6a4 4 0 0 0-4.8-4.8L8 2.6A9 9 0 0 0 12 3z"/></svg>
+          <span>{{ tr('profile.style.label') }}</span>
         </button>
         <button type="button" class="user-menu-item danger" @click="doLogout">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" /></svg>

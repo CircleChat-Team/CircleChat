@@ -5,6 +5,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { languages, setLang, langState, tr } from '../../core/i18n';
 
+const props = withDefaults(defineProps<{ up?: boolean }>(), { up: false });
+
 const open = ref(false);
 const items = computed(() => languages());
 const cur = computed(() => langState.lang);
@@ -57,7 +59,8 @@ function pick(code: string): void {
 
     <div
       v-if="open"
-      class="absolute right-0 top-full z-20 mt-1 min-w-[120px] overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-lg"
+      class="absolute right-0 z-20 min-w-[120px] overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-lg"
+      :class="props.up ? 'bottom-full mb-1' : 'top-full mt-1'"
       role="menu"
       @click.stop
     >

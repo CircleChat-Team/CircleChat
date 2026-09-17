@@ -7,12 +7,12 @@ import Sidebar from './components/chat/Sidebar.vue';
 import MessageList from './components/chat/MessageList.vue';
 import InputBar from './components/chat/InputBar.vue';
 import ProfileCard from './components/chat/ProfileCard.vue';
+import MyProfile from './components/chat/MyProfile.vue';
+import StyleDialog from './components/chat/StyleDialog.vue';
 import FriendSearch from './components/chat/FriendSearch.vue';
 import GroupDialog from './components/chat/GroupDialog.vue';
 import ContextMenu from './components/chat/ContextMenu.vue';
 import ForwardPicker from './components/chat/ForwardPicker.vue';
-import LangMenu from './components/common/LangMenu.vue';
-import ThemeToggle from './components/common/ThemeToggle.vue';
 import ForceChangePassword from './components/common/ForceChangePassword.vue';
 
 const title = computed(() => {
@@ -87,8 +87,6 @@ function onPassChanged(): void {
             :title="tr('chat.ctx.multi')"
             @click="toggleSelectMode"
           >{{ tr('chat.ctx.multi') }}</button>
-          <LangMenu />
-          <ThemeToggle />
         </div>
 
         <button
@@ -109,6 +107,8 @@ function onPassChanged(): void {
     </main>
 
     <ProfileCard />
+    <MyProfile />
+    <StyleDialog />
     <FriendSearch />
     <GroupDialog />
     <ContextMenu />
@@ -128,14 +128,6 @@ function onPassChanged(): void {
             <input type="checkbox" :checked="chatState.notifyOn" @change="onNotify" />
             <span class="slider"></span>
           </label>
-        </div>
-        <div class="settings-row">
-          <span>{{ tr('common.lang') }}</span>
-          <LangMenu />
-        </div>
-        <div class="settings-row">
-          <span>{{ tr('common.theme') }}</span>
-          <ThemeToggle />
         </div>
         <div class="settings-row">
           <span>{{ tr('chat.settings.accent') }}</span>

@@ -674,3 +674,46 @@
 }
 .sidebar-scroll::-webkit-scrollbar { width: 6px; }
 .sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+
+/* ---------- 个人资料弹窗按钮 ---------- */
+.btn-mini {
+  display: inline-flex;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  border: 1px solid #6b7280;
+  background: var(--primary);
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fff;
+  cursor: pointer;
+  transition: background-color .15s;
+}
+.btn-mini:hover:not(:disabled) { background: var(--primary-dark); }
+.btn-mini:disabled { opacity: .6; cursor: not-allowed; }
+.text-success { color: #10b981; }
+.btn-ghost { color: var(--primary); background: transparent; }
+.btn-ghost:hover:not(:disabled) { background: rgba(7, 193, 96, .1); }
+.btn-danger { background: #ef4444; }
+.btn-danger:hover:not(:disabled) { background: #dc2626; }
+
+/* ---------- 底部账户行：账户名左侧 + 语言/明暗切换右侧 ---------- */
+.sidebar-foot { padding: 4px; }
+.sidebar-user-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.sidebar-user-wrap .sidebar-user { flex: 0 1 auto; min-width: 0; }
+.sidebar-foot-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-right: 4px;
+}

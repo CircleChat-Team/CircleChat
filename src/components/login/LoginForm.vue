@@ -16,6 +16,11 @@ const showPass = ref(false);
 const loading = ref(false);
 const err = ref('');
 const pendingForce = ref(false);
+const need2fa = ref(false);
+const challenge = ref('');
+const code = ref('');
+const loading2fa = ref(false);
+const twofaErr = ref('');
 
 async function submit(): Promise<void> {
   const u = user.value.trim();
@@ -28,6 +33,13 @@ async function submit(): Promise<void> {
   post('/api/login', { username: u, password: pass.value })
     .then((j) => {
       if (j.ok) {
+        // 已开启两步验证：先保存挑战，展示验证码输入
+        if (j.need2fa) {
+          challenge.value = String(j.challenge || '');
+          need2fa.value = true;
+          loading.value = false;
+          return;
+        }
         if (j.mustChange) {
           // 首次登录仍需强制改密，弹窗拦截
           pendingForce.value = true;
@@ -47,10 +59,48 @@ async function submit(): Promise<void> {
       err.value = tr('login.err.network');
     });
 }
+
+// 两步验证第二步：提交验证码
+async function verify2fa(): Promise<void> {
+  const c = code.value.trim();
+  if (!/^\d{6}$/.test(c)) {
+    twofaErr.value = tr('twofa.badCode');
+    return;
+  }
+  twofaErr.value = '';
+  loading2fa.value = true;
+  post('/api/twofa/verify', { challenge: challenge.value, code: c })
+    .then((j) => {
+      if (j.ok) {
+        if (j.mustChange) {
+          pendingForce.value = true;
+          loading2fa.value = false;
+          return;
+        }
+        redirectAfterLogin();
+        return;
+      }
+      loading2fa.value = false;
+      twofaErr.value = tr(j.error || 'twofa.badCode');
+      if (j.error === 'twofa.challengeExpired') {
+        need2fa.value = false;
+        err.value = tr('twofa.challengeExpired');
+      }
+    })
+    .catch(() => {
+      loading2fa.value = false;
+      twofaErr.value = tr('login.err.network');
+    });
+}
+function backToLogin(): void {
+  need2fa.value = false;
+  twofaErr.value = '';
+  code.value = '';
+}
 </script>
 
 <template>
-  <form class="mt-6 flex flex-col gap-3" autocomplete="off" @submit.prevent="submit">
+  <form v-if="!need2fa" class="mt-6 flex flex-col gap-3" autocomplete="off" @submit.prevent="submit">
     <input
       v-model="user"
       type="text"
@@ -103,6 +153,39 @@ async function submit(): Promise<void> {
 
     <p v-if="err" class="text-center text-xs text-danger">{{ err }}</p>
   </form>
+
+  <!-- 两步验证：账号密码正确后输入动态验证码 -->
+  <div v-else class="mt-6 flex flex-col gap-3">
+    <div class="text-center text-sm font-medium">{{ tr('login.twofa.title') }}</div>
+    <p class="text-center text-xs text-muted">{{ tr('login.twofa.hint') }}</p>
+    <input
+      v-model="code"
+      inputmode="numeric"
+      autocomplete="one-time-code"
+      maxlength="6"
+      class="h-11 w-full rounded-xl border border-line bg-fill px-3 text-center text-[15px] tracking-widest outline-none transition-colors focus:border-primary"
+      :placeholder="tr('login.twofa.placeholder')"
+      @keyup.enter="verify2fa"
+    >
+    <button
+      type="button"
+      :disabled="loading2fa"
+      class="flex h-11 w-full items-center justify-center rounded-xl bg-primary text-[15px] font-medium text-white transition-colors hover:bg-primary-dark disabled:opacity-60"
+      @click="verify2fa"
+    >
+      <span
+        v-if="loading2fa"
+        class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+      />
+      <span v-else>{{ tr('login.twofa.submit') }}</span>
+    </button>
+    <button
+      type="button"
+      class="text-center text-xs text-muted transition-colors hover:text-ink"
+      @click="backToLogin"
+    >{{ tr('login.twofa.back') }}</button>
+    <p v-if="twofaErr" class="text-center text-xs text-danger">{{ twofaErr }}</p>
+  </div>
 
   <ForceChangePassword v-if="pendingForce" :username="user" forced @done="redirectAfterLogin" />
 </template>

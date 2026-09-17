@@ -232,6 +232,7 @@ function sniffImage(buf) {
 
 const clients = new Set(); // 所有在线 WS 连接
 const typingLast = new Map(); // 用户名 -> 上次转发「正在输入」的时间（节流用）
+const twofaChallenges = new Map(); // token -> { username, expires }（登录第二步 2FA）
 
 function clientId(c) {
   return c.user.username;
@@ -588,6 +589,16 @@ function handleApi(req, res, urlObj, pathname, ip) {
         logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
+      // 开启了两步验证：先下发 2FA 挑战，验证通过后再建立会话
+      const twofa = auth.getTotp(user.username);
+      if (twofa.enabled) {
+        const challenge = crypto.randomBytes(24).toString('hex');
+        twofaChallenges.set(challenge, { username: user.username, expires: Date.now() + 5 * 60 * 1000 });
+        audit.add({ actor: user.username, action: 'login.2fa', detail: auditDetail('log.detail.login.need2fa'), ip });
+        sendJSON(res, 200, { ok: true, need2fa: true, challenge });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
       const token = auth.createSession(user.username, ip);
       auth.clearFails(ip);
       audit.add({ actor: user.username, action: 'login', detail: auditDetail('log.detail.login.ok'), ip });
@@ -632,6 +643,49 @@ function handleApi(req, res, urlObj, pathname, ip) {
     return;
   }
 
+  // POST /api/twofa/verify（公开：登录第二步两步验证）
+  if (pathname === '/api/twofa/verify' && req.method === 'POST') {
+    readBody(req, 8192).then((body) => {
+      let challenge, code;
+      try { ({ challenge, code } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 走下面校验 */ }
+      const ch = twofaChallenges.get(challenge);
+      if (!ch || Date.now() > ch.expires) {
+        if (ch) twofaChallenges.delete(challenge);
+        sendJSON(res, 400, { ok: false, error: 'twofa.challengeExpired' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      if (auth.isLocked(ip)) {
+        sendJSON(res, 429, { ok: false, error: 'api.login.rateLimited' });
+        logger.write({ ip, method: req.method, url: pathname, status: 429, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      const stored = auth.getTotp(ch.username);
+      if (!stored.secret || !auth.verifyTotp(stored.secret, code)) {
+        auth.recordFail(ip);
+        audit.add({ actor: ch.username, action: 'login.fail', detail: auditDetail('log.detail.login.fail.twofa'), ip });
+        sendJSON(res, 401, { ok: false, error: 'twofa.badCode' });
+        logger.write({ ip, method: req.method, url: pathname, status: 401, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      twofaChallenges.delete(challenge);
+      auth.clearFails(ip);
+      const token = auth.createSession(ch.username, ip);
+      audit.add({ actor: ch.username, action: 'login', detail: auditDetail('log.detail.login.ok'), ip });
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Set-Cookie': 'circlechat_token=' + encodeURIComponent(token) +
+          '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + (7 * 24 * 3600)
+      });
+      res.end(JSON.stringify({ ok: true, username: ch.username, mustChange: auth.mustChange(ch.username) }));
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
   // 以下接口均需登录
   const me = auth.authByCookie(req.headers.cookie);
   if (!me) {
@@ -643,7 +697,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // GET /api/me
   if (pathname === '/api/me' && req.method === 'GET') {
     const online = [...clients].map(clientId);
-    sendJSON(res, 200, { ok: true, username: me.username, role: auth.getRole(me.username), online, mustChange: auth.mustChange(me.username) });
+    sendJSON(res, 200, { ok: true, username: me.username, role: auth.getRole(me.username), online, mustChange: auth.mustChange(me.username), totpEnabled: auth.getTotp(me.username).enabled });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -670,6 +724,123 @@ function handleApi(req, res, urlObj, pathname, ip) {
       }
       auth.setPassword(me.username, np);
       audit.add({ actor: me.username, action: 'self.pass', detail: auditDetail('log.detail.user.pass', { name: me.username }), ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
+  // POST /api/profile（本人修改资料：改名 {name} / 改头像 {image}）
+  if (pathname === '/api/profile' && req.method === 'POST') {
+    readBody(req, 16384).then((body) => {
+      let obj;
+      try { obj = JSON.parse(body.toString('utf8')); } catch (e) { obj = null; }
+      if (obj && typeof obj.name === 'string') {
+        const name = obj.name.trim();
+        if (!USERNAME_RE.test(name)) {
+          sendJSON(res, 400, { ok: false, error: 'api.user.nameFormat' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        if (name === me.username) {
+          sendJSON(res, 200, { ok: true, newName: name });
+          logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        if (!auth.renameUser(me.username, name)) {
+          sendJSON(res, 400, { ok: false, error: 'api.user.nameTaken' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        auth.renameSession(me.username, name);
+        audit.add({ actor: me.username, action: 'user.rename', detail: auditDetail('log.detail.user.rename', { old: me.username, name }), ip });
+        sendJSON(res, 200, { ok: true, newName: name });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      if (obj && typeof obj.image === 'string') {
+        const image = obj.image.trim();
+        if (image !== '' && !/^\/uploads\/[a-zA-Z0-9]+\.[a-zA-Z0-9]{1,8}$/.test(image)) {
+          sendJSON(res, 400, { ok: false, error: 'api.user.imageInvalid' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        auth.setImage(me.username, image);
+        audit.add({ actor: me.username, action: 'user.image', detail: auditDetail('log.detail.user.image'), ip });
+        sendJSON(res, 200, { ok: true, image });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
+  // POST /api/twofa/setup（本人：生成两步验证密钥）
+  if (pathname === '/api/twofa/setup' && req.method === 'POST') {
+    const st = auth.getTotp(me.username);
+    if (st.enabled) {
+      sendJSON(res, 400, { ok: false, error: 'twofa.alreadyOn' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const secret = auth.genSecret();
+    auth.setTotpEnabled(me.username, false, secret);
+    audit.add({ actor: me.username, action: 'twofa.setup', detail: auditDetail('log.detail.twofa.setup'), ip });
+    sendJSON(res, 200, { ok: true, secret, otpauth: auth.otpauthURL(me.username, secret) });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/twofa/enable（本人：验证验证码后启用两步验证）
+  if (pathname === '/api/twofa/enable' && req.method === 'POST') {
+    readBody(req, 8192).then((body) => {
+      let code;
+      try { ({ code } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 走下面校验 */ }
+      const st = auth.getTotp(me.username);
+      if (st.enabled) {
+        sendJSON(res, 400, { ok: false, error: 'twofa.alreadyOn' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      if (!st.secret || !auth.verifyTotp(st.secret, code)) {
+        sendJSON(res, 400, { ok: false, error: 'twofa.badCode' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      auth.setTotpEnabled(me.username, true, st.secret);
+      audit.add({ actor: me.username, action: 'twofa.enable', detail: auditDetail('log.detail.twofa.enable'), ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
+  // POST /api/twofa/disable（本人：验证验证码后关闭两步验证）
+  if (pathname === '/api/twofa/disable' && req.method === 'POST') {
+    readBody(req, 8192).then((body) => {
+      let code;
+      try { ({ code } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 走下面校验 */ }
+      const st = auth.getTotp(me.username);
+      if (!st.enabled) {
+        sendJSON(res, 400, { ok: false, error: 'twofa.alreadyOff' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      if (!st.secret || !auth.verifyTotp(st.secret, code)) {
+        sendJSON(res, 400, { ok: false, error: 'twofa.badCode' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      auth.setTotpEnabled(me.username, false, null);
+      audit.add({ actor: me.username, action: 'twofa.disable', detail: auditDetail('log.detail.twofa.disable'), ip });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {

@@ -64,6 +64,8 @@ export interface ChatState {
   replyTo: ChatMessage | null;
   profileOpen: boolean;
   profile: ProfileData | null;
+  myProfileOpen: boolean;
+  styleOpen: boolean;
   friendSearchOpen: boolean;
   groupDialogOpen: boolean;
   groupDialogTab: 'create' | 'join' | 'search';
@@ -105,6 +107,8 @@ const state = reactive<ChatState>({
   replyTo: null,
   profileOpen: false,
   profile: null,
+  myProfileOpen: false,
+  styleOpen: false,
   friendSearchOpen: false,
   groupDialogOpen: false,
   groupDialogTab: 'create',
@@ -637,6 +641,66 @@ export function getProfile(name: string): Promise<void> {
 export function closeProfile(): void {
   state.profileOpen = false;
   state.profile = null;
+}
+
+export function openMyProfile(): void {
+  state.myProfileOpen = true;
+}
+export function openStyle(): void {
+  state.styleOpen = true;
+}
+export function closeStyle(): void {
+  state.styleOpen = false;
+}
+export function closeMyProfile(): void {
+  state.myProfileOpen = false;
+}
+
+// ---------------- 个人资料编辑（本人：改名 / 头像 / 两步验证） ----------------
+
+export function updateProfileName(name: string): Promise<{ ok: boolean; error?: string; newName?: string }> {
+  return post('/api/profile', { name });
+}
+
+/** 上传图片作为头像并更新本人资料；成功返回 true */
+export async function updateAvatar(file: File): Promise<boolean> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(api('/api/upload'), { method: 'POST', body: fd, credentials: 'same-origin' });
+  const body = await res.json();
+  if (!body.ok || body.kind !== 'image') {
+    state.error = body.error || 'chat.upload.failed';
+    return false;
+  }
+  const j = await post('/api/profile', { image: body.url });
+  if (j && j.ok) {
+    state.userImages[state.me] = body.url;
+    const u = state.allUsers.find((x) => x.name === state.me);
+    if (u) u.image = body.url;
+  }
+  return !!(j && j.ok);
+}
+
+/** 清除本人头像 */
+export function clearAvatar(): Promise<boolean> {
+  return post('/api/profile', { image: '' }).then((j) => {
+    if (j && j.ok) {
+      state.userImages[state.me] = null;
+      const u = state.allUsers.find((x) => x.name === state.me);
+      if (u) u.image = null;
+    }
+    return !!(j && j.ok);
+  });
+}
+
+export function twofaSetup(): Promise<{ ok: boolean; secret?: string; otpauth?: string; error?: string }> {
+  return post('/api/twofa/setup', {});
+}
+export function twofaEnable(code: string): Promise<{ ok: boolean; error?: string }> {
+  return post('/api/twofa/enable', { code });
+}
+export function twofaDisable(code: string): Promise<{ ok: boolean; error?: string }> {
+  return post('/api/twofa/disable', { code });
 }
 
 export function friendRequest(to: string): Promise<void> {
