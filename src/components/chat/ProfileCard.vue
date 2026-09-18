@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { chatState, switchRoomToDm, closeProfile, avatarFor, avatarColor, isOnline } from '../../core/chat';
+import { chatState, switchRoomToDm, closeProfile, avatarFor, avatarColor, isOnline, isAway } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import { fmtDate } from '../../core/format';
 
@@ -38,7 +38,7 @@ function sendMsg(): void {
       <div class="mt-4 space-y-2 text-sm">
         <div class="flex justify-between">
           <span class="text-muted">{{ tr('chat.profile.status') }}</span>
-          <b>{{ isOnline(p.name) ? tr('common.online') : tr('common.offline') }}</b>
+          <b>{{ isAway(p.name) ? tr('common.away') : (isOnline(p.name) ? tr('common.online') : tr('common.offline')) }}</b>
         </div>
         <div class="flex justify-between">
           <span class="text-muted">{{ tr('chat.profile.joinedAt') }}</span>

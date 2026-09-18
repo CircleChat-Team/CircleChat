@@ -5,7 +5,10 @@ import { tr } from '../../core/i18n';
 import EmojiPanel from './EmojiPanel.vue';
 
 const text = ref('');
+const md = ref(false); // Markdown 编辑模式：开启后该条按 Markdown 渲染，换行为 Ctrl+Enter
 const textarea = ref<HTMLTextAreaElement | null>(null);
+const bigEl = ref<HTMLTextAreaElement | null>(null);
+const editOpen = ref(false); // 放大编辑器
 const showEmoji = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const dragDepth = ref(0);
@@ -51,11 +54,31 @@ function onInput(): void {
   notifyTyping();
 }
 function send(): void {
-  sendText(text.value);
+  sendText(text.value, md.value);
   text.value = '';
   showMention.value = true;
   nextTick(autoGrow);
   showEmoji.value = false;
+}
+function currentEl(): HTMLTextAreaElement | null {
+  return editOpen.value ? (bigEl.value || textarea.value) : textarea.value;
+}
+
+/** 手动在光标处插入换行，保证 Ctrl+Enter / Shift+Enter 必定能换行 */
+function insertNewline(): void {
+  const el = currentEl();
+  if (el) {
+    const s = el.selectionStart ?? text.value.length;
+    const t = el.selectionEnd ?? text.value.length;
+    el.setRangeText('\n', s, t, 'end');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  } else {
+    text.value += '\n';
+  }
+  nextTick(() => {
+    el?.focus();
+    if (!editOpen.value) autoGrow();
+  });
 }
 function onKey(e: KeyboardEvent): void {
   if (mention.value) {
@@ -69,10 +92,45 @@ function onKey(e: KeyboardEvent): void {
       return;
     }
   }
-  if (e.key === 'Enter' && !e.shiftKey) {
+  if (e.key === 'Enter') {
+    if (!e.ctrlKey && !e.shiftKey && !e.metaKey) {
+      e.preventDefault();
+      send();
+      return;
+    }
+    // Ctrl+Enter / Shift+Enter / Cmd+Enter = 换行
     e.preventDefault();
-    send();
+    insertNewline();
   }
+}
+function toggleMd(): void {
+  md.value = !md.value;
+  nextTick(() => {
+    currentEl()?.focus();
+    if (!editOpen.value) autoGrow();
+  });
+}
+function openEditor(): void {
+  if (mutedText.value) return;
+  editOpen.value = true;
+  nextTick(() => {
+    const el = bigEl.value;
+    if (el) {
+      el.focus();
+      el.selectionStart = el.selectionEnd = el.value.length;
+    }
+  });
+}
+function closeEditor(): void {
+  editOpen.value = false;
+}
+function sendEditor(): void {
+  if (!text.value.trim()) return;
+  send();
+  editOpen.value = false;
+}
+function onInputBig(): void {
+  notifyTyping();
 }
 // 支持粘贴图片/文件：从剪贴板提取文件类内容直接上传
 function onPaste(e: ClipboardEvent): void {
@@ -216,7 +274,7 @@ function cancelReply(): void {
         ref="textarea"
         v-model="text"
         class="text-input"
-        :placeholder="mutedText ? tr('chat.input.mutedPlaceholder') : tr('chat.input.placeholder')"
+        :placeholder="mutedText ? tr('chat.input.mutedPlaceholder') : (md ? tr('chat.input.mdPlaceholder') : tr('chat.input.placeholder'))"
         maxlength="4096"
         rows="1"
         :disabled="!!mutedText"
@@ -224,6 +282,23 @@ function cancelReply(): void {
         @keydown="onKey"
         @paste="onPaste"
       ></textarea>
+      <button
+        type="button"
+        class="tool-btn md-toggle"
+        :class="{ on: md }"
+        :title="tr('chat.input.mdToggle')"
+        :disabled="!!mutedText"
+        @click="toggleMd"
+      >MD</button>
+      <button
+        type="button"
+        class="tool-btn"
+        :title="tr('chat.input.expand')"
+        :disabled="!!mutedText"
+        @click="openEditor"
+      >
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/></svg>
+      </button>
       <button type="button" class="send-btn" :title="tr('chat.send')" :disabled="!!mutedText" @click="send">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
@@ -234,4 +309,34 @@ function cancelReply(): void {
 
     <input ref="fileInput" type="file" hidden multiple @change="onFile" />
   </footer>
+
+  <!-- 放大编辑器（按钮控制） -->
+  <div v-if="editOpen" class="editor-overlay" @click.self="closeEditor">
+    <div class="editor-card">
+      <textarea
+        ref="bigEl"
+        v-model="text"
+        class="text-input big-input"
+        :placeholder="md ? tr('chat.input.mdPlaceholder') : tr('chat.input.placeholder')"
+        maxlength="4096"
+        @input="onInputBig"
+        @keydown="onKey"
+        @paste="onPaste"
+      ></textarea>
+      <div class="editor-toolbar">
+        <button
+          type="button"
+          class="tool-btn md-toggle"
+          :class="{ on: md }"
+          :title="tr('chat.input.mdToggle')"
+          @click="toggleMd"
+        >MD</button>
+        <span class="editor-hint">{{ tr('chat.input.bigHint') }}</span>
+        <div class="editor-actions">
+          <button type="button" class="btn-mini btn-ghost" @click="closeEditor">{{ tr('common.cancel') }}</button>
+          <button type="button" class="btn-mini btn-primary" @click="sendEditor">{{ tr('chat.send') }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>

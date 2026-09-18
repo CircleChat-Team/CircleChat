@@ -4,7 +4,7 @@
  * 所有组件 import 同一个实例，状态天然共享。
  * ============================================================ */
 
-import { reactive } from 'vue';
+import { reactive, ref } from 'vue';
 import { get, post, url } from './api';
 import { config } from './config';
 import { tr } from './i18n';
@@ -46,6 +46,7 @@ export interface ChatState {
   isAdmin: boolean;
   mustChange: boolean;
   online: string[];
+  away: string[];
   allUsers: ChatUser[];
   userImages: Record<string, string | null>;
   myGroups: ChatGroup[];
@@ -89,6 +90,7 @@ const state = reactive<ChatState>({
   isAdmin: false,
   mustChange: false,
   online: [],
+  away: [],
   allUsers: [],
   userImages: {},
   myGroups: [],
@@ -187,10 +189,11 @@ function connectWs(): void {
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
     }, 30000);
     loadHistory();
+    pushStatus();
   };
 
   sock.onmessage = (ev: MessageEvent) => {
-    let obj: { type?: string; data?: any; from?: string; users?: string[]; by?: string; owner?: string; admin?: boolean } | null = null;
+    let obj: { type?: string; data?: any; from?: string; users?: string[]; away?: string[]; by?: string; owner?: string; admin?: boolean } | null = null;
     try {
       obj = JSON.parse(ev.data as string);
     } catch {
@@ -216,6 +219,7 @@ function connectWs(): void {
         break;
       case 'presence':
         state.online = obj.users || [];
+        state.away = obj.away || [];
         break;
       case 'groups.changed':
         loadGroups();
@@ -411,6 +415,7 @@ function loadMe(): Promise<boolean> {
     state.isAdmin = state.role === 'admin';
     state.mustChange = !!j.mustChange;
     state.online = (j.online as string[]) || [];
+    state.away = (j.away as string[]) || [];
     return true;
   });
 }
@@ -463,7 +468,7 @@ function loadGroups(): Promise<void> {
 
 // ---------------- 发送 ----------------
 
-export function sendText(text: string): void {
+export function sendText(text: string, md?: boolean): void {
   const val = (text || '').trim();
   if (!val) return;
   if (dmgating() && state.replyTo) {
@@ -471,6 +476,7 @@ export function sendText(text: string): void {
     return;
   }
   const data: Record<string, unknown> = { type: 'text', content: val };
+  if (md) data.md = 1;
   if (state.activeGid != null) data.gid = state.activeGid;
   if (state.activeDmPeer != null) data.pm = state.activeDmPeer;
   if (state.replyTo && state.replyTo.idx != null) data.replyTo = state.replyTo.idx;
@@ -613,6 +619,8 @@ export function forwardTo(target: { gid?: string; pm?: string }): void {
       if (m.type !== 'text') {
         data.name = m.name;
         data.size = m.size;
+      } else if (m.md) {
+        data.md = 1;
       }
       send({ type: 'msg', data: { ...data, ...target } });
     }
@@ -860,6 +868,67 @@ export function avatarFor(name: string): string | null {
 
 export function isOnline(name: string): boolean {
   return state.online.indexOf(name) !== -1 || name === state.me;
+}
+
+/** 该用户是否「离开」（在线但后台）——自己永远不算离开 */
+export function isAway(name: string): boolean {
+  return name !== state.me && state.away.indexOf(name) !== -1;
+}
+
+/** 侧栏 / 资料页状态文案：离开 > 在线 > 离线 */
+export function statusKey(name: string): 'away' | 'online' | 'offline' {
+  if (isAway(name)) return 'away';
+  return isOnline(name) ? 'online' : 'offline';
+}
+
+// ================= 自己的隐身 / 离开状态 =================
+
+function readInvisible(): boolean {
+  try {
+    return localStorage.getItem('circlechat_invisible') === '1';
+  } catch {
+    return false;
+  }
+}
+function isHiddenNow(): boolean {
+  return typeof document !== 'undefined' && !!(document.hidden || document.visibilityState === 'hidden');
+}
+
+/** 我的当前状态（隐身是持久偏好，离开按页面是否在前台实时判定，均最终推给服务端） */
+export const selfStatus = ref<{ invisible: boolean; away: boolean }>({ invisible: readInvisible(), away: isHiddenNow() });
+
+function pushStatus(): void {
+  const s = selfStatus.value;
+  send({
+    type: 'status',
+    data: { invisible: s.invisible ? 1 : 0, away: !s.invisible && s.away ? 1 : 0 }
+  });
+}
+
+/** 隐身：开启后其他人在线列表里看不到我 */
+export function setInvisible(b: boolean): void {
+  selfStatus.value.invisible = b;
+  try {
+    localStorage.setItem('circlechat_invisible', b ? '1' : '0');
+  } catch {
+    /* 隐私模式下忽略 */
+  }
+  pushStatus();
+}
+
+/** 页面切到前台 / 后台时更新「离开」状态 */
+export function syncVisibility(): void {
+  selfStatus.value.away = isHiddenNow();
+  pushStatus();
+}
+
+// 监听页面可见性：不在前台即为「离开」
+try {
+  document.addEventListener('visibilitychange', syncVisibility);
+  window.addEventListener('focus', syncVisibility);
+  window.addEventListener('blur', syncVisibility);
+} catch {
+  /* 忽略 */
 }
 
 export function copyToClipboard(text: string): void {

@@ -279,8 +279,14 @@ function mentionsUser(text, name) {
 }
 
 function broadcastPresence() {
-  const users = [...new Set([...clients].map(clientId))].sort();
-  broadcast({ type: 'presence', users });
+  const present = [...new Set(currentPresent())].sort();
+  const away = [...new Set([...clients].filter((c) => !c.invisible && c.away).map(clientId))].sort();
+  broadcast({ type: 'presence', users: present, away });
+}
+
+// 隐身用户对他人显示为离线：凡用于对外展示「在线」的集合都排除 invisible
+function currentPresent() {
+  return [...clients].filter((c) => !c.invisible).map(clientId);
 }
 
 // 心跳：每 30s 发 Ping，两次未响应则断开
@@ -316,6 +322,8 @@ function handleWsUpgrade(req, socket, head) {
     socket,
     user,
     alive: true,
+    invisible: false, // 隐身：对他人显示为离线
+    away: false,      // 离开：在线但页面不在前台
     close: () => { /* 见下 */
     }
   };
@@ -381,6 +389,13 @@ function handleWsText(client, text) {
     }
     return;
   }
+  if (msg.type === 'status') {
+    const ds = msg.data || {};
+    client.invisible = !!ds.invisible;
+    client.away = !client.invisible && !!ds.away;
+    broadcastPresence();
+    return;
+  }
   if (msg.type === 'msg') {
     const d = msg.data || {};
     const type = d.type === 'image' || d.type === 'file' ? d.type : 'text';
@@ -443,7 +458,8 @@ function handleWsText(client, text) {
       size: d.size,
       replyTo,
       gid,
-      dm
+      dm,
+      md: type === 'text' && d.md ? 1 : 0
     });
     audit.add({
       actor: from,
@@ -696,8 +712,9 @@ function handleApi(req, res, urlObj, pathname, ip) {
 
   // GET /api/me
   if (pathname === '/api/me' && req.method === 'GET') {
-    const online = [...clients].map(clientId);
-    sendJSON(res, 200, { ok: true, username: me.username, role: auth.getRole(me.username), online, mustChange: auth.mustChange(me.username), totpEnabled: auth.getTotp(me.username).enabled });
+    const online = currentPresent();
+    const away = [...clients].filter((c) => !c.invisible && c.away).map(clientId);
+    sendJSON(res, 200, { ok: true, username: me.username, role: auth.getRole(me.username), online, away, mustChange: auth.mustChange(me.username), totpEnabled: auth.getTotp(me.username).enabled });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -871,7 +888,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // 带在线/头像装饰的用户名列表
   function decorateNames(names) {
     const raw = auth.loadUsers() || {};
-    const online = new Set([...clients].map(clientId));
+    const online = new Set(currentPresent());
     return names.map(function (n) {
       const o = { name: n, online: online.has(n) };
       if (raw[n] && raw[n].image) o.image = raw[n].image;
@@ -969,7 +986,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
       logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       return;
     }
-    const online = new Set([...clients].map(clientId));
+    const online = new Set(currentPresent());
     const counts = store.countByUser();
     sendJSON(res, 200, {
       ok: true,
@@ -1146,7 +1163,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // GET /api/admin/users —— 用户列表（含角色与在线状态）
     if (pathname === '/api/admin/users' && req.method === 'GET') {
       const raw = auth.loadUsers() || {};
-      const online = new Set([...clients].map(clientId));
+      const online = new Set(currentPresent());
       const users = Object.keys(raw).sort().map((name) => ({
         name,
         role: raw[name].role === 'admin' ? 'admin' : 'user',

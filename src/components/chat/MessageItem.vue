@@ -143,7 +143,7 @@ watch(
         <img :src="asset(msg.content)" :alt="msg.name || tr('chat.image.alt')" loading="lazy" />
       </a>
       <div v-else-if="msg.type === 'text'" class="bubble">
-        <TextContent :text="msg.content" />
+        <TextContent :text="msg.content" :md="msg.md === 1" />
       </div>
       <a
         v-else-if="msg.type === 'file' && !expired"

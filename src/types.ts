@@ -155,6 +155,8 @@ export interface ChatMessage {
   recalled?: number;
   recalled_by?: string;
   file_expired?: boolean;
+  /** 该文本消息是否按 Markdown 渲染 */
+  md?: number;
   [key: string]: unknown;
 }
 

@@ -10,6 +10,9 @@ import {
   avatarFor,
   avatarColor,
   isOnline,
+  isAway,
+  selfStatus,
+  setInvisible,
   getProfile,
   openMyProfile,
   openStyle,
@@ -168,7 +171,7 @@ const emit = defineEmits(['navigate']);
         <div
           v-else
           class="user-item"
-          :class="{ active: activeDmPeer === item.ref.name, online: isOnline(item.ref.name), offline: !isOnline(item.ref.name) }"
+          :class="{ active: activeDmPeer === item.ref.name, online: isOnline(item.ref.name), away: isAway(item.ref.name), offline: !isOnline(item.ref.name) }"
           @click="openDm(item.ref.name)"
         >
           <div class="user-avatar">
@@ -177,7 +180,9 @@ const emit = defineEmits(['navigate']);
           </div>
           <div class="user-meta">
             <div class="user-name">{{ item.ref.name }}</div>
-            <div class="user-status">{{ isOnline(item.ref.name) ? tr('common.online') : tr('common.offline') }}</div>
+            <div class="user-status">
+              {{ isAway(item.ref.name) ? tr('common.away') : (isOnline(item.ref.name) ? tr('common.online') : tr('common.offline')) }}
+            </div>
           </div>
         </div>
       </div>
@@ -208,6 +213,11 @@ const emit = defineEmits(['navigate']);
         <button type="button" class="user-menu-item" @click="openStyleCb">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0-9 9c0 2.4.95 4.6 2.5 6.2l.7-.7V21a9 9 0 0 0 9-9l-.4-2.6a4 4 0 0 0-4.8-4.8L8 2.6A9 9 0 0 0 12 3z"/></svg>
           <span>{{ tr('profile.style.label') }}</span>
+        </button>
+        <button type="button" class="user-menu-item status-row" :class="{ on: selfStatus.invisible }" @click="setInvisible(!selfStatus.invisible)">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
+          <span class="status-label">{{ tr('chat.status.invisible') }}</span>
+          <span class="status-switch" :class="{ on: selfStatus.invisible }"><i></i></span>
         </button>
         <button type="button" class="user-menu-item danger" @click="doLogout">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" /></svg>
