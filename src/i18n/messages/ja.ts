@@ -489,6 +489,8 @@ const dict: Record<string, string> = {
   "group.announceSaved": "お知らせを更新しました",
   "chat.media.play": "再生",
   "chat.media.pause": "一時停止",
+  "chat.media.unsupported": "この形式はブラウザでプレビューできません",
+  "chat.media.download": "ダウンロード",
   "chat.settings.sendKey.enter": "Enterで送信",
   "chat.settings.sendKey.ctrl": "Ctrl+Enterで送信",
   "chat.friend.searchPlaceholder": "ユーザー名で検索",

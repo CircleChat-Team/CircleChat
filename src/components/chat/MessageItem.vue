@@ -19,8 +19,10 @@ import {
   toggleSelect
 } from '../../core/chat';
 import { QUICK_EMOJIS } from '../../core/emojis';
+import { mediaKind } from '../../core/media';
 import TextContent from './TextContent.vue';
 import AudioPlayer from './AudioPlayer.vue';
+import VideoPlayer from './VideoPlayer.vue';
 
 const props = defineProps<{ msg: ChatMessage; prev?: ChatMessage }>();
 
@@ -32,6 +34,8 @@ const expired = computed(() => !!props.msg.file_expired);
 const self = computed(() => props.msg.from === chatState.me);
 const mentionMe = computed(() => props.msg.type === 'text' && mentionsMe(props.msg.content));
 const isSelected = computed(() => props.msg.idx != null && chatState.selected.indexOf(props.msg.idx) !== -1);
+// 音/视频渲染：消息类型优先，type='file' 时按扩展名兜底（兼容历史上传的 .mkv 等）
+const kind = computed(() => mediaKind(props.msg.type, props.msg.name));
 
 const recallTip = computed(() => {
   const by = props.msg.recalled_by || '';
@@ -159,18 +163,17 @@ watch(
       >
         <img :src="asset(msg.content)" :alt="msg.name || tr('chat.image.alt')" loading="lazy" />
       </div>
-      <video
-        v-else-if="msg.type === 'video' && !expired"
-        class="video-bubble"
+      <VideoPlayer
+        v-else-if="kind === 'video' && !expired"
         :src="asset(msg.content)"
-        controls
-        preload="metadata"
-        @click.stop
-      ></video>
+        :name="msg.name"
+        :size="msg.size"
+      />
       <AudioPlayer
-        v-else-if="msg.type === 'audio' && !expired"
+        v-else-if="kind === 'audio' && !expired"
         :src="asset(msg.content)"
         :name="msg.name || ''"
+        :size="msg.size"
       />
       <div v-else-if="msg.type === 'text'" class="bubble">
         <TextContent :text="msg.content" md />

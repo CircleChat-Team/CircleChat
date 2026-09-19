@@ -535,6 +535,8 @@ const dict: Record<string, string> = {
   "group.announceSaved": "Group notice updated",
   "chat.media.play": "Play",
   "chat.media.pause": "Pause",
+  "chat.media.unsupported": "Your browser cannot preview this format",
+  "chat.media.download": "Download",
   "chat.settings.sendKey.enter": "Enter to send",
   "chat.settings.sendKey.ctrl": "Ctrl+Enter to send",
   "chat.friend.searchPlaceholder": "Search by username",

@@ -59,8 +59,16 @@ function passwordStrength(p: string): boolean {
 // 图片扩展名（仅用于「扩展名伪装成图片但内容不是图片」时降级处理）
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 // 视频/音频扩展名：按扩展名归类为 video/audio（可内联播放；不可脚本执行，安全）
-const VIDEO_EXTS = new Set(['.mp4', '.webm', '.ogv', '.mov', '.m4v']);
-const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac']);
+// 能否真正解码取决于浏览器（如 .mkv/.avi 多数浏览器不支持内联播放），
+// 前端在播放失败时会降级提示「下载后用本地播放器打开」。
+const VIDEO_EXTS = new Set([
+  '.mp4', '.webm', '.ogv', '.mov', '.m4v',
+  '.mkv', '.avi', '.wmv', '.flv', '.mpg', '.mpeg', '.3gp', '.ts', '.m2ts', '.mts'
+]);
+const AUDIO_EXTS = new Set([
+  '.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac',
+  '.opus', '.wma', '.amr', '.aiff', '.aif', '.m4b'
+]);
 
 // 上传目录内的合法文件名：随机 hex + 扩展名（与上传落盘、消息校验同一套规则）。
 // 文件管理的「列出 / 删除」据此严格校验，杜绝 ../ 之类的路径穿越。
@@ -94,7 +102,24 @@ const MIME: Record<string, string> = {
   '.mov': 'video/quicktime',
   '.m4v': 'video/x-m4v',
   '.aac': 'audio/aac',
-  '.flac': 'audio/flac'
+  '.flac': 'audio/flac',
+  // 与上面 VIDEO_EXTS / AUDIO_EXTS 对齐：必须是 video/* 或 audio/* 才会被允许内联
+  '.mkv': 'video/x-matroska',
+  '.avi': 'video/x-msvideo',
+  '.wmv': 'video/x-ms-wmv',
+  '.flv': 'video/x-flv',
+  '.mpg': 'video/mpeg',
+  '.mpeg': 'video/mpeg',
+  '.3gp': 'video/3gpp',
+  '.ts': 'video/mp2t',
+  '.m2ts': 'video/mp2t',
+  '.mts': 'video/mp2t',
+  '.opus': 'audio/ogg',
+  '.wma': 'audio/x-ms-wma',
+  '.amr': 'audio/amr',
+  '.aiff': 'audio/aiff',
+  '.aif': 'audio/aiff',
+  '.m4b': 'audio/mp4'
 };
 
 function sendJSON(res: any, status: number, obj: unknown): void {

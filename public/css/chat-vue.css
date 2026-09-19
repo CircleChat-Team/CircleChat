@@ -497,22 +497,39 @@
   border-radius: 9px;
 }
 
-/* ---------- 视频消息 ---------- */
-.video-bubble {
-  display: block;
-  max-width: 320px;
-  max-height: 380px;
-  border-radius: 12px;
-  background: #000;
+/* ---------- 音/视频卡片共用的元信息行（文件名 + 格式·大小·时长） ---------- */
+.media-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
+.media-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 500;
+}
+.media-tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.msg.self .media-tag { color: rgba(255, 255, 255, .78); }
 
-/* ---------- 音频消息（频谱条） ---------- */
+/* ---------- 音频消息：点击才播放 ---------- */
 .audio-msg {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  min-width: 240px;
+  max-width: 100%;
   padding: 8px 12px;
-  min-width: 220px;
+  cursor: pointer;
 }
 .audio-btn {
   flex: 0 0 auto;
@@ -528,8 +545,82 @@
   border-radius: 50%;
   cursor: pointer;
 }
-.audio-bars { width: 200px; height: 36px; }
 .msg.self .audio-btn { background: rgba(255, 255, 255, .3); }
+.audio-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.audio-bars { display: block; width: 100%; height: 30px; }
+
+/* ---------- 视频消息：首帧 + 点击播放 ---------- */
+.video-msg {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(320px, 100%);
+  padding: 10px;
+  color: var(--text);
+  background: var(--other);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 0 0 1px rgba(0, 0, 0, .02);
+}
+.msg.self .video-msg {
+  color: #fff;
+  background: var(--self);
+  border-color: transparent;
+  border-bottom-right-radius: 6px;
+  box-shadow: 0 1px 2px rgba(7, 193, 96, .22);
+}
+.msg.other .video-msg { border-bottom-left-radius: 6px; }
+.video-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #000;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.video-el { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.video-play {
+  position: absolute;
+  inset: 0;
+  width: 48px;
+  height: 48px;
+  margin: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 3px;
+  font-size: 17px;
+  color: #fff;
+  background: rgba(0, 0, 0, .45);
+  border: 2px solid rgba(255, 255, 255, .85);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background .15s var(--ease), transform .15s var(--ease);
+}
+.video-play:hover { background: rgba(0, 0, 0, .62); transform: scale(1.06); }
+.video-fail {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(0, 0, 0, .74);
+}
+.video-save {
+  padding: 4px 14px;
+  font-size: 12px;
+  color: #fff;
+  background: var(--primary);
+  border-radius: 999px;
+  text-decoration: none;
+}
 
 /* ---------- 图片灯箱 ---------- */
 .image-bubble { cursor: zoom-in; }
