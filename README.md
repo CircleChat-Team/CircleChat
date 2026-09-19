@@ -100,6 +100,13 @@ CircleChat/
 └── data/        # 运行时生成：chatplus.db、access.log
 ```
 
+## 致谢 / 第三方资源
+
+- 音效（收发消息提示音）来自 [Pixabay](https://pixabay.com/)，作者 universfield。
+- 代码高亮使用 [highlight.js](https://github.com/highlightjs/highlight.js)（BSD-3-Clause，本地自托管）。
+
+完整的第三方资源与许可列表见 [CREDITS.md](CREDITS.md)。
+
 ## 许可证
 
 本项目以 [GNU GPL v3.0](LICENSE) 开源。使用、复制、修改与分发请遵守 GPL-3.0 条款；再分发时须附带本许可证并保留许可声明。本项目按「原样」提供，不提供任何担保。
