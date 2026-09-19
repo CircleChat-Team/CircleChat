@@ -14,6 +14,7 @@ import FriendSearch from './components/chat/FriendSearch.vue';
 import GroupDialog from './components/chat/GroupDialog.vue';
 import ContextMenu from './components/chat/ContextMenu.vue';
 import ForwardPicker from './components/chat/ForwardPicker.vue';
+import MergeForwardViewer from './components/chat/MergeForwardViewer.vue';
 import ForceChangePassword from './components/common/ForceChangePassword.vue';
 
 const title = computed(() => {
@@ -26,6 +27,13 @@ const title = computed(() => {
 });
 
 const connClass = computed(() => chatState.connState);
+
+// 当前群的群公告（有则显示横幅）
+const activeAnnouncement = computed(() => {
+  if (chatState.activeGid == null) return '';
+  const g = chatState.myGroups.find((x) => x.id === chatState.activeGid);
+  return (g && g.announcement) || '';
+});
 
 // 移动端：侧边栏抽屉 + 设置面板开关
 const sidebarOpen = ref(false);
@@ -113,6 +121,11 @@ function onPassChanged(): void {
         </button>
       </header>
 
+      <div v-if="activeAnnouncement" class="group-announce">
+        <span class="ga-label">{{ tr('group.announce') }}</span>
+        <span class="ga-text">{{ activeAnnouncement }}</span>
+      </div>
+
       <MessageList />
       <InputBar />
     </main>
@@ -124,6 +137,7 @@ function onPassChanged(): void {
     <GroupDialog />
     <ContextMenu />
     <ForwardPicker />
+    <MergeForwardViewer />
 
     <!-- 移动端设置面板：将顶栏散落的按钮统一收纳 -->
     <div class="settings-mask" :class="{ show: settingsOpen }" @click="settingsOpen = false"></div>

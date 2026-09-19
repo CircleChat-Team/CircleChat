@@ -29,6 +29,8 @@ export interface GroupInfo {
   name: string;
   owner: string;
   created?: number;
+  avatar?: string | null;
+  announcement?: string | null;
 }
 
 export interface GroupMember {
@@ -53,19 +55,21 @@ export function createGroup(name: string, owner: string): GroupInfo {
 export function listGroupsOf(name: string): GroupInfo[] {
   const d = open();
   const rows = d.prepare(
-    'SELECT g.id, g.name, g.owner, g.created FROM group_members gm ' +
+    'SELECT g.id, g.name, g.owner, g.created, g.avatar, g.announcement FROM group_members gm ' +
     'JOIN groups g ON g.id = gm.gid WHERE gm.name = ? ORDER BY g.created ASC'
-  ).all(String(name)) as { id: string; name: string; owner: string; created: number | null }[];
+  ).all(String(name)) as { id: string; name: string; owner: string; created: number | null; avatar: string | null; announcement: string | null }[];
   return rows.map((r) => {
     const o: GroupInfo = { id: r.id, name: r.name, owner: r.owner };
     if (r.created != null) o.created = r.created;
+    if (r.avatar != null) o.avatar = r.avatar;
+    if (r.announcement != null) o.announcement = r.announcement;
     return o;
   });
 }
 
 /** 按 id 取群信息 */
 export function getGroup(id: string): GroupInfo | null {
-  const r = open().prepare('SELECT id, name, owner, created, updated FROM groups WHERE id = ?').get(String(id)) as
+  const r = open().prepare('SELECT id, name, owner, created, updated, avatar, announcement FROM groups WHERE id = ?').get(String(id)) as
     | (GroupInfo & { created: number | null })
     | undefined;
   return r || null;
@@ -295,4 +299,14 @@ export function setGroupAvatar(gid: string, avatar: string): SetAvatarResult {
   }
   d.prepare('UPDATE groups SET avatar = ?, updated = ? WHERE id = ?').run(v || null, Date.now(), gid);
   return { ok: true, avatar: v || null };
+}
+
+/** 设置群公告；空串表示清除（最长 500 字） */
+export function setAnnouncement(gid: string, text: string): boolean {
+  const d = open();
+  gid = String(gid);
+  if (!d.prepare('SELECT 1 AS x FROM groups WHERE id = ?').get(gid)) return false;
+  const v = text == null ? '' : String(text).trim().slice(0, 500);
+  d.prepare('UPDATE groups SET announcement = ?, updated = ? WHERE id = ?').run(v || null, Date.now(), gid);
+  return true;
 }

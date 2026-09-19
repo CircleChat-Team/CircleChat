@@ -349,6 +349,7 @@ function replySnippet(m: StoredMessage): string {
   if (m.file_expired) return m.type === 'image' ? '图片已过期' : '文件已过期';
   if (m.type === 'image') return '[图片]';
   if (m.type === 'file') return '[文件] ' + (m.name || '');
+  if (m.type === 'merge') return '[合并转发]';
   const t = String(m.content || '').replace(/\s+/g, ' ').trim();
   return t.length > 60 ? t.slice(0, 60) + '…' : t;
 }

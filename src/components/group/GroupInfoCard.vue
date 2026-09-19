@@ -94,6 +94,21 @@ function setAvatar(): void {
     });
   });
 }
+function setNotice(): void {
+  prompt({
+    title: tr('group.announce'),
+    text: tr('group.announcePrompt'),
+    placeholder: tr('group.announcePrompt'),
+    okText: tr('group.announceSet'),
+    input: { type: 'text', placeholder: tr('group.announcePrompt'), maxLength: 500 }
+  }).then((text) => {
+    if (text == null) return;
+    post('/api/groups/announce', { gid: props.gid, text }).then((j) => {
+      toast(j.ok ? tr('group.announceSaved') : tr(j.error || 'common.opFailed'));
+      if (j.ok) emit('refreshed');
+    });
+  });
+}
 function clearAvatar(): void {
   post('/api/groups/avatar', { gid: props.gid, avatar: '' }).then((j) => {
     toast(j.ok ? tr('group.avatarCleared') : tr(j.error || 'common.opFailed'));
@@ -167,6 +182,14 @@ function copyGid(): void {
         @click="clearAvatar"
       >
         {{ tr('group.clearAvatar') }}
+      </button>
+      <button
+        v-if="isOwner"
+        type="button"
+        class="rounded-lg border border-line bg-panel px-3 py-1.5 text-xs transition-colors hover:border-primary hover:text-primary"
+        @click="setNotice"
+      >
+        {{ tr('group.announceSet') }}
       </button>
       <button
         type="button"

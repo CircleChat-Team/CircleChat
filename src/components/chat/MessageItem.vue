@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import type { ChatMessage } from '../../types';
+import type { ChatMessage, MergeData } from '../../types';
 import {
   chatState,
   react,
@@ -14,6 +14,7 @@ import {
   fmtSize,
   getProfile,
   openContextMenu,
+  openMergeView,
   toggleSelect
 } from '../../core/chat';
 import { QUICK_EMOJIS } from '../../core/emojis';
@@ -42,6 +43,23 @@ const quoteText = computed(() => {
   if (!r) return '';
   return String(r.snippet || '').replace(/\s+/g, ' ').trim();
 });
+
+// 合并转发卡片
+const mergeData = computed<MergeData | null>(() => {
+  if (props.msg.type !== 'merge') return null;
+  try {
+    const o = JSON.parse(props.msg.content || '');
+    if (o && Array.isArray(o.items)) return o as MergeData;
+  } catch {
+    /* 非法内容降级为标题 */
+  }
+  return null;
+});
+const mergeTitle = computed(() => (mergeData.value && mergeData.value.title) || tr('chat.merge.label'));
+const mergeCount = computed(() => (mergeData.value ? mergeData.value.items.length : 0));
+function openMerge(): void {
+  if (props.msg.idx != null) openMergeView(props.msg.idx);
+}
 
 function initial(name: string): string {
   return (name || '?').slice(0, 1);
@@ -155,6 +173,11 @@ watch(
           <span class="file-size">{{ fmtSize(msg.size) }}</span>
         </span>
       </a>
+      <div v-else-if="msg.type === 'merge'" class="merge-card" @click.stop="openMerge">
+        <div class="merge-label">{{ tr('chat.merge.label') }}</div>
+        <div class="merge-title">{{ mergeTitle }}</div>
+        <div class="merge-sub">{{ tr('chat.merge.summary', { n: mergeCount }) }}</div>
+      </div>
       <div v-else class="expired">
         {{ msg.type === 'image' ? tr('chat.file.imageExpired') : tr('chat.file.fileExpired') }}
         <template v-if="msg.name"> · {{ msg.name }}</template>

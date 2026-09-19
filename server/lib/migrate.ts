@@ -111,11 +111,14 @@ const SCHEMA: Record<string, TableDef> = {
         name    TEXT NOT NULL,
         owner   TEXT NOT NULL,
         created INTEGER,
-        updated INTEGER
+        updated INTEGER,
+        avatar  TEXT,
+        announcement TEXT
       );
     `,
     columns: {
-      id: 'TEXT', name: 'TEXT', owner: 'TEXT', created: 'INTEGER', updated: 'INTEGER'
+      id: 'TEXT', name: 'TEXT', owner: 'TEXT', created: 'INTEGER', updated: 'INTEGER',
+      avatar: 'TEXT', announcement: 'TEXT'
     }
   },
   group_members: {

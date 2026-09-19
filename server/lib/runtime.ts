@@ -386,8 +386,8 @@ function handleWsText(client: any, text: string): void {
   }
   if (msg.type === 'msg') {
     const d = msg.data || {};
-    const type = d.type === 'image' || d.type === 'file' ? d.type : 'text';
-    let content = String(d.content || '').slice(0, type === 'text' ? MAX_TEXT_LEN : 300);
+    const type = d.type === 'image' || d.type === 'file' || d.type === 'merge' ? d.type : 'text';
+    let content = String(d.content || '').slice(0, type === 'merge' ? 8000 : (type === 'text' ? MAX_TEXT_LEN : 300));
     const from = client.user.username;
     // 处罚拦截：禁言 / 封禁 / IP 封禁的用户不能继续发消息
     const block = moderate.blockFor(from, client.user.ip);
@@ -418,8 +418,13 @@ function handleWsText(client: any, text: string): void {
       if (!peer || !friends.isFriend(from, peer)) return;
     }
     // 防注入：image/file 的 content 必须是本服务器上传目录的合法文件（防 javascript: 等伪造链接）
+    // merge（合并转发）的 content 是结构化 JSON：仅做格式与大小校验
     if (type === 'text') {
       if (!content.trim()) return;
+    } else if (type === 'merge') {
+      let parsed: any = null;
+      try { parsed = JSON.parse(content); } catch (e) { return; }
+      if (!parsed || !Array.isArray(parsed.items) || !parsed.items.length || parsed.items.length > 100) return;
     } else {
       if (!/^\/uploads\/[a-zA-Z0-9]+\.[a-z0-9]{1,8}$/i.test(content)) return;
       if (d.name !== undefined && typeof d.name !== 'string') return;
@@ -453,8 +458,8 @@ function handleWsText(client: any, text: string): void {
       actor: from,
       action: dm != null ? 'dm.msg' : (gid == null ? 'msg' : 'group.msg'),
       target: dm != null ? record.idx : (gid == null ? record.idx : gid),
-      detail: auditDetail(type === 'text'
-        ? 'log.detail.msg.text' : (type === 'image' ? 'log.detail.msg.image' : 'log.detail.msg.file'),
+      detail: auditDetail(type === 'image' ? 'log.detail.msg.image'
+        : (type === 'file' ? 'log.detail.msg.file' : 'log.detail.msg.text'),
         type === 'text' ? { text: content.slice(0, 40) } : { name: String(d.name || '未命名') }),
       ip: client.user.ip
     });
@@ -1582,6 +1587,28 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       audit.add({ actor: me.username, action: 'group.avatar', target: gid, detail: '', ip });
       broadcastGid(gid, { type: 'groups.changed', data: { gid } });
       sendJSON(res, 200, { ok: true, avatar: r.avatar });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
+  // POST /api/groups/announce —— 设置群公告 {gid, text}（群主或管理员；text 为空串清除）
+  if (pathname === '/api/groups/announce' && req.method === 'POST') {
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const text = o && typeof o.text === 'string' ? o.text : '';
+      const g = groups.getGroup(gid);
+      if (!g) { sendJSON(res, 404, { ok: false, error: 'api.group.notFound' }); return; }
+      const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
+      if (!canManage) { sendJSON(res, 403, { ok: false, error: 'api.group.noRename' }); return; }
+      groups.setAnnouncement(gid, text);
+      audit.add({ actor: me.username, action: 'group.announce', target: gid, detail: '', ip });
+      broadcastGid(gid, { type: 'groups.changed', data: { gid } });
+      sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
       sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });

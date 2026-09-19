@@ -64,6 +64,7 @@ export interface GroupItem {
   created?: number | null;
   members?: number;
   avatar?: string | null;
+  announcement?: string | null;
 }
 
 /** 群成员（/api/groups/manage） */
@@ -132,7 +133,7 @@ export interface PenaltyItem {
 /** 聊天消息（GET /api/messages、WS 下发 msg） */
 export interface ChatMessage {
   idx?: number;
-  type: 'text' | 'image' | 'file';
+  type: 'text' | 'image' | 'file' | 'merge';
   from: string;
   to?: string;
   gid?: string | null;
@@ -158,6 +159,22 @@ export interface ChatMessage {
   /** 该文本消息是否按 Markdown 渲染 */
   md?: number;
   [key: string]: unknown;
+}
+
+/** 合并转发中的单条记录（type: 'merge' 消息的 content 解析结果） */
+export interface MergeItem {
+  from: string;
+  type: 'text' | 'image' | 'file';
+  /** text 为文本内容；image/file 为 /uploads 地址 */
+  content?: string;
+  name?: string | null;
+  size?: number | null;
+}
+
+/** 合并转发数据结构 */
+export interface MergeData {
+  title?: string;
+  items: MergeItem[];
 }
 
 /** 在线/全部账号（侧栏） */
@@ -192,6 +209,7 @@ export interface ChatGroup {
   created?: number | null;
   members?: number;
   avatar?: string | null;
+  announcement?: string | null;
 }
 
 /** 用户资料卡（GET /api/profile） */

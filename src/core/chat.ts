@@ -18,7 +18,9 @@ import type {
   FriendSent,
   ChatGroup,
   GroupMember,
-  ProfileData
+  ProfileData,
+  MergeData,
+  MergeItem
 } from '../types';
 
 const PAGE = 30; // 每批渲染 / 加载条数
@@ -81,6 +83,7 @@ export interface ChatState {
   forwardOpen: boolean;
   forwardSource: number[];
   forwardMode: 'single' | 'merge';
+  mergeView: MergeData | null;
   reactTargetIdx: number | null;
   muted: boolean;
   mutedUntil: number | null;
@@ -127,6 +130,7 @@ const state = reactive<ChatState>({
   forwardOpen: false,
   forwardSource: [],
   forwardMode: 'single',
+  mergeView: null,
   reactTargetIdx: null,
   muted: false,
   mutedUntil: null,
@@ -601,26 +605,44 @@ export function closeForward(): void {
   state.forwardOpen = false;
 }
 
+/** 打开「合并转发」查看模态框 */
+export function openMergeView(idx: number): void {
+  const m = state.messages.find((x) => x.idx === idx);
+  if (!m || m.type !== 'merge') return;
+  try {
+    const o = JSON.parse(m.content || '');
+    if (o && Array.isArray(o.items)) state.mergeView = { title: o.title || '', items: o.items as MergeItem[] };
+  } catch {
+    /* 忽略非法内容 */
+  }
+}
+
+export function closeMergeView(): void {
+  state.mergeView = null;
+}
+
 function findMsg(idx: number): ChatMessage | undefined {
   return state.messages.find((m) => m.idx === idx);
 }
 
-function fmtForward(m: ChatMessage): string {
-  if (m.type === 'text') return m.content || '';
-  if (m.type === 'image') return '[图片]';
-  if (m.type === 'file') return '[文件] ' + (m.name || '');
-  return '';
-}
-
-/** 转发：逐条 = 每条各自发送；合并 = 拼成一条文本消息发送。target 形如 { gid } 或 { pm } */
+/** 转发：逐条 = 每条各自发送；合并 = 打包成一条 merge 消息（客户端以模态框展示）。target 形如 { gid } 或 { pm } */
 export function forwardTo(target: { gid?: string; pm?: string }): void {
   const msgs = (state.forwardSource || []).map(findMsg).filter((m): m is ChatMessage => !!m);
   if (!msgs.length) return;
   const merge = state.forwardMode === 'merge';
   if (merge) {
-    const lines = msgs.map((m) => (m.from || '?') + '：' + fmtForward(m));
-    const content = '「合并转发 ' + msgs.length + ' 条消息」\n' + lines.join('\n');
-    send({ type: 'msg', data: { type: 'text', content, ...target } });
+    const items: MergeItem[] = msgs.map((m) => {
+      const isMedia = m.type === 'image' || m.type === 'file';
+      const it: MergeItem = {
+        from: m.from || '?',
+        type: isMedia ? (m.type as 'image' | 'file') : 'text',
+        content: m.content || ''
+      };
+      if (isMedia) { it.name = m.name || null; it.size = m.size != null ? m.size : null; }
+      return it;
+    });
+    const content = JSON.stringify({ title: '聊天记录', items });
+    send({ type: 'msg', data: { type: 'merge', content, ...target } });
   } else {
     for (const m of msgs) {
       const data: Record<string, unknown> = { type: m.type, content: m.content };
@@ -840,7 +862,7 @@ export function maybeNotify(m: ChatMessage): void {
     title = title || peer || '';
   }
   if (!title) title = room || 'CircleChat';
-  const body = m.type === 'image' ? '📷 图片' : m.type === 'file' ? '📎 文件' : String(m.content || '');
+  const body = m.type === 'image' ? '📷 图片' : m.type === 'file' ? '📎 文件' : m.type === 'merge' ? '📋 合并转发' : String(m.content || '');
   try {
     const n = new Notification(title, { body: body.slice(0, 200), tag: 'cc-' + (m.id || Date.now()) });
     n.onclick = () => {
