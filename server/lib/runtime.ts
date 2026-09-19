@@ -22,6 +22,7 @@ import * as groups from './groups';
 import * as friends from './friends';
 import * as audit from './audit';
 import * as moderate from './moderate';
+import { fileKindOf } from './filetypes';
 import * as wsproto from './ws';
 import * as logger from './log';
 
@@ -1493,7 +1494,8 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
           origin: u && u.name ? u.name : '',
           size: st.size,
           ts: Math.floor(st.mtimeMs),
-          kind: IMAGE_EXTS.has(path.extname(n).toLowerCase()) ? 'image' : 'file',
+          // 优先用原始文件名判定（落盘名可能被改写，例如伪装成图片的会被降级成 .bin）
+          kind: fileKindOf(u && u.name ? u.name : n),
           used: u ? u.count : 0
         });
       }

@@ -29,13 +29,18 @@ export interface ApprovalItem {
   created?: number | null;
 }
 
+/** 文件归类（GET /api/admin/files；由服务端按扩展名判定，见 server/lib/filetypes.ts） */
+export type FileKind =
+  | 'image' | 'code' | 'audio' | 'video' | 'font'
+  | 'document' | 'ebook' | 'archive' | 'disk' | 'executable' | 'other';
+
 /** 上传文件（GET /api/admin/files） */
 export interface FileItem {
   name: string;
   origin: string;
   size: number;
   ts: number;
-  kind: 'image' | 'file';
+  kind: FileKind;
   used: number;
 }
 

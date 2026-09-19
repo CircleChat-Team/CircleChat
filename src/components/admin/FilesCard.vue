@@ -49,6 +49,11 @@ function titleOf(f: FileItem): string {
   return f.origin ? f.name + String.fromCharCode(10) + f.origin : f.name;
 }
 
+/** 文件类别文案（图片 / 压缩包 / 文档 / 代码 …，由服务端按扩展名判定） */
+function kindLabel(f: FileItem): string {
+  return tr('file.type.' + f.kind);
+}
+
 function remove(f: FileItem): void {
   const label = f.origin || f.name;
   confirm({
@@ -117,7 +122,7 @@ onMounted(load);
 
         <span class="min-w-0 flex-1 truncate font-medium" :title="titleOf(f)">{{ f.origin || f.name }}</span>
         <span class="shrink-0 rounded bg-primary/12 px-1.5 py-0.5 text-[11px] text-primary">
-          {{ tr(f.kind === 'image' ? 'admin.files.kindImage' : 'admin.files.kindFile') }}
+          {{ kindLabel(f) }}
         </span>
         <span class="shrink-0 text-muted tabular-nums">{{ fmtSize(f.size) }}</span>
         <span class="hidden shrink-0 text-muted tabular-nums sm:inline">{{ fmtDateTime(f.ts) }}</span>
