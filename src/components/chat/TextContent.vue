@@ -145,8 +145,12 @@ function mdInline(s: string): string {
   out = out.replace(/\*([^*\n]+)\*(?=$|[^\w_*])/g, '<em>$1</em>');
   out = out.replace(/(^|[^\w])_([^_\n]+)_(?=[^\w]|$)/g, '$1<em>$2</em>');
   out = out.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
-  // 3) @提及（与旧版一致的口径）
-  out = out.replace(/@([A-Za-z0-9_\-]{1,32})(?=[\s，。；！？、<]|$)/g, '<span class="mention">@$1</span>');
+  // 3) @提及：按实际用户名匹配（与纯文本模式口径一致，支持中文用户名）
+  const names = chatState.allUsers.map((u) => u.name).filter(Boolean).sort((a, b) => b.length - a.length);
+  const alt = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  if (alt) {
+    out = out.replace(new RegExp('@(' + alt + ')(?=[\\s，。；！？、<]|$)', 'g'), '<span class="mention">@$1</span>');
+  }
   // 4) 还原被保护的代码 / 链接
   out = out.replace(/\u0001(\d+)\u0001/g, (_a, i: string) => html[Number(i)] || '');
   return out;

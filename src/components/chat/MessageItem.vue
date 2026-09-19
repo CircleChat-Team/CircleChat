@@ -58,8 +58,22 @@ function toggleReact(emoji: string): void {
   react(props.msg.idx, emoji);
   showPicker.value = false;
 }
+// 触屏设备：用点击（而非长按 / 右键）打开消息操作菜单
+const isTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+
 function onCtx(e: MouseEvent): void {
+  // 桌面端右键打开；移动端不使用长按
+  if (isTouch) return;
   if (props.msg.idx != null) openContextMenu(props.msg.idx, e.clientX, e.clientY);
+}
+function onMsgClick(e: MouseEvent): void {
+  if (!isTouch || chatState.selectMode) return;
+  const t = e.target as HTMLElement | null;
+  if (t && t.closest && t.closest('a, button, .msg-avatar, .msg-select-check, .code-block, .reactions, .quote, .react-picker')) return;
+  if (props.msg.idx == null) return;
+  // 阻止冒泡到 document，避免 ContextMenu 的全局点击监听把刚打开的菜单立即关掉
+  e.stopPropagation();
+  openContextMenu(props.msg.idx, e.clientX, e.clientY);
 }
 function openProfile(): void {
   getProfile(props.msg.from);
@@ -94,6 +108,7 @@ watch(
     :class="[self ? 'self' : 'other', { grouped: grouped, 'mention-me': mentionMe }]"
     :data-idx="msg.idx"
     @contextmenu.prevent="onCtx"
+    @click="onMsgClick"
   >
     <div class="msg-avatar" @click="!grouped && openProfile()">
       <img v-if="avatarFor(msg.from)" :src="avatarFor(msg.from)!" :alt="msg.from" />
@@ -124,7 +139,7 @@ watch(
         <img :src="asset(msg.content)" :alt="msg.name || tr('chat.image.alt')" loading="lazy" />
       </a>
       <div v-else-if="msg.type === 'text'" class="bubble">
-        <TextContent :text="msg.content" :md="msg.md === 1" />
+        <TextContent :text="msg.content" md />
       </div>
       <a
         v-else-if="msg.type === 'file' && !expired"

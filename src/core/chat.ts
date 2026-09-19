@@ -486,6 +486,7 @@ export function sendText(text: string, md?: boolean): void {
   if (state.activeDmPeer != null) data.pm = state.activeDmPeer;
   if (state.replyTo && state.replyTo.idx != null) data.replyTo = state.replyTo.idx;
   if (!send({ type: 'msg', data })) return;
+  playOutgoing();
   state.replyTo = null;
 }
 

@@ -5,7 +5,6 @@ import { tr } from '../../core/i18n';
 import EmojiPanel from './EmojiPanel.vue';
 
 const text = ref('');
-const md = ref(false); // Markdown 编辑模式：开启后该条按 Markdown 渲染，换行为 Ctrl+Enter
 const textarea = ref<HTMLTextAreaElement | null>(null);
 const bigEl = ref<HTMLTextAreaElement | null>(null);
 const editOpen = ref(false); // 放大编辑器
@@ -62,7 +61,7 @@ function onInput(): void {
   notifyTyping();
 }
 function send(): void {
-  sendText(text.value, md.value);
+  sendText(text.value);
   text.value = '';
   showMention.value = true;
   nextTick(autoGrow);
@@ -120,13 +119,6 @@ function onKey(e: KeyboardEvent): void {
   }
   e.preventDefault();
   send();
-}
-function toggleMd(): void {
-  md.value = !md.value;
-  nextTick(() => {
-    currentEl()?.focus();
-    if (!editOpen.value) autoGrow();
-  });
 }
 function openEditor(): void {
   if (mutedText.value) return;
@@ -292,7 +284,7 @@ function cancelReply(): void {
         ref="textarea"
         v-model="text"
         class="text-input"
-        :placeholder="mutedText ? tr('chat.input.mutedPlaceholder') : (md ? tr('chat.input.mdPlaceholder') : tr('chat.input.placeholder'))"
+        :placeholder="mutedText ? tr('chat.input.mutedPlaceholder') : tr('chat.input.placeholder')"
         maxlength="4096"
         rows="1"
         :disabled="!!mutedText"
@@ -300,14 +292,6 @@ function cancelReply(): void {
         @keydown="onKey"
         @paste="onPaste"
       ></textarea>
-      <button
-        type="button"
-        class="tool-btn md-toggle"
-        :class="{ on: md }"
-        :title="tr('chat.input.mdToggle')"
-        :disabled="!!mutedText"
-        @click="toggleMd"
-      >MD</button>
       <button
         type="button"
         class="tool-btn expand-btn"
@@ -335,20 +319,13 @@ function cancelReply(): void {
         ref="bigEl"
         v-model="text"
         class="text-input big-input"
-        :placeholder="md ? tr('chat.input.mdPlaceholder') : tr('chat.input.placeholder')"
+        :placeholder="tr('chat.input.placeholder')"
         maxlength="4096"
         @input="onInputBig"
         @keydown="onKey"
         @paste="onPaste"
       ></textarea>
       <div class="editor-toolbar">
-        <button
-          type="button"
-          class="tool-btn md-toggle"
-          :class="{ on: md }"
-          :title="tr('chat.input.mdToggle')"
-          @click="toggleMd"
-        >MD</button>
         <span class="editor-hint">{{ sendHint }}</span>
         <div class="editor-actions">
           <button type="button" class="btn-mini btn-ghost" @click="closeEditor">{{ tr('common.cancel') }}</button>

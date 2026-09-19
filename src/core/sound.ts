@@ -1,34 +1,38 @@
 /* ============================================================
  * CircleChat 前端 — 音效
  * 收到他人新消息 / 自己发送消息时的提示音。
- * 说明：浏览器自动播放策略要求先有用户手势，未交互前 play() 会被拒绝，
- *       这里静默忽略；音频元素按需惰性创建。
  * 音效来源：Pixabay（作者 universfield），许可见 CREDITS.md。
+ *
+ * 说明：
+ * - 音频元素在模块加载时即创建并预加载，避免首次播放时媒体尚未就绪。
+ * - 设置 currentTime 与 play() 分别用 try 包裹：前者在媒体未就绪时可能抛错，
+ *   绝不能让它阻断后面的 play()。
+ * - 受浏览器自动播放策略限制，用户首次交互前 play() 会被拒绝，此处静默忽略。
  * ============================================================ */
 
 import { url } from './api';
 
-/** 音效资源地址（走 url() 以兼容 apiBase 子路径 / 跨域部署） */
-const SRC = {
-  incoming: url('/audio/universfield-new-notification-08-352461.mp3'),
-  outgoing: url('/audio/universfield-message-ping-351298.mp3')
-};
-
-let incoming: HTMLAudioElement | null = null;
-let outgoing: HTMLAudioElement | null = null;
+const hasAudio = typeof Audio !== 'undefined';
 
 function make(src: string, volume: number): HTMLAudioElement | null {
-  if (typeof Audio === 'undefined') return null;
+  if (!hasAudio) return null;
   const a = new Audio(src);
   a.preload = 'auto';
   a.volume = volume;
   return a;
 }
 
+const incoming = make(url('/audio/universfield-new-notification-08-352461.mp3'), 0.6);
+const outgoing = make(url('/audio/universfield-message-ping-351298.mp3'), 0.5);
+
 function play(a: HTMLAudioElement | null): void {
   if (!a) return;
   try {
-    a.currentTime = 0;
+    a.currentTime = 0; // 媒体未就绪时可能抛错，忽略后继续尝试播放
+  } catch {
+    /* 忽略 */
+  }
+  try {
     const p = a.play();
     if (p && typeof p.catch === 'function') p.catch(() => { /* 未获得用户手势前会被拒绝，忽略 */ });
   } catch {
@@ -38,12 +42,10 @@ function play(a: HTMLAudioElement | null): void {
 
 /** 收到他人新消息 */
 export function playIncoming(): void {
-  if (!incoming) incoming = make(SRC.incoming, 0.6);
   play(incoming);
 }
 
 /** 自己发送消息（文本 / 文件） */
 export function playOutgoing(): void {
-  if (!outgoing) outgoing = make(SRC.outgoing, 0.5);
   play(outgoing);
 }
