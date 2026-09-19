@@ -668,12 +668,20 @@
 mjx-container[jax="SVG"] { display: inline-block; }
 mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 
-/* ---------- 文件上传指示器（输入栏内、输入行上方） ---------- */
+/* ---------- 文件上传指示器（悬浮在输入栏上方，不占输入栏布局） ----------
+   .chat-inputbar 是 display:flex 的横向容器，面板若参与布局会变成与输入行并排的
+   flex 项、把外面的框撑开，所以这里用绝对定位悬浮（与 .typing-bar / .reply-bar 一致）。 */
 .upload-panel {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: calc(100% + 6px);
+  z-index: 6;
   display: flex;
   flex-direction: column;
   gap: 7px;
-  margin: 0 0 8px;
+  max-height: 38vh;
+  overflow-y: auto;
   padding: 8px 10px;
   font-size: 12px;
   background: var(--glass-strong);
@@ -681,7 +689,12 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
   border-radius: 12px;
   box-shadow: var(--shadow-pop);
   animation: slideUp .18s var(--ease) both;
+  scrollbar-width: thin; /* Firefox */
 }
+/* 引用条 / 禁言条同时存在时整体再抬高，避免互相盖住 */
+.upload-panel.shifted { bottom: calc(100% + 44px); }
+.upload-panel::-webkit-scrollbar { width: 6px; }
+.upload-panel::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, .35); border-radius: 6px; }
 .upload-head { color: var(--muted); }
 .upload-item { display: flex; flex-direction: column; gap: 5px; }
 .upload-line { display: flex; align-items: center; gap: 8px; }

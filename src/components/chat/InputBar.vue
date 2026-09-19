@@ -263,7 +263,7 @@ function cancelReply(): void {
       <EmojiPanel @pick="pickEmoji" />
     </div>
 
-    <UploadProgress />
+    <UploadProgress :class="{ shifted: !!(reply || mutedText) }" />
 
     <div class="input-row">
       <button type="button" class="tool-btn" :title="tr('chat.emoji.title')" @click="showEmoji = !showEmoji">😊</button>

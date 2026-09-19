@@ -546,11 +546,15 @@ export interface UploadTask {
   error: string;
   /** 是否可重试：前置校验失败（超大 / 私聊受限）的任务没有文件可重传 */
   retryable: boolean;
+  /** 实时上传速度（字节/秒）；未在传输中时为 0 */
+  speed: number;
 }
 
 let uploadSeq = 0;
 /** 任务 id → 待上传文件；不放进响应式状态，避免 Vue 代理 DOM 对象 */
 const pendingFiles = new Map<number, File>();
+/** 任务 id → 速度采样（非响应式，避免每个进度事件都额外渲染一次） */
+const speedTrack = new Map<number, { loaded: number; ts: number; ema: number }>();
 
 function newTask(file: File, gating: boolean): UploadTask {
   const kind: 'image' | 'file' = /^image\//.test(file.type || '') ? 'image' : 'file';
@@ -570,7 +574,8 @@ function newTask(file: File, gating: boolean): UploadTask {
     percent: 0,
     status: error ? 'failed' : 'queued',
     error,
-    retryable: !error
+    retryable: !error,
+    speed: 0
   };
 }
 
@@ -618,17 +623,34 @@ function postUpload(file: File, onProgress: (loaded: number, total: number) => v
 
 function failUpload(id: number, error: string): void {
   state.error = error;
-  patchTask(id, { status: 'failed', error: tr(error), retryable: pendingFiles.has(id) });
+  patchTask(id, { status: 'failed', error: tr(error), retryable: pendingFiles.has(id), speed: 0 });
 }
 
 async function runUpload(id: number): Promise<void> {
   const file = pendingFiles.get(id);
   if (!file || !taskById(id)) return;
-  patchTask(id, { status: 'uploading', percent: 0, error: '' });
+  speedTrack.set(id, { loaded: 0, ts: 0, ema: 0 });
+  patchTask(id, { status: 'uploading', percent: 0, error: '', speed: 0 });
   try {
     const body = await postUpload(file, (loaded, total) => {
+      // 速度：进度事件很密，按 ≥200ms 采样 + 指数平均平滑，避免数字乱跳
+      let speed = 0;
+      const st = speedTrack.get(id);
+      if (st) {
+        const now = performance.now();
+        if (!st.ts) {
+          st.ts = now;
+          st.loaded = loaded;
+        } else if (now - st.ts >= 200) {
+          const inst = (loaded - st.loaded) / ((now - st.ts) / 1000);
+          st.ema = st.ema > 0 ? st.ema * 0.6 + inst * 0.4 : inst;
+          st.loaded = loaded;
+          st.ts = now;
+        }
+        speed = Math.max(0, st.ema);
+      }
       // 留 1%：等服务器写盘并返回后才算完成
-      patchTask(id, { percent: Math.min(99, Math.round((loaded / total) * 100)) });
+      patchTask(id, { percent: Math.min(99, Math.round((loaded / total) * 100)), speed });
     });
     if (!body.ok) {
       failUpload(id, String(body.error || 'chat.upload.failed'));
@@ -638,7 +660,7 @@ async function runUpload(id: number): Promise<void> {
       failUpload(id, 'chat.dm.gateToast');
       return;
     }
-    patchTask(id, { percent: 100, status: 'done', retryable: false });
+    patchTask(id, { percent: 100, status: 'done', retryable: false, speed: 0 });
     pendingFiles.delete(id);
     const data: Record<string, unknown> = { type: body.kind, content: body.url, name: body.name, size: body.size };
     if (state.activeGid != null) data.gid = state.activeGid;
@@ -670,7 +692,7 @@ export async function uploadFiles(files: FileList | File[]): Promise<void> {
 export function retryUpload(id: number): void {
   const t = taskById(id);
   if (!t || t.status !== 'failed' || !pendingFiles.has(id)) return;
-  patchTask(id, { status: 'queued', percent: 0, error: '', retryable: true });
+  patchTask(id, { status: 'queued', percent: 0, error: '', retryable: true, speed: 0 });
   void runUpload(id);
 }
 
@@ -679,6 +701,7 @@ export function dismissUpload(id: number): void {
   const i = state.uploads.findIndex((t) => t.id === id);
   if (i >= 0) state.uploads.splice(i, 1);
   pendingFiles.delete(id);
+  speedTrack.delete(id);
 }
 
 export function notifyTyping(): void {

@@ -13,7 +13,8 @@ function statusText(t: UploadTask): string {
   if (t.status === 'failed') return t.error || tr('chat.upload.failed');
   if (t.status === 'done') return tr('chat.upload.done');
   if (t.status === 'queued') return tr('chat.upload.queued');
-  return t.percent + '%';
+  // 上传中：百分比 + 实时速度
+  return t.speed > 0 ? t.percent + '% · ' + fmtSize(t.speed) + '/s' : t.percent + '%';
 }
 
 /** 进度条宽度：失败且不可重试的（超大 / 受限）铺满表示已终止 */
