@@ -1,17 +1,14 @@
-'use strict';
-/* ============================================================
- * CircleChat 私人聊天服务器 — 社区治理模块
- * 提供：消息举报（reports）+ 管理员处罚（penalties）。
- * 处罚类型：warning 警告 / mute 禁言 / ban 封禁 / ipban IP封禁。
- * mute / ban / ipban 均可设置时长（最长 3650 天）或永久；warning 仅记录。
- * 表结构由 lib/migrate.js 统一维护（启动时自动补齐旧库）。
- * ============================================================ */
+// CircleChat 私人聊天服务器 — 社区治理模块（Nitro 版，对应 lib/moderate.js）
+// 提供：消息举报（reports）+ 管理员处罚（penalties）。
+// 处罚类型：warning 警告 / mute 禁言 / ban 封禁 / ipban IP封禁。
+// mute / ban / ipban 均可设置时长（最长 3650 天）或永久；warning 仅记录。
+// 表结构由本模块 open() 自行维护（启动时首次访问自动建表）。
+import fs from 'node:fs';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
-const fs = require('fs');
-const path = require('path');
-const { DatabaseSync } = require('node:sqlite');
-
-const DATA_DIR = path.join(__dirname, '..', 'data');
+// 路径锚定到运行根目录（package.json 启动目录 = 项目根）
+const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'chatplus.db');
 
 // 处罚最长时长（天）：3650 天 ≈ 10 年
@@ -19,8 +16,8 @@ const MAX_DAYS = 3650;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TYPES = ['warning', 'mute', 'ban', 'ipban'];
 
-let db = null;
-function open() {
+let db: DatabaseSync | null = null;
+function open(): DatabaseSync {
   if (db) return db;
   fs.mkdirSync(DATA_DIR, { recursive: true });
   db = new DatabaseSync(DB_FILE);
@@ -61,11 +58,8 @@ function open() {
 
 // ---------- 举报 ----------
 
-/**
- * 提交举报。msgInfo: { idx, from, type, snippet, ip }
- * 返回 { ok }（重复举报由前台去重，后端不做限制）。
- */
-function reportMessage(reporter, msgInfo, reason) {
+/** 提交举报。msgInfo: { idx, from, type, snippet, ip } */
+export function reportMessage(reporter: string, msgInfo: { idx: unknown; from: unknown; type: unknown; snippet?: unknown; ip?: unknown }, reason: string): { ok: true } {
   const d = open();
   const now = Date.now();
   d.prepare(
@@ -81,16 +75,16 @@ function reportMessage(reporter, msgInfo, reason) {
 }
 
 /** 举报列表。status 省略则返回全部，否则按状态过滤（按时间倒序）。 */
-function listReports(status) {
+export function listReports(status?: string): Record<string, unknown>[] {
   const d = open();
   const rows = status
     ? d.prepare('SELECT * FROM reports WHERE status = ? ORDER BY created DESC').all(String(status))
     : d.prepare('SELECT * FROM reports ORDER BY created DESC').all();
-  return rows;
+  return rows as Record<string, unknown>[];
 }
 
 /** 标记举报为“忽略”。仅 pending 可操作。 */
-function dismissReport(id, by) {
+export function dismissReport(id: number, by: string): boolean {
   const d = open();
   const r = d.prepare("SELECT 1 AS x FROM reports WHERE id = ? AND status = 'pending'").get(Number(id));
   if (!r) return false;
@@ -100,12 +94,11 @@ function dismissReport(id, by) {
 }
 
 /** 依举报作出处罚：将举报中提到的消息发送者设为处罚对象。 */
-function punishFromReport(id, by, type, days, permanent, reason) {
+export function punishFromReport(id: number, by: string, type: string, days: number, permanent: boolean, reason: string): { ok: boolean; code?: string; id?: number } {
   const d = open();
-  const r = d.prepare('SELECT * FROM reports WHERE id = ? AND status = ?').get(Number(id), 'pending');
+  const r = d.prepare('SELECT * FROM reports WHERE id = ? AND status = ?').get(Number(id), 'pending') as Record<string, unknown> | undefined;
   if (!r) return { ok: false, code: 'mod.reportGone' };
-  // ipban 时目标取被举报者当次上报的 IP；其余类型目标为用户名
-  const target = type === 'ipban' ? (r.reported_ip || '') : r.msg_from;
+  const target = type === 'ipban' ? String(r.reported_ip || '') : String(r.msg_from);
   const res = addPenalty({ type, target, reason, days, permanent, actor: by });
   if (!res.ok) return res;
   d.prepare('UPDATE reports SET status = ?, handled_by = ?, handled_at = ? WHERE id = ?')
@@ -115,15 +108,8 @@ function punishFromReport(id, by, type, days, permanent, reason) {
 
 // ---------- 处罚 ----------
 
-/**
- * 新增处罚（权限由调用方校验）。
- * params: { type, target, reason, days, permanent, actor }
- *  - warning       无需时长
- *  - mute/ban/ipban 需要 permanent 或 1..3650 的 days
- * target：mute/ban -> 用户名；ipban -> IP 地址。
- * 返回 { ok } 或 { ok:false, code }。
- */
-function addPenalty(params) {
+/** 新增处罚（权限由调用方校验）。 */
+export function addPenalty(params: { type: string; target: string; reason?: string; days?: number; permanent?: boolean; actor: string }): { ok: boolean; code?: string; id?: number } {
   const type = String(params.type || '');
   if (TYPES.indexOf(type) === -1) return { ok: false, code: 'mod.typeInvalid' };
   const target = String(params.target || '').trim();
@@ -132,8 +118,8 @@ function addPenalty(params) {
     return { ok: false, code: 'mod.ipInvalid' };
   }
   const now = Date.now();
-  let durationMs = null;
-  let expires = null;
+  let durationMs: number | null = null;
+  let expires: number | null = null;
   if (type !== 'warning') {
     if (params.permanent) {
       durationMs = null;
@@ -155,7 +141,7 @@ function addPenalty(params) {
 }
 
 /** 撤销处罚。 */
-function revokePenalty(id, by) {
+export function revokePenalty(id: number, by: string): boolean {
   const d = open();
   const r = d.prepare('SELECT id FROM penalties WHERE id = ? AND revoked = 0').get(Number(id));
   if (!r) return false;
@@ -165,11 +151,11 @@ function revokePenalty(id, by) {
 }
 
 /** 处罚列表（新→旧），附加 active 是否仍生效。 */
-function listPenalties() {
+export function listPenalties(): Record<string, unknown>[] {
   const now = Date.now();
-  const rows = open().prepare('SELECT * FROM penalties ORDER BY created DESC').all();
+  const rows = open().prepare('SELECT * FROM penalties ORDER BY created DESC').all() as Record<string, unknown>[];
   return rows.map((r) => {
-    const active = !r.revoked && (r.expires == null || r.expires > now);
+    const active = !r.revoked && (r.expires == null || Number(r.expires) > now);
     return {
       id: r.id, type: r.type, target: r.target, reason: r.reason, actor: r.actor,
       created: r.created, duration_ms: r.duration_ms, expires: r.expires,
@@ -179,26 +165,21 @@ function listPenalties() {
   });
 }
 
-/**
- * 计算某用户 + 当前 IP 的生效处罚状态（仅未撤销且未过期）。
- * 返回 { muted, mutedUntil, banned, bannedUntil, ipBanned }
- *  - banned 同时包含“该用户名封禁”与“该 IP 被封禁”两种情况；
- *  - muted 仅针对用户名禁言。
- */
-function blockFor(user, ip, now) {
+/** 计算某用户 + 当前 IP 的生效处罚状态（仅未撤销且未过期）。 */
+export function blockFor(user: string, ip: string | null, now?: number): { muted: boolean; mutedUntil: number | null; banned: boolean; bannedUntil: number | null; ipBanned: boolean } {
   const t = now || Date.now();
   const d = open();
   const ures = d.prepare(
     "SELECT type, expires FROM penalties WHERE revoked = 0 AND (expires IS NULL OR expires > ?) AND type IN ('ban','mute') AND target = ?"
-  ).all(t, String(user));
+  ).all(t, String(user)) as { type: string; expires: number | null }[];
   const ires = d.prepare(
     "SELECT type, expires FROM penalties WHERE revoked = 0 AND (expires IS NULL OR expires > ?) AND type = 'ipban' AND target = ?"
-  ).all(t, String(ip || ''));
-  let bannedUntil = null;
-  let mutedUntil = null;
+  ).all(t, String(ip || '')) as { type: string; expires: number | null }[];
+  let bannedUntil: number | null = null;
+  let mutedUntil: number | null = null;
   for (const r of ures) {
     if (r.type === 'ban') {
-      if (r.expires == null) bannedUntil = null;   // 永久
+      if (r.expires == null) bannedUntil = null;
       else if (bannedUntil == null || r.expires > bannedUntil) bannedUntil = r.expires;
     } else if (r.type === 'mute') {
       if (r.expires == null) mutedUntil = null;
@@ -221,20 +202,8 @@ function blockFor(user, ip, now) {
 }
 
 /** 是否存在被封禁/被禁言（登录或发消息前调用）。 */
-function statusOf(user, ip) {
-  const b = blockFor(user, ip);
-  return b;
+export function statusOf(user: string, ip: string | null): { muted: boolean; mutedUntil: number | null; banned: boolean; bannedUntil: number | null; ipBanned: boolean } {
+  return blockFor(user, ip);
 }
 
-module.exports = {
-  MAX_DAYS,
-  reportMessage,
-  listReports,
-  dismissReport,
-  punishFromReport,
-  addPenalty,
-  revokePenalty,
-  listPenalties,
-  blockFor,
-  statusOf
-};
+export { MAX_DAYS };

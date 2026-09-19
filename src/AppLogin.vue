@@ -20,7 +20,7 @@ const user = ref('');
 const defaultAdmin = ref<string | null>(null);
 onMounted(() => {
   get('/api/setup')
-    .then((j) => { defaultAdmin.value = j.ok ? (j.defaultAdmin || null) : null; })
+    .then((j) => { defaultAdmin.value = j.ok && typeof j.defaultAdmin === 'string' ? j.defaultAdmin : null; })
     .catch(() => { defaultAdmin.value = null; });
 });
 

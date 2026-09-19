@@ -13,7 +13,6 @@ import {
   isAway,
   selfStatus,
   setInvisible,
-  getProfile,
   openMyProfile,
   openStyle,
   logout
@@ -62,10 +61,6 @@ function openDm(name: string): void {
   if (name === chatState.me) return;
   emit('navigate');
   switchRoomToDm(name);
-}
-function openProfile(name: string): void {
-  emit('navigate');
-  getProfile(name);
 }
 function openGroup(g: ChatGroup): void {
   emit('navigate');

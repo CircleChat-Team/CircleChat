@@ -3,28 +3,29 @@
   "version": "1.0.0",
   "private": true,
   "description": "CircleChat 自托管轻量聊天服务器（基于 GPL-3.0 开源）",
-  "main": "server.js",
+  "main": ".output/server/index.mjs",
   "scripts": {
-    "start": "node server.js",
-    "build": "vite build",
-    "dev": "vite build --watch & node server.js",
+    "start": "node .output/server/index.mjs",
+    "build": "vite build && nitro build",
+    "dev": "vite build --watch & nitro dev",
     "dev:web": "vite build --watch",
-    "dev:server": "node server.js",
-    "typecheck": "vue-tsc --noEmit",
+    "typecheck": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
     "build:hljs": "esbuild tools/hljs-entry.mjs --bundle --minify --format=iife --legal-comments=inline --banner:js=\"/*! highlight.js v11.12.0 | (c) 2006-2024 Josh Goebel and other contributors | BSD-3-Clause | https://github.com/highlightjs/highlight.js | 完整许可证: public/vendor/highlight.LICENSE.txt */\" --outfile=public/vendor/highlight.min.js",
-    "adduser": "node tools/adduser.js"
+    "adduser": "node --experimental-strip-types tools/adduser.ts"
   },
   "engines": {
     "node": ">=16"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {
-    "@types/node": "^22.10.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.10.0",
     "@vitejs/plugin-vue": "^6.0.8",
     "esbuild": "^0.28.2",
+    "h3": "^2.0.1-rc.32",
     "highlight.js": "^11.12.0",
     "jsdom": "^30.0.1",
+    "nitropack": "^2.13.4",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "^8.3.0",

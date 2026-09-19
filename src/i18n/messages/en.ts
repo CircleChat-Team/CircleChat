@@ -361,7 +361,6 @@ const dict: Record<string, string> = {
   "api.notFound": "Interface not found",
   "api.invalidParams": "Invalid parameters",
   "api.user.registerFormat": "Username must be 2-20 chars (letters/digits/_/Chinese); password at least 8 chars with digits, upper/lowercase and a symbol",
-  "api.user.nameTaken": "This username is already taken",
   "api.user.notFound": "User does not exist",
   "api.user.passwordTooShort": "Password must be at least 8 chars with digits, upper/lowercase and a symbol",
   "api.login.badCredentials": "Wrong username or password",

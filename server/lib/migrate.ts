@@ -4,10 +4,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 
-// server/lib/migrate.ts -> ../../data
-const DATA_DIR = fileURLToPath(new URL('../../data', import.meta.url));
+// 路径锚定到运行根目录（package.json 启动目录 = 项目根）；Nitro 打包后 import.meta.url 不再可靠
+const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'chatplus.db');
 
 // schema 版本，仅作记录与提示；真正的迁移以“逐列比对”为准，天然向前兼容
@@ -60,13 +59,15 @@ const SCHEMA: Record<string, TableDef> = {
         settings TEXT,
         updated INTEGER,
         status  TEXT,
-        mustChange INTEGER
+        mustChange INTEGER,
+        totp_secret TEXT,
+        totp_enabled INTEGER
       );
     `,
     columns: {
       name: 'TEXT', pass: 'TEXT', created: 'INTEGER', role: 'TEXT',
       image: 'TEXT', settings: 'TEXT', updated: 'INTEGER', status: 'TEXT',
-      mustChange: 'INTEGER'
+      mustChange: 'INTEGER', totp_secret: 'TEXT', totp_enabled: 'INTEGER'
     }
   },
   reactions: {

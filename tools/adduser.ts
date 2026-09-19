@@ -1,20 +1,19 @@
-'use strict';
 /* ============================================================
- * CircleChat 私人聊天 — 用户管理工具（添加 / 修改密码）
+ * CircleChat 私人聊天 — 用户管理工具（添加 / 修改密码）（Nitro 版，对应 tools/adduser.js）
  * 用法：
- *   node tools/adduser.js <用户名> [新密码]
+ *   node --experimental-strip-types tools/adduser.ts <用户名> [新密码]
  *   若省略新密码，将提示交互输入（不回显）。
+ * 路径锚定 process.cwd()（启动目录 = 项目根），与 server/lib/*.ts 一致。
  * ============================================================ */
 
-const readline = require('readline');
-const auth = require('../lib/auth');
+import readline from 'node:readline';
+import * as auth from '../server/lib/auth.ts';
 
-function promptHidden(question) {
+function promptHidden(question: string): Promise<string> {
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    process.stdout.write(question);
     const stdin = process.stdin;
-    const onData = (buf) => {
+    const onData = (buf: Buffer) => {
       const s = buf.toString();
       if (s.includes('\r') || s.includes('\n')) {
         // 回退一行，隐藏输入
@@ -38,7 +37,7 @@ async function main() {
   const args = process.argv.slice(2);
   const username = (args[0] || '').trim();
   if (!username) {
-    console.log('用法: node tools/adduser.js <用户名> [新密码]');
+    console.log('用法: node --experimental-strip-types tools/adduser.ts <用户名> [新密码]');
     process.exit(1);
   }
   if (!/^[\w\u4e00-\u9fa5\-\.]{2,32}$/.test(username)) {

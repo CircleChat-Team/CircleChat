@@ -3,12 +3,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 
-// server/lib/store.ts -> ../../data ; ../../public/uploads
-const DATA_DIR = fileURLToPath(new URL('../../data', import.meta.url));
+// 路径锚定到运行根目录（package.json 启动目录 = 项目根）
+const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'chatplus.db');
-const UPLOAD_DIR = fileURLToPath(new URL('../../public/uploads', import.meta.url));
+const UPLOAD_DIR = path.join(process.cwd(), 'public/uploads');
 
 const MAX_MESSAGES = 500; // 仅保留最近 500 条
 

@@ -1,42 +1,40 @@
-'use strict';
 /* ============================================================
- * CircleChat 私人聊天服务器  v1.0.0
+ * CircleChat 运行时（Nitro 版，对应 server.js）
  *
- * 功能：两人私有聊天（文字 / 表情 / 图片 / 文件）
- * 技术：Node.js 原生 HTTP + 自研 WebSocket（零第三方依赖）
- * 安全：SHA256 加盐存储密码、会话 Cookie、登录限速、
- *       上传类型白名单 + 图片魔数校验、路径穿越防护
- * 数据：仅保留最近 500 条消息（data/messages.json）
- * 监控：所有 HTTP 请求与 WS 连接写入 data/access.log
- * 启动：node server.js   （默认端口 8090，可用 PORT 环境变量覆盖）
+ * 本文件是 server.js 的 1:1 搬迁：HTTP 路由 / 静态服务 / WebSocket
+ * 连接管理 / 客户端广播 / 文件清理 全部保留，行为与原版一致。
+ * 仅将入口从「自建 http 服务器」改为「导出 handler 供 Nitro 挂载」：
+ *   - handleHttp 经 server/routes/[...].ts 的 fromNodeHandler 接管全部 HTTP
+ *   - handleWsUpgrade 经 server/plugins/ws.ts 的 listen 钩子挂载到 upgrade
+ *   - 启动初始化（migrate/auth/store/audit + mkdir + 清理定时器）在 bootstrap 插件
+ * 路径解析锚定到运行根目录（process.cwd()，即 package.json 启动目录 = 项目根）；
+ * Nitro 打包后 import.meta.url 指向 .output/server/index.mjs，不再可靠。
  * ============================================================ */
 
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const zlib = require('zlib');
-const crypto = require('crypto');
+import fs from 'node:fs';
+import path from 'node:path';
+import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 
-const auth = require('./lib/auth');
-const store = require('./lib/store');
-const groups = require('./lib/groups');
-const friends = require('./lib/friends');
-const audit = require('./lib/audit');
-const moderate = require('./lib/moderate');
-const wsproto = require('./lib/ws');
-const logger = require('./lib/log');
-const migrate = require('./lib/migrate');
+import * as auth from './auth';
+import * as store from './store';
+import * as groups from './groups';
+import * as friends from './friends';
+import * as audit from './audit';
+import * as moderate from './moderate';
+import * as wsproto from './ws';
+import * as logger from './log';
 
 // 审计详情结构化：以 {k: i18n 键, v: 占位变量} 形式写入 detail 字段，
 // 前端按当前语言翻译；旧版直接写死的中文详情作为兜底原样显示
-function auditDetail(key, vars) {
+function auditDetail(key: string, vars?: Record<string, unknown>): string {
   return JSON.stringify({ k: key, v: vars || {} });
 }
 
 // ---------- 配置 ----------
-const PORT = parseInt(process.env.PORT, 10) || 8090;
+const PORT = parseInt(process.env.PORT as string, 10) || 8090;
 const HOST = process.env.HOST || '0.0.0.0';
-const ROOT = __dirname;
+const ROOT = process.cwd(); // 运行根目录（启动目录 = 项目根），Nitro 打包后改用 process.cwd()
 const PUB = path.join(ROOT, 'public');
 const UPLOAD_DIR = path.join(PUB, 'uploads');
 const MAX_UPLOAD = 20 * 1024 * 1024; // 上传上限 20MB
@@ -44,7 +42,7 @@ const MAX_TEXT_LEN = 4096;           // 单条文本长度上限
 
 // 上传文件保留天数：超期后删除硬盘文件，消息记录保留并显示「图片/文件已过期」
 // 可用环境变量 FILE_TTL_DAYS 覆盖，默认 15 天
-const FILE_TTL_DAYS = Math.max(1, parseInt(process.env.FILE_TTL_DAYS, 10) || 15);
+const FILE_TTL_DAYS = Math.max(1, parseInt(process.env.FILE_TTL_DAYS as string, 10) || 15);
 const FILE_CLEANUP_INTERVAL = 6 * 3600 * 1000; // 每 6 小时检查一次
 
 // 管理员新建用户时的用户名规则：2-20 位字母/数字/下划线/中文/点/横线
@@ -55,7 +53,7 @@ const MIN_PASS_LEN = 8;
 const MAX_PASS_LEN = 64;
 
 // 密码强度：长度 ≥8，且必须同时包含数字、小写字母、大写字母、特殊符号
-function passwordStrength(p) {
+function passwordStrength(p: string): boolean {
   if (typeof p !== 'string' || p.length < MIN_PASS_LEN || p.length > MAX_PASS_LEN) return false;
   return /[0-9]/.test(p) && /[a-z]/.test(p) && /[A-Z]/.test(p) && /[^A-Za-z0-9]/.test(p);
 }
@@ -69,7 +67,7 @@ const UPLOAD_NAME_RE = /^[a-zA-Z0-9]+\.[a-z0-9]{1,8}$/;
 
 // ---------- 工具函数 ----------
 
-const MIME = {
+const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -92,7 +90,7 @@ const MIME = {
   '.m4a': 'audio/mp4'
 };
 
-function sendJSON(res, status, obj) {
+function sendJSON(res: any, status: number, obj: unknown): void {
   // 连接可能已被客户端断开或请求体超限后销毁，此时写响应会抛错
   if (res.writableEnded || res.destroyed) return;
   const body = JSON.stringify(obj);
@@ -104,11 +102,11 @@ function sendJSON(res, status, obj) {
   res.end(body);
 }
 
-function readBody(req, limit) {
+function readBody(req: any, limit: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     let size = 0;
-    const chunks = [];
-    req.on('data', (c) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => {
       size += c.length;
       if (size > limit) {
         reject(new Error('BODY_TOO_LARGE'));
@@ -124,8 +122,8 @@ function readBody(req, limit) {
 
 // ---------- 静态文件服务（含 gzip、路径穿越防护） ----------
 
-function serveStatic(req, res, pathname) {
-  let rel;
+function serveStatic(req: any, res: any, pathname: string): void {
+  let rel: string;
   try {
     rel = decodeURIComponent(pathname);
   } catch (e) {
@@ -136,7 +134,7 @@ function serveStatic(req, res, pathname) {
   if (!filePath.startsWith(PUB + path.sep) && filePath !== path.join(PUB, 'index.html')) {
     res.writeHead(403); res.end('Forbidden'); return;
   }
-  fs.stat(filePath, (err, st) => {
+  fs.stat(filePath, (err: any, st: any) => {
     if (err || !st.isFile()) {
       res.writeHead(404); res.end('Not Found'); return;
     }
@@ -155,11 +153,11 @@ function serveStatic(req, res, pathname) {
     const cache = isVendor
       ? 'public, max-age=604800'
       : (/\.(png|jpg|jpeg|gif|webp|ico|svg)$/.test(ext) ? 'public, max-age=86400' : 'no-cache');
-    fs.readFile(filePath, (e2, data) => {
+    fs.readFile(filePath, (e2: any, data: Buffer) => {
       if (e2) { res.writeHead(500); res.end(); return; }
       const acceptGzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
       const big = !attachment && data.length > 512 && /\.(html|css|js|json|svg|txt|md)$/.test(ext);
-      const headers = {
+      const headers: Record<string, string> = {
         'Content-Type': type,
         'Cache-Control': cache,
         'X-Content-Type-Options': 'nosniff'
@@ -183,9 +181,9 @@ function serveStatic(req, res, pathname) {
 
 // ---------- multipart 解析（自研，仅支持文件字段） ----------
 
-function parseMultipart(buf, boundary) {
+function parseMultipart(buf: Buffer, boundary: string): { header: string; content: Buffer }[] {
   const delim = Buffer.from('--' + boundary);
-  const parts = [];
+  const parts: { header: string; content: Buffer }[] = [];
   let pos = 0;
   for (;;) {
     const start = buf.indexOf(delim, pos);
@@ -205,7 +203,7 @@ function parseMultipart(buf, boundary) {
   return parts;
 }
 
-function partFilename(header) {
+function partFilename(header: string): string | null {
   const m = /filename="((?:[^"\\]|\\.)*)"/i.exec(header);
   if (!m) return null;
   // 浏览器以 UTF-8 原始字节发送，先 latin1 还原字节再转 UTF-8
@@ -214,13 +212,13 @@ function partFilename(header) {
   return name.slice(0, 120) || null;
 }
 
-function partFieldName(header) {
+function partFieldName(header: string): string {
   const m = /name="([^"]*)"/i.exec(header);
   return m ? m[1] : '';
 }
 
 // 图片魔数校验（防伪装文件）
-function sniffImage(buf) {
+function sniffImage(buf: Buffer): string | null {
   if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'png';
   if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpg';
   if (buf.length >= 6 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return 'gif';
@@ -230,34 +228,34 @@ function sniffImage(buf) {
 
 // ---------- WebSocket 客户端管理 ----------
 
-const clients = new Set(); // 所有在线 WS 连接
-const typingLast = new Map(); // 用户名 -> 上次转发「正在输入」的时间（节流用）
-const twofaChallenges = new Map(); // token -> { username, expires }（登录第二步 2FA）
+const clients = new Set<any>(); // 所有在线 WS 连接
+const typingLast = new Map<string, number>(); // 用户名 -> 上次转发「正在输入」的时间（节流用）
+const twofaChallenges = new Map<string, { username: string; expires: number }>(); // token -> { username, expires }（登录第二步 2FA）
 
-function clientId(c) {
+function clientId(c: any): string {
   return c.user.username;
 }
 
-function broadcast(obj) {
+function broadcast(obj: any): void {
   const data = wsproto.encodeText(JSON.stringify(obj));
   for (const c of clients) {
     try { c.socket.write(data); } catch (e) { /* 忽略 */ }
   }
 }
 
-function sendTo(client, obj) {
+function sendTo(client: any, obj: any): void {
   try { client.sendText(JSON.stringify(obj)); } catch (e) { /* 忽略 */ }
 }
 
 // 推送给某群的在线成员
-function broadcastGid(gid, obj) {
+function broadcastGid(gid: string, obj: any): void {
   for (const c of clients) {
     if (groups.isMember(gid, c.user.username)) sendTo(c, obj);
   }
 }
 
 // 推送给私聊房间（dm 为规范化 key `小:大`）的在线双方
-function broadcastDm(dm, obj) {
+function broadcastDm(dm: string, obj: any): void {
   const pair = String(dm).split(':');
   for (const c of clients) {
     if (pair.indexOf(c.user.username) !== -1) sendTo(c, obj);
@@ -265,27 +263,27 @@ function broadcastDm(dm, obj) {
 }
 
 // 按房间推送：dm 非空为私聊（仅双方）；gid=null 为公共聊天（全量）；否则按群推成员
-function broadcastRoom(gid, dm, obj) {
+function broadcastRoom(gid: string | null, dm: string | null, obj: any): void {
   if (dm != null) broadcastDm(dm, obj);
   else if (gid == null) broadcast(obj);
   else broadcastGid(gid, obj);
 }
 
 /** 文本中是否 @提及了指定用户名（边界匹配，避免 @apple 误伤 @a） */
-function mentionsUser(text, name) {
+function mentionsUser(text: string, name: string): boolean {
   if (!text || !name) return false;
   const esc = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp('(^|[^\\w\\u4e00-\\u9fa5\\-.])@' + esc + '($|[\\s,，。；;！!？?.]|@)', 'u').test(String(text));
 }
 
-function broadcastPresence() {
+function broadcastPresence(): void {
   const present = [...new Set(currentPresent())].sort();
   const away = [...new Set([...clients].filter((c) => !c.invisible && c.away).map(clientId))].sort();
   broadcast({ type: 'presence', users: present, away });
 }
 
 // 隐身用户对他人显示为离线：凡用于对外展示「在线」的集合都排除 invisible
-function currentPresent() {
+function currentPresent(): string[] {
   return [...clients].filter((c) => !c.invisible).map(clientId);
 }
 
@@ -299,7 +297,7 @@ setInterval(() => {
   }
 }, HEARTBEAT_MS).unref();
 
-function handleWsUpgrade(req, socket, head) {
+export function handleWsUpgrade(req: any, socket: any, head: Buffer): void {
   const pathname = new URL(req.url, 'http://localhost').pathname;
   const ip = req.socket.remoteAddress || '-';
   if (pathname !== '/ws') {
@@ -318,26 +316,25 @@ function handleWsUpgrade(req, socket, head) {
   if (!wsproto.accept(req, socket)) { socket.destroy(); return; }
   if (head && head.length) socket.unshift(head);
 
-  const client = {
+  const client: any = {
     socket,
     user,
     alive: true,
     invisible: false, // 隐身：对他人显示为离线
     away: false,      // 离开：在线但页面不在前台
-    close: () => { /* 见下 */
-    }
+    close: () => { /* 见下 */ }
   };
 
   const decoder = new wsproto.Decoder({
-    onText: (text) => handleWsText(client, text),
+    onText: (text: string) => handleWsText(client, text),
     onPing: () => { client.alive = true; try { client.socket.write(wsproto.encodePing()); } catch (e) { /* 忽略 */ } },
     onClose: () => shutdownClient(client, 'close-frame')
   });
 
   client.close = () => shutdownClient(client, 'local');
-  client.sendText = (s) => { try { client.socket.write(wsproto.encodeText(s)); } catch (e) { /* 忽略 */ } };
+  client.sendText = (s: string) => { try { client.socket.write(wsproto.encodeText(s)); } catch (e) { /* 忽略 */ } };
 
-  socket.on('data', (chunk) => { client.alive = true; decoder.push(chunk); });
+  socket.on('data', (chunk: Buffer) => { client.alive = true; decoder.push(chunk); });
   // 对端直接断开（关标签页 / 断网）时只会触发 end，必须在这里清理，
   // 否则该用户会一直显示在线，直到下一次心跳超时。
   socket.on('end', () => shutdownClient(client, 'end'));
@@ -349,7 +346,7 @@ function handleWsUpgrade(req, socket, head) {
   logger.write({ ip, proto: 'ws', method: 'CONNECT', url: '/ws', status: 101, ua: req.headers['user-agent'] });
 }
 
-function shutdownClient(client, reason) {
+function shutdownClient(client: any, reason: string): void {
   if (!clients.has(client)) return;
   clients.delete(client);
   typingLast.delete(client.user.username);
@@ -362,9 +359,9 @@ function shutdownClient(client, reason) {
   broadcastPresence();
 }
 
-function handleWsText(client, text) {
+function handleWsText(client: any, text: string): void {
   client.alive = true;
-  let msg;
+  let msg: any;
   try { msg = JSON.parse(text); } catch (e) { return; }
   if (!msg || typeof msg !== 'object') return;
   if (msg.type === 'ping') {
@@ -411,7 +408,7 @@ function handleWsText(client, text) {
       return;
     }
     // 目标房间：dm 为私聊（对方用户名），否则 gid 为群 / 公共
-    let dm = null;
+    let dm: string | null = null;
     if (d.pm !== undefined && d.pm !== null && String(d.pm).trim() !== '') {
       const peer = String(d.pm).trim().slice(0, 64);
       if (peer === from) return; // 不能给自己发私聊
@@ -426,8 +423,8 @@ function handleWsText(client, text) {
     }
     if (dm !== null) {
       // 好友门禁：非好友之间禁止私聊（必须先加好友）
-      const peer = dm.split(':').find((u) => u !== from);
-      if (!friends.isFriend(from, peer)) return;
+      const peer = dm.split(':').find((x: string) => x !== from);
+      if (!peer || !friends.isFriend(from, peer)) return;
     }
     // 防注入：image/file 的 content 必须是本服务器上传目录的合法文件（防 javascript: 等伪造链接）
     if (type === 'text') {
@@ -438,7 +435,7 @@ function handleWsText(client, text) {
       if (d.size !== undefined && (!Number.isInteger(d.size) || d.size < 0 || d.size > MAX_UPLOAD)) return;
     }
     // 引用回复：只接受存在且未被撤回的消息；私聊里仅本房间的消息可被引用
-    let replyTo = null;
+    let replyTo: number | undefined = undefined;
     if (d.replyTo !== undefined && d.replyTo !== null) {
       const rid = Number(d.replyTo);
       if (Number.isInteger(rid) && rid > 0) {
@@ -458,8 +455,7 @@ function handleWsText(client, text) {
       size: d.size,
       replyTo,
       gid,
-      dm,
-      md: type === 'text' && d.md ? 1 : 0
+      dm
     });
     audit.add({
       actor: from,
@@ -486,7 +482,7 @@ function handleWsText(client, text) {
       if (pair.indexOf(client.user.username) === -1) return; // 私聊仅双方可回应
     }
     const state = store.toggleReaction(idx, emoji, client.user.username);
-    broadcastRoom(target.gid, target.dm, {
+    broadcastRoom(target.gid ?? null, target.dm ?? null, {
       type: 'reaction',
       data: { idx, emoji, added: state.added, reactions: state.reactions, by: client.user.username }
     });
@@ -515,7 +511,7 @@ function handleWsText(client, text) {
         target.from === client.user.username ? {} : { user: target.from }),
       ip: client.user.ip
     });
-    broadcastRoom(room, target.dm, {
+    broadcastRoom(room, target.dm ?? null, {
       type: 'recall',
       data: {
         idx,
@@ -529,13 +525,13 @@ function handleWsText(client, text) {
 
 // ---------- HTTP 路由 ----------
 
-function handleApi(req, res, urlObj, pathname, ip) {
+function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string): void {
   const t0 = Date.now();
 
   // POST /api/register —— 提交注册申请（开放注册，需管理员审核通过后才可登录）
   if (pathname === '/api/register' && req.method === 'POST') {
     readBody(req, 8192).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
       const pass = o && typeof o.password === 'string' ? o.password : '';
@@ -574,7 +570,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
       return;
     }
     readBody(req, 8192).then((body) => {
-      let u, p;
+      let u!: string; let p!: string;
       try { ({ username: u, password: p } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 解析失败走下面校验 */ }
       if (typeof u !== 'string' || typeof p !== 'string') {
         auth.recordFail(ip);
@@ -635,7 +631,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/logout
   if (pathname === '/api/logout' && req.method === 'POST') {
     const token = auth.tokenFromCookie(req.headers.cookie);
-    const sess = auth.getSession(token);
+    const sess = token ? auth.getSession(token) : null;
     if (sess) audit.add({ actor: sess.username, action: 'logout', detail: auditDetail('log.detail.logout'), ip });
     if (token) auth.destroySession(token);
     res.writeHead(200, {
@@ -662,7 +658,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/twofa/verify（公开：登录第二步两步验证）
   if (pathname === '/api/twofa/verify' && req.method === 'POST') {
     readBody(req, 8192).then((body) => {
-      let challenge, code;
+      let challenge!: string; let code!: string;
       try { ({ challenge, code } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 走下面校验 */ }
       const ch = twofaChallenges.get(challenge);
       if (!ch || Date.now() > ch.expires) {
@@ -722,7 +718,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/pass（本人修改密码，需校验当前密码；用于首次登录强制改密与日常自助改密）
   if (pathname === '/api/pass' && req.method === 'POST') {
     readBody(req, 8192).then((body) => {
-      let cur, np;
+      let cur!: string; let np!: string;
       try { ({ current: cur, password: np } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 解析失败走下面校验 */ }
       if (typeof cur !== 'string' || typeof np !== 'string') {
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
@@ -752,13 +748,13 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/profile（本人修改资料：改名 {name} / 改头像 {image}）
   if (pathname === '/api/profile' && req.method === 'POST') {
     readBody(req, 16384).then((body) => {
-      let obj;
+      let obj: any;
       try { obj = JSON.parse(body.toString('utf8')); } catch (e) { obj = null; }
       if (obj && typeof obj.name === 'string') {
         const name = obj.name.trim();
         if (!USERNAME_RE.test(name)) {
           sendJSON(res, 400, { ok: false, error: 'api.user.nameFormat' });
-          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          logger.write({ ip, method: req.method, url: pathname, status:400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
           return;
         }
         if (name === me.username) {
@@ -817,7 +813,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/twofa/enable（本人：验证验证码后启用两步验证）
   if (pathname === '/api/twofa/enable' && req.method === 'POST') {
     readBody(req, 8192).then((body) => {
-      let code;
+      let code!: string;
       try { ({ code } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 走下面校验 */ }
       const st = auth.getTotp(me.username);
       if (st.enabled) {
@@ -843,7 +839,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/twofa/disable（本人：验证验证码后关闭两步验证）
   if (pathname === '/api/twofa/disable' && req.method === 'POST') {
     readBody(req, 8192).then((body) => {
-      let code;
+      let code!: string;
       try { ({ code } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 走下面校验 */ }
       const st = auth.getTotp(me.username);
       if (!st.enabled) {
@@ -886,11 +882,11 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // ---------- 好友接口 ----------
 
   // 带在线/头像装饰的用户名列表
-  function decorateNames(names) {
+  function decorateNames(names: string[]): { name: string; online: boolean; image?: string }[] {
     const raw = auth.loadUsers() || {};
     const online = new Set(currentPresent());
     return names.map(function (n) {
-      const o = { name: n, online: online.has(n) };
+      const o: { name: string; online: boolean; image?: string } = { name: n, online: online.has(n) };
       if (raw[n] && raw[n].image) o.image = raw[n].image;
       return o;
     });
@@ -911,7 +907,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/friends/request —— 发送好友申请 {to}
   if (pathname === '/api/friends/request' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const to = o && typeof o.to === 'string' ? o.to.trim() : '';
       if (!to || to.length > 64 || to === me.username) {
@@ -944,7 +940,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/friends/accept —— 同意好友申请 {from}
   if (pathname === '/api/friends/accept' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const from = o && typeof o.from === 'string' ? o.from.trim() : '';
       if (!from || !friends.acceptRequest(me.username, from)) {
@@ -965,7 +961,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/friends/decline —— 拒绝/删除好友申请 {from}
   if (pathname === '/api/friends/decline' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const from = o && typeof o.from === 'string' ? o.from.trim() : '';
       if (!from) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
@@ -1011,7 +1007,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/settings（保存设置，白名单字段校验）
   if (pathname === '/api/settings' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let patch;
+      let patch: any;
       try { patch = JSON.parse(body.toString('utf8')); } catch (e) { patch = null; }
       if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
@@ -1034,7 +1030,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/report —— 举报一条消息 {idx, reason}（任何登录用户）
   if (pathname === '/api/report' && req.method === 'POST') {
     readBody(req, 4096).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const idx = Number(o && o.idx);
       const reason = o && typeof o.reason === 'string' ? o.reason.trim().slice(0, 200) : '';
@@ -1047,7 +1043,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         ? String(target.content || '').slice(0, 200)
         : (target.type === 'image' ? '[图片]' : '[文件]' + (target.name ? ' ' + target.name : ''));
       // 被举报者在线上传的 IP（用于可能的 IP 封禁）；离线则无
-      let reportedIp = null;
+      let reportedIp: string | null = null;
       for (const c of clients) {
         if (c.user && c.user.username === target.from) {
           reportedIp = c.user.ip; break;
@@ -1084,7 +1080,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // POST /api/admin/reports/dismiss —— 忽略举报 {id}
     if (pathname === '/api/admin/reports/dismiss' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
-        let o = null;
+        let o: any = null;
         try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
         const id = Number(o && o.id);
         if (!Number.isInteger(id) || id <= 0) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
@@ -1101,14 +1097,14 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // POST /api/admin/reports/punish —— 依举报处罚其消息作者 {id,type,days?,permanent?,reason?}
     if (pathname === '/api/admin/reports/punish' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
-        let o = null;
+        let o: any = null;
         try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
         const id = Number(o && o.id);
         if (!Number.isInteger(id) || id <= 0) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
-        const res = moderate.punishFromReport(id, me.username,
+        const res2 = moderate.punishFromReport(id, me.username,
           (o && String(o.type)) || '', Number(o && o.days), !!o.permanent, (o && o.reason) || '');
-        if (!res.ok) { sendJSON(res, 400, { ok: false, error: res.code }); return; }
-        audit.add({ actor: me.username, action: 'mod.punish', target: id, detail: auditDetail('log.detail.punish', { type: o.type, id: res.id }), ip });
+        if (!res2.ok) { sendJSON(res, 400, { ok: false, error: res2.code }); return; }
+        audit.add({ actor: me.username, action: 'mod.punish', target: id, detail: auditDetail('log.detail.punish', { type: o.type, id: res2.id }), ip });
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
@@ -1127,14 +1123,14 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // POST /api/admin/penalties/add —— 手动新增处罚 {type,target,days?,permanent?,reason?}
     if (pathname === '/api/admin/penalties/add' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
-        let o = null;
+        let o: any = null;
         try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
-        const res = moderate.addPenalty({
+        const res2 = moderate.addPenalty({
           type: (o && o.type) || '', target: (o && o.target) || '', reason: (o && o.reason) || '',
           days: Number(o && o.days), permanent: !!o.permanent, actor: me.username
         });
-        if (!res.ok) { sendJSON(res, 400, { ok: false, error: res.code }); return; }
-        audit.add({ actor: me.username, action: 'mod.punish', target: res.id, detail: auditDetail('log.detail.punish', { type: o.type, id: res.id }), ip });
+        if (!res2.ok) { sendJSON(res, 400, { ok: false, error: res2.code }); return; }
+        audit.add({ actor: me.username, action: 'mod.punish', target: res2.id, detail: auditDetail('log.detail.punish', { type: o.type, id: res2.id }), ip });
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
@@ -1146,7 +1142,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // POST /api/admin/penalties/revoke —— 撤销处罚 {id}
     if (pathname === '/api/admin/penalties/revoke' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
-        let o = null;
+        let o: any = null;
         try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
         const id = Number(o && o.id);
         if (!Number.isInteger(id) || id <= 0) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
@@ -1187,7 +1183,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // POST /api/admin/review/approve —— 通过注册申请 {name}
     if (pathname === '/api/admin/review/approve' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
-        let o = null;
+        let o: any = null;
         try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         if (!name) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
@@ -1207,7 +1203,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // POST /api/admin/review/reject —— 拒绝注册申请 {name}
     if (pathname === '/api/admin/review/reject' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
-        let o = null;
+        let o: any = null;
         try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         if (!name) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
@@ -1241,7 +1237,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // POST /api/admin/user/add —— 新建用户 {name, password, role?}
     if (pathname === '/api/admin/user/add' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
-        let o = null;
+        let o: any = null;
         try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         const pass = o && typeof o.password === 'string' ? o.password : '';
@@ -1265,7 +1261,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // POST /api/admin/user/del —— 删除用户 {name}
     if (pathname === '/api/admin/user/del' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
-        let o = null;
+        let o: any = null;
         try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         if (!name) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
@@ -1292,7 +1288,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // POST /api/admin/user/image —— 设置/清除用户头像 {name, image}
     if (pathname === '/api/admin/user/image' && req.method === 'POST') {
       readBody(req, 4096).then((body) => {
-        let o = null;
+        let o: any = null;
         try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         const image = o && typeof o.image === 'string' ? o.image.trim() : '';
@@ -1318,7 +1314,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // POST /api/admin/user/pass —— 重置密码 {name, password}
     if (pathname === '/api/admin/user/pass' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
-        let o = null;
+        let o: any = null;
         try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         const pass = o && typeof o.password === 'string' ? o.password : '';
@@ -1344,15 +1340,15 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // GET /api/admin/files —— 上传文件列表（按修改时间倒序，支持按文件名 / 原始名搜索）
     if (pathname === '/api/admin/files' && req.method === 'GET') {
       const kw = (urlObj.searchParams.get('q') || '').trim().toLowerCase();
-      const limit = Math.min(Math.max(parseInt(urlObj.searchParams.get('limit'), 10) || 200, 1), 1000);
-      const offset = Math.max(parseInt(urlObj.searchParams.get('offset'), 10) || 0, 0);
-      let names = [];
+      const limit = Math.min(Math.max(parseInt(urlObj.searchParams.get('limit') as string, 10) || 200, 1), 1000);
+      const offset = Math.max(parseInt(urlObj.searchParams.get('offset') as string, 10) || 0, 0);
+      let names: string[] = [];
       try { names = fs.readdirSync(UPLOAD_DIR); } catch (e) { names = []; } // 目录不存在时按空列表处理
       const usage = store.fileUsage();
-      const all = [];
+      const all: any[] = [];
       for (const n of names) {
         if (!UPLOAD_NAME_RE.test(n)) continue; // 只认本服务器落盘的随机名，忽略 .gitkeep 等无关文件
-        let st;
+        let st: any;
         try { st = fs.statSync(path.join(UPLOAD_DIR, n)); } catch (e) { continue; }
         if (!st.isFile()) continue;
         const u = usage.get(n);
@@ -1368,7 +1364,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
       const matched = kw
         ? all.filter((f) => f.name.toLowerCase().indexOf(kw) !== -1 || String(f.origin).toLowerCase().indexOf(kw) !== -1)
         : all;
-      matched.sort((a, b) => b.ts - a.ts);
+      matched.sort((a: any, b: any) => b.ts - a.ts);
       let totalSize = 0;
       let usedCount = 0;
       for (const f of matched) { totalSize += f.size; if (f.used > 0) usedCount++; }
@@ -1388,7 +1384,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
     // POST /api/admin/file/del —— 删除上传文件 {name}
     if (pathname === '/api/admin/file/del' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
-        let o = null;
+        let o: any = null;
         try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         if (!UPLOAD_NAME_RE.test(name)) {
@@ -1429,7 +1425,6 @@ function handleApi(req, res, urlObj, pathname, ip) {
 
   // ---------- 群组接口（需登录） ----------
 
-  // /api/groups/:action 辅助：按路径段分派 join / leave / rename
   // GET /api/groups —— 我的群列表
   if (pathname === '/api/groups' && req.method === 'GET') {
     sendJSON(res, 200, { ok: true, groups: groups.listGroupsOf(me.username) });
@@ -1440,7 +1435,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/groups —— 创建群 {name}
   if (pathname === '/api/groups' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
       const safeName = /^[\w\u4e00-\u9fa5\-.]{1,24}$/.test(name);
@@ -1462,7 +1457,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // DELETE /api/groups —— 解散群 {gid}（群主或管理员）
   if (pathname === '/api/groups' && req.method === 'DELETE') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const g = groups.getGroup(gid);
@@ -1498,7 +1493,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/groups/join —— 按 gid 发送入群申请（旧接口兼容，走审核流程）{gid}
   if (pathname === '/api/groups/join' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       if (gid.length > 64 || !groups.getGroup(gid)) {
@@ -1522,7 +1517,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/groups/leave —— 退出群 {gid}（群主不可退群）
   if (pathname === '/api/groups/leave' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       if (groups.isOwner(gid, me.username)) {
@@ -1545,7 +1540,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/groups/rename —— 重命名群 {gid, name}（群主或管理员）
   if (pathname === '/api/groups/rename' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
@@ -1571,7 +1566,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/groups/avatar —— 设置群头像 {gid, avatar}（群主或管理员；avatar 为空串清除）
   if (pathname === '/api/groups/avatar' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const avatar = o && typeof o.avatar === 'string' ? o.avatar.trim() : '';
@@ -1614,7 +1609,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/groups/request —— 按 gid 发送入群申请 {gid}
   if (pathname === '/api/groups/request' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const r = groups.requestJoin(gid, me.username);
@@ -1631,7 +1626,6 @@ function handleApi(req, res, urlObj, pathname, ip) {
     return;
   }
 
-  // 群管理权限判定：群主本人或全局管理员可管理该群
   // GET /api/groups/manage?gid= —— 管理面板数据（群信息/成员/待审核/群文件）
   if (pathname === '/api/groups/manage' && req.method === 'GET') {
     const gid = (urlObj.searchParams.get('gid') || '').trim() || '';
@@ -1645,7 +1639,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
       isOwner: groups.isOwner(gid, me.username),
       members: groups.manageMembers(gid),
       requests: groups.pendingRequests(gid),
-      files: store.filesByRoom(gid)
+      files: store.filesByRoom(gid, null)
     });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
@@ -1654,7 +1648,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/groups/request/approve —— 通过某人的入群申请 {gid, name}
   if (pathname === '/api/groups/request/approve' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
@@ -1676,7 +1670,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/groups/request/reject —— 拒绝某人的入群申请 {gid, name}
   if (pathname === '/api/groups/request/reject' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
@@ -1696,7 +1690,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/groups/members/remove —— 移除群成员 {gid, name}（群主/管理员；群主不可被移除）
   if (pathname === '/api/groups/members/remove' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
@@ -1719,7 +1713,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/groups/transfer —— 转移群主 {gid, name}（当前群主或管理员；受让者须在群内）
   if (pathname === '/api/groups/transfer' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
@@ -1746,7 +1740,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
   // POST /api/groups/file/delete —— 删除群内一条图片/文件 {gid, idx}（群主/管理员）
   if (pathname === '/api/groups/file/delete' && req.method === 'POST') {
     readBody(req, 4096).then((body) => {
-      let o = null;
+      let o: any = null;
       try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const idx = o && o.idx != null ? Number(o.idx) : NaN;
@@ -1790,7 +1784,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
         return;
       }
     }
-    sendJSON(res, 200, { ok: true, messages: store.all(gid), max: store.MAX_MESSAGES });
+    sendJSON(res, 200, { ok: true, messages: store.all(gid, null), max: store.MAX_MESSAGES });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -1820,7 +1814,7 @@ function handleApi(req, res, urlObj, pathname, ip) {
       // 落盘扩展名：
       //   图片 -> 用嗅探出的真实格式，保证能被正确内联显示（改名成 .png 的假图片也会被识破）；
       //   其它 -> 保留原扩展名（仅保留安全字符），扩展名伪装成图片但内容不是则降级为 .bin。
-      let saveExt;
+      let saveExt: string;
       if (sniffed) {
         saveExt = '.' + sniffed;
       } else {
@@ -1857,11 +1851,11 @@ function handleApi(req, res, urlObj, pathname, ip) {
   logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
 }
 
-// ---------- HTTP 服务器 ----------
+// ---------- HTTP 入口 ----------
 
-function handleHttp(req, res) {
+export function handleHttp(req: any, res: any): void {
   const ip = req.socket.remoteAddress || '-';
-  let urlObj;
+  let urlObj: any;
   try { urlObj = new URL(req.url, 'http://localhost'); } catch (e) {
     res.writeHead(400); res.end('Bad Request'); return;
   }
@@ -1889,40 +1883,13 @@ function handleHttp(req, res) {
   logger.write({ ip, method: req.method, url: pathname, status: res.statusCode || 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
 }
 
-const server = http.createServer(handleHttp);
-server.on('upgrade', handleWsUpgrade);
-
-// ---------- 启动 ----------
-
-migrate.run();            // 启动前校验并自动迁移数据库结构（兼容旧库）
-auth.init(false);
-store.load();
-audit.load();             // 初始化审计日志表
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-// 过期文件清理：启动时执行一次，之后定期检查。
-// 只删除硬盘文件，消息记录保留（前端显示「图片/文件已过期」，文件仍显示文件名）。
-function runFileCleanup() {
+export function runFileCleanup(): void {
   try {
     const n = store.cleanupExpired(FILE_TTL_DAYS);
     if (n > 0) console.log('[cleanup] 文件过期清理：' + n + ' 个文件已删除，消息记录保留');
-  } catch (e) {
+  } catch (e: any) {
     console.error('[cleanup] 文件过期清理失败：' + (e && e.message ? e.message : e));
   }
 }
-runFileCleanup();
-setInterval(runFileCleanup, FILE_CLEANUP_INTERVAL).unref();
 
-server.listen(PORT, HOST, () => {
-  console.log('==========================================');
-  console.log(' CircleChat 私人聊天服务器 v1.0.0 已启动');
-  console.log(' 监听地址: http://' + HOST + ':' + PORT);
-  console.log(' 数据目录: ' + path.join(ROOT, 'data'));
-  console.log(' 消息保留: 最近 ' + store.MAX_MESSAGES + ' 条');
-  console.log(' 上传上限: ' + (MAX_UPLOAD / 1024 / 1024) + ' MB');
-  console.log(' 文件保留: ' + FILE_TTL_DAYS + ' 天（超期仅删文件，消息保留）');
-  console.log('==========================================');
-});
-
-process.on('SIGINT', () => { console.log('\n收到退出信号，正在退出…'); process.exit(0); });
-process.on('SIGTERM', () => process.exit(0));
+export { UPLOAD_DIR, FILE_CLEANUP_INTERVAL };

@@ -315,7 +315,6 @@ const dict: Record<string, string> = {
   "api.notFound": "インターフェースが見つかりません",
   "api.invalidParams": "パラメータが無効です",
   "api.user.registerFormat": "ユーザー名は2〜20文字（英数字/_/中国語）、パスワードは8文字以上で数字・大小英字・記号を含めてください",
-  "api.user.nameTaken": "このユーザー名は既に登録されています",
   "api.user.notFound": "ユーザーが存在しません",
   "api.user.passwordTooShort": "パスワードは8文字以上で数字・大小英字・記号を含めてください",
   "api.login.badCredentials": "ユーザー名またはパスワードが違います",

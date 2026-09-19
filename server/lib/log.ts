@@ -2,10 +2,9 @@
 // 记录所有 HTTP 请求与 WebSocket 连接（应用层网络监控），追加到 data/access.log 并同步打印控制台。
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-// server/lib/log.ts -> ../../data
-const LOG_DIR = fileURLToPath(new URL('../../data', import.meta.url));
+// 路径锚定到运行根目录（package.json 启动目录 = 项目根）
+const LOG_DIR = path.join(process.cwd(), 'data');
 const LOG_FILE = path.join(LOG_DIR, 'access.log');
 
 // 确保日志目录存在

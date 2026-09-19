@@ -4,7 +4,6 @@ import type { ChatMessage } from '../../types';
 import {
   chatState,
   react,
-  recall,
   avatarFor,
   avatarColor,
   clock,
@@ -14,7 +13,6 @@ import {
   mentionsMe,
   fmtSize,
   getProfile,
-  copyToClipboard,
   openContextMenu,
   toggleSelect
 } from '../../core/chat';
@@ -29,7 +27,6 @@ const grouped = computed(() => canGroup(props.prev, props.msg));
 const recalled = computed(() => !!props.msg.recalled);
 const expired = computed(() => !!props.msg.file_expired);
 const self = computed(() => props.msg.from === chatState.me);
-const canRecall = computed(() => self.value || chatState.isAdmin);
 const mentionMe = computed(() => props.msg.type === 'text' && mentionsMe(props.msg.content));
 const isSelected = computed(() => props.msg.idx != null && chatState.selected.indexOf(props.msg.idx) !== -1);
 
@@ -56,25 +53,9 @@ function fileExt(name?: string | null): string {
   return (ext || '?').slice(0, 4).toUpperCase();
 }
 
-function copyText(): void {
-  copyToClipboard(props.msg.content || '');
-}
-function doRecall(): void {
-  if (props.msg.idx == null) return;
-  const isOther = chatState.isAdmin && !self.value;
-  const text = isOther
-    ? tr('chat.recall.confirmOther', { name: props.msg.from })
-    : tr('chat.recall.confirmSelf');
-  if (window.confirm(text)) recall(props.msg.idx);
-  showPicker.value = false;
-}
 function toggleReact(emoji: string): void {
   if (props.msg.idx == null) return;
   react(props.msg.idx, emoji);
-  showPicker.value = false;
-}
-function onReply(): void {
-  chatState.replyTo = props.msg;
   showPicker.value = false;
 }
 function onCtx(e: MouseEvent): void {

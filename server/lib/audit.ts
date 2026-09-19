@@ -4,10 +4,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 
-// server/lib/audit.ts -> ../../data
-const DATA_DIR = fileURLToPath(new URL('../../data', import.meta.url));
+// 路径锚定到运行根目录（package.json 启动目录 = 项目根）
+const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'chatplus.db');
 
 const MAX_LOGS = 5000; // 仅保留最近 5000 条

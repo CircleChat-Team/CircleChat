@@ -5,10 +5,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 
-// server/lib/groups.ts -> ../../data
-const DATA_DIR = fileURLToPath(new URL('../../data', import.meta.url));
+// 路径锚定到运行根目录（package.json 启动目录 = 项目根）
+const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'chatplus.db');
 
 let db: DatabaseSync | null = null;
@@ -274,4 +273,26 @@ export function manageMembers(id: string): GroupMember[] {
     owner: m.name === ownerName,
     joined: m.joined != null ? m.joined : null
   }));
+}
+
+export interface SetAvatarResult {
+  ok: boolean;
+  code?: string;
+  avatar?: string | null;
+}
+
+/** 设置群头像：avatar 为空串或 null 表示清除；仅允许 http(s) 图片地址 */
+export function setGroupAvatar(gid: string, avatar: string): SetAvatarResult {
+  const d = open();
+  gid = String(gid);
+  if (!d.prepare('SELECT 1 AS x FROM groups WHERE id = ?').get(gid)) {
+    return { ok: false, code: 'api.group.notFound' };
+  }
+  const v = avatar == null ? '' : String(avatar).trim().slice(0, 1024);
+  // 仅允许 http(s) 图片地址或清空
+  if (v && !/^https?:\/\//i.test(v)) {
+    return { ok: false, code: 'group.avatarInvalid' };
+  }
+  d.prepare('UPDATE groups SET avatar = ?, updated = ? WHERE id = ?').run(v || null, Date.now(), gid);
+  return { ok: true, avatar: v || null };
 }

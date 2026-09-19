@@ -359,7 +359,6 @@ const dict: Record<string, string> = {
   "api.notFound": "接口不存在",
   "api.invalidParams": "参数错误",
   "api.user.registerFormat": "用户名需 2-20 位字母/数字/下划线/中文，密码至少 8 位且含数字、大小写字母和特殊符号",
-  "api.user.nameTaken": "该用户名已被注册",
   "api.user.notFound": "用户不存在",
   "api.user.passwordTooShort": "密码至少 8 位且含数字、大小写字母和特殊符号",
   "api.login.badCredentials": "账号或密码错误",

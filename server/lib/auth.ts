@@ -4,10 +4,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 
-// server/lib/auth.ts -> ../../data
-const DATA_DIR = fileURLToPath(new URL('../../data', import.meta.url));
+// 路径锚定到运行根目录（package.json 启动目录 = 项目根）
+const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'chatplus.db');
 
 const SESSION_TTL = 7 * 24 * 3600 * 1000; // 会话有效期 7 天
@@ -51,7 +50,9 @@ function open(): DatabaseSync {
       image   TEXT,
       settings TEXT,
       updated INTEGER,
-      status  TEXT
+      status  TEXT,
+      totp_secret TEXT,
+      totp_enabled INTEGER
     );
   `);
   return db;
@@ -129,7 +130,7 @@ function migrateFromJson(): void {
 
 // ---------- 用户存储 ----------
 
-/** 返回 { name: {pass, created, role, image, settings, updated} } 供接口层使用 */
+/** 返回 { name: StoredUser } 供接口层使用 */
 export function loadUsers(): Record<string, StoredUser> {
   const rows = open().prepare('SELECT name, pass, created, role, image, settings, updated FROM users').all() as unknown as UserRow[];
   const map: Record<string, StoredUser> = {};
@@ -177,14 +178,12 @@ function ensureAdmin(): void {
 export function init(forceDefaults?: boolean): Record<string, StoredUser> {
   open();
   if (forceDefaults) {
-    // 强制重建：仅保留内置管理员账号
     open().prepare('DELETE FROM users').run();
     insertAccount(BUILTIN_ADMIN);
     return loadUsers();
   }
   migrateFromJson();
   ensureAdmin();
-  // 旧库（无 mustChange 列）升级后：仅当内置管理员仍用默认密码时强制其首次改密
   try {
     const r = open().prepare('SELECT pass, mustChange FROM users WHERE name = ?').get(BUILTIN_ADMIN.name) as { pass: string; mustChange: number | null } | undefined;
     if (r && r.mustChange == null) {
@@ -271,7 +270,7 @@ export function deleteUser(name: string): boolean {
   return !!(r && r.changes > 0);
 }
 
-/** 设置/清除用户头像（管理员接口使用）；image 传 null 或空串表示清除；用户不存在返回 false */
+/** 设置/清除用户头像；image 传 null 或空串表示清除；用户不存在返回 false */
 export function setImage(name: string, image: string | null): boolean {
   const r = open().prepare('SELECT 1 AS x FROM users WHERE name = ?').get(name);
   if (!r) return false;
@@ -280,13 +279,160 @@ export function setImage(name: string, image: string | null): boolean {
   return true;
 }
 
+// ---------- 两步验证（TOTP，RFC6238 / HMAC-SHA1） ----------
+
+const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+/** 生成长度 32（20 字节 = 160 位）的 Base32 密钥 */
+export function genSecret(): string {
+  const bytes = crypto.randomBytes(20);
+  let bits = 0;
+  let value = 0;
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) {
+    value = (value << 8) | bytes[i];
+    bits += 8;
+    while (bits >= 5) {
+      out += BASE32[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += BASE32[(value << (5 - bits)) & 31];
+  return out;
+}
+
+/** Base32 解码为 Buffer */
+function base32Decode(secret: string): Buffer {
+  const clean = String(secret || '').toUpperCase().replace(/[\s-]/g, '');
+  let bits = 0;
+  let value = 0;
+  const out: number[] = [];
+  for (const ch of clean) {
+    const v = BASE32.indexOf(ch);
+    if (v < 0) continue;
+    value = (value << 5) | v;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(out);
+}
+
+/** 大端序 8 字节计数器 */
+function totpCounter(time: number): Buffer {
+  let counter = Math.floor((Number(time) || Date.now()) / 1000 / 30);
+  const buf = Buffer.alloc(8);
+  for (let i = 7; i >= 0; i--) { buf[i] = counter & 0xff; counter = Math.floor(counter / 256); }
+  return buf;
+}
+
+/** 计算某时刻的 6 位 TOTP 验证码 */
+function totpCode(secret: string, time: number): string {
+  const key = base32Decode(secret);
+  const hmac = crypto.createHmac('sha1', key).update(totpCounter(time)).digest();
+  const off = hmac[hmac.length - 1] & 0x0f;
+  const bin = ((hmac[off] & 0x7f) << 24) | (hmac[off + 1] << 16) | (hmac[off + 2] << 8) | hmac[off + 3];
+  return String(bin % 1000000).padStart(6, '0');
+}
+
+/** 校验验证码，允许 ±1 个时间步（±30s）偏移 */
+export function verifyTotp(secret: string, code: string): boolean {
+  const c = String(code || '').trim();
+  if (!/^\d{6}$/.test(c)) return false;
+  const now = Date.now();
+  for (let d = -1; d <= 1; d++) {
+    if (totpCode(secret, now + d * 30000) === c) return true;
+  }
+  return false;
+}
+
+/** 生成 otpauth 链接（兼容 Google Authenticator 等扫码软件） */
+export function otpauthURL(username: string, secret: string): string {
+  return 'otpauth://totp/CircleChat:' + encodeURIComponent(String(username || '')) +
+    '?secret=' + encodeURIComponent(String(secret || '')) +
+    '&issuer=CircleChat&algorithm=SHA1&digits=6&period=30';
+}
+
+/** 读取 2FA 状态：{ enabled, secret }。secret 为当前存储的密钥（无论是否启用）。 */
+export function getTotp(name: string): { enabled: boolean; secret: string | null } {
+  const r = open().prepare('SELECT totp_secret, totp_enabled FROM users WHERE name = ?').get(name) as { totp_secret: string | null; totp_enabled: number | null } | undefined;
+  if (!r) return { enabled: false, secret: null };
+  return { enabled: !!(r.totp_enabled), secret: r.totp_secret || null };
+}
+
+/** 写入 2FA 状态（enabled 置位时写入密钥，关闭时清空）；用户不存在返回 false */
+export function setTotpEnabled(name: string, enabled: boolean, secret: string | null): boolean {
+  const r = open().prepare('SELECT 1 AS x FROM users WHERE name = ?').get(name) as { x: number } | undefined;
+  if (!r) return false;
+  open().prepare('UPDATE users SET totp_enabled = ?, totp_secret = ?, updated = ? WHERE name = ?')
+    .run(enabled ? 1 : 0, enabled ? String(secret || '') : (secret != null ? String(secret) : null), Date.now(), name);
+  return true;
+}
+
+// ---------- 用户改名（全局引用一次性事务更新） ----------
+
+/** 将用户 oldName 改名为 newName，并同步所有关联表中的引用；成功返回 true */
+export function renameUser(oldName: string, newName: string): boolean {
+  const old = String(oldName);
+  const neu = String(newName);
+  if (!old || !neu || old === neu) return false;
+  const d = open();
+  if (d.prepare('SELECT 1 AS x FROM users WHERE name = ?').get(neu)) return false; // 新名已被占用
+  if (!d.prepare('SELECT 1 AS x FROM users WHERE name = ?').get(old)) return false;
+  const now = Date.now();
+  d.prepare('BEGIN').run();
+  try {
+    d.prepare('UPDATE users SET name = ?, updated = ? WHERE name = ?').run(neu, now, old);
+    d.prepare('UPDATE messages SET "from" = ? WHERE "from" = ?').run(neu, old);
+    const dmRows = d.prepare('SELECT idx, dm FROM messages WHERE dm IS NOT NULL').all() as { idx: number; dm: string }[];
+    for (const row of dmRows) {
+      const pair = String(row.dm).split(':');
+      if (pair.indexOf(old) === -1) continue;
+      const upd = pair.map((n) => (n === old ? neu : n)).sort();
+      d.prepare('UPDATE messages SET dm = ? WHERE idx = ?').run(upd.join(':'), row.idx);
+    }
+    d.prepare('UPDATE reactions SET actor = ? WHERE actor = ?').run(neu, old);
+    d.prepare('UPDATE groups SET owner = ? WHERE owner = ?').run(neu, old);
+    d.prepare('UPDATE group_members SET name = ? WHERE name = ?').run(neu, old);
+    d.prepare('UPDATE friends SET u1 = ? WHERE u1 = ?').run(neu, old);
+    d.prepare('UPDATE friends SET u2 = ? WHERE u2 = ?').run(neu, old);
+    d.prepare('UPDATE friend_requests SET requester = ? WHERE requester = ?').run(neu, old);
+    d.prepare('UPDATE friend_requests SET target = ? WHERE target = ?').run(neu, old);
+    d.prepare('UPDATE join_requests SET name = ? WHERE name = ?').run(neu, old);
+    d.prepare('UPDATE reports SET msg_from = ? WHERE msg_from = ?').run(neu, old);
+    d.prepare('UPDATE reports SET reporter = ? WHERE reporter = ?').run(neu, old);
+    d.prepare('UPDATE penalties SET target = ? WHERE target = ?').run(neu, old);
+    d.prepare('COMMIT').run();
+    return true;
+  } catch (e) {
+    d.prepare('ROLLBACK').run();
+    return false;
+  }
+}
+
+/** 更新内存会话中的用户名（改名成功后，让已登录会话保持有效） */
+export function renameSession(oldName: string, newName: string): void {
+  for (const [token, s] of sessions) {
+    if (s.username === oldName) {
+      s.username = newName;
+      sessions.set(token, s);
+    }
+  }
+}
+
 // ---------- 开放注册（需管理员审核） ----------
 
-/** 提交注册申请：创建 status=pending 的账号；用户名已存在返回 false */
-export function submitRegistration(name: string, password: string): boolean {
+/** 提交注册申请：创建 status=pending 的账号；用户名已存在返回 false（邮箱存于 settings） */
+export function submitRegistration(name: string, password: string, email?: string): boolean {
   if (!name || !password) return false;
   if (open().prepare('SELECT 1 AS x FROM users WHERE name = ?').get(name)) return false;
   insertAccount({ name, pass: password, role: 'user', status: STATUS.PENDING });
+  if (email) {
+    open().prepare('UPDATE users SET settings = ? WHERE name = ?')
+      .run(JSON.stringify({ email: String(email).slice(0, 190) }), name);
+  }
   return true;
 }
 
