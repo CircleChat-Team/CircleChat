@@ -58,6 +58,26 @@ git checkout main && git merge dev && git push
 
 > 远端名为 `CircleChat`（可用 `git remote -v` 查看）。
 
+### 更新服务器
+
+推送到 `main` 后，在部署机上按顺序执行：
+
+```bash
+git pull            # 同步源码
+npm install         # 仅当 package.json / package-lock.json 有变动时需要
+npm run build       # 构建前端（Vite）与后端（Nitro）
+# 重启服务进程 / 容器
+```
+
+也可以用远端仓库的 `post-receive` 钩子把上面几步自动化——钩子同步源码后可继续执行
+`npm install`（依赖有变动时）、`npm run build` 并重启服务。
+
+> 两个容易踩的坑：
+> 1. 构建请用与服务运行时相同（或更高）的 Node 版本，`vite build` 需要 Node ≥ 20.19；
+> 2. 旧版 npm（如 9.x）会在 `npm install` 时改写 `package-lock.json`（例如删掉 `libc` 字段），
+>    使部署机的 `git pull` 因工作区不干净而中止。建议升级 npm，或让部署目录只做
+>    `git fetch` + `git reset --hard`（部署目录不应存在本地改动）。
+
 ## 配置
 
 | 项 | 方式 |
