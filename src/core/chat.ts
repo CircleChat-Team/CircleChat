@@ -11,6 +11,7 @@ import { tr } from './i18n';
 import { fmtSize } from './format';
 import { DEFAULT_NOTIFY_SOUND, isNotifySound, playIncoming, playOutgoing, setNotifySound as soundSetNotify } from './sound';
 import type {
+  ApiResult,
   ChatMessage,
   ChatUser,
   Friend,
@@ -90,6 +91,8 @@ export interface ChatState {
   mutedUntil: number | null;
   lastTs: Record<string, number>;
   unread: Record<string, number>;
+  /** 上传任务队列（输入栏上方的进度指示器读取） */
+  uploads: UploadTask[];
 }
 
 const state = reactive<ChatState>({
@@ -138,7 +141,8 @@ const state = reactive<ChatState>({
   muted: false,
   mutedUntil: null,
   lastTs: {},
-  unread: {}
+  unread: {},
+  uploads: []
 });
 let ws: WebSocket | null = null;
 let reconnectDelay = 1000;
@@ -528,46 +532,153 @@ export function sendText(text: string, md?: boolean): void {
   state.replyTo = null;
 }
 
-async function uploadOne(file: File): Promise<void> {
-  const fd = new FormData();
-  fd.append('file', file);
-  const res = await fetch(api('/api/upload'), {
-    method: 'POST',
-    body: fd,
-    credentials: 'same-origin'
+/** 单个上传任务（输入栏上方的上传指示器读取） */
+export interface UploadTask {
+  id: number;
+  /** 文件名（粘贴的截图没有名字时自动生成） */
+  name: string;
+  kind: 'image' | 'file';
+  size: number;
+  /** 0-100 */
+  percent: number;
+  status: 'queued' | 'uploading' | 'done' | 'failed';
+  /** 失败原因（i18n 键或直译文案），成功后清空 */
+  error: string;
+  /** 是否可重试：前置校验失败（超大 / 私聊受限）的任务没有文件可重传 */
+  retryable: boolean;
+}
+
+let uploadSeq = 0;
+/** 任务 id → 待上传文件；不放进响应式状态，避免 Vue 代理 DOM 对象 */
+const pendingFiles = new Map<number, File>();
+
+function newTask(file: File, gating: boolean): UploadTask {
+  const kind: 'image' | 'file' = /^image\//.test(file.type || '') ? 'image' : 'file';
+  const name =
+    file.name ||
+    (kind === 'image'
+      ? tr('chat.upload.shotPrefix') + Date.now() + '.' + (file.type.split('/')[1] || 'png')
+      : tr('chat.file.defaultName'));
+  let error = '';
+  if (gating && kind !== 'image') error = tr('chat.dm.gateToast');
+  else if (file.size > MAX_UPLOAD_SIZE) error = tr('chat.upload.tooBig', { name });
+  return {
+    id: ++uploadSeq,
+    name,
+    kind,
+    size: file.size,
+    percent: 0,
+    status: error ? 'failed' : 'queued',
+    error,
+    retryable: !error
+  };
+}
+
+function taskById(id: number): UploadTask | undefined {
+  return state.uploads.find((t) => t.id === id);
+}
+
+/** 通过 state 里的响应式代理改字段，保证视图更新 */
+function patchTask(id: number, patch: Partial<UploadTask>): void {
+  const t = taskById(id);
+  if (t) Object.assign(t, patch);
+}
+
+/** POST /api/upload；用 XHR 而非 fetch，因为只有 XHR 能拿到上传进度事件 */
+function postUpload(file: File, onProgress: (loaded: number, total: number) => void): Promise<ApiResult> {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', api('/api/upload'), true);
+    xhr.withCredentials = true;
+    xhr.timeout = 120000;
+    xhr.upload.onprogress = (e: ProgressEvent): void => {
+      if (e.lengthComputable && e.total) onProgress(e.loaded, e.total);
+    };
+    xhr.onload = (): void => {
+      let body: ApiResult = { ok: false };
+      try {
+        body = JSON.parse(xhr.responseText || '{}') as ApiResult;
+      } catch {
+        body = { ok: false };
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error('http ' + xhr.status));
+        return;
+      }
+      resolve(body);
+    };
+    xhr.onerror = (): void => reject(new Error('network'));
+    xhr.ontimeout = (): void => reject(new Error('timeout'));
+    xhr.onabort = (): void => reject(new Error('abort'));
+    xhr.send(fd);
   });
-  const body = await res.json();
-  if (!body.ok) {
-    state.error = body.error || 'chat.upload.failed';
-    return;
+}
+
+function failUpload(id: number, error: string): void {
+  state.error = error;
+  patchTask(id, { status: 'failed', error: tr(error), retryable: pendingFiles.has(id) });
+}
+
+async function runUpload(id: number): Promise<void> {
+  const file = pendingFiles.get(id);
+  if (!file || !taskById(id)) return;
+  patchTask(id, { status: 'uploading', percent: 0, error: '' });
+  try {
+    const body = await postUpload(file, (loaded, total) => {
+      // 留 1%：等服务器写盘并返回后才算完成
+      patchTask(id, { percent: Math.min(99, Math.round((loaded / total) * 100)) });
+    });
+    if (!body.ok) {
+      failUpload(id, String(body.error || 'chat.upload.failed'));
+      return;
+    }
+    if (dmgating() && body.kind !== 'image') {
+      failUpload(id, 'chat.dm.gateToast');
+      return;
+    }
+    patchTask(id, { percent: 100, status: 'done', retryable: false });
+    pendingFiles.delete(id);
+    const data: Record<string, unknown> = { type: body.kind, content: body.url, name: body.name, size: body.size };
+    if (state.activeGid != null) data.gid = state.activeGid;
+    if (state.activeDmPeer != null) data.pm = state.activeDmPeer;
+    if (send({ type: 'msg', data })) playOutgoing();
+    // 让「已发送」停留一下再收起，避免进度条一闪而过
+    window.setTimeout(() => dismissUpload(id), 1200);
+  } catch {
+    failUpload(id, 'chat.upload.retry');
   }
-  if (dmgating() && body.kind !== 'image') {
-    state.error = 'chat.dm.gateToast';
-    return;
-  }
-  const data: Record<string, unknown> = { type: body.kind, content: body.url, name: body.name, size: body.size };
-  if (state.activeGid != null) data.gid = state.activeGid;
-  if (state.activeDmPeer != null) data.pm = state.activeDmPeer;
-  if (send({ type: 'msg', data })) playOutgoing();
 }
 
 export async function uploadFiles(files: FileList | File[]): Promise<void> {
   const gating = dmgating();
-  const list: File[] = [];
+  const queue: number[] = [];
   for (const f of Array.from(files)) {
-    if (gating && !/^image\//.test(f.type || '')) {
-      state.error = 'chat.dm.gateToast';
-      continue;
+    const t = newTask(f, gating);
+    state.uploads.push(t);
+    if (t.status === 'queued') {
+      pendingFiles.set(t.id, f);
+      queue.push(t.id);
     }
-    if (f.size > MAX_UPLOAD_SIZE) {
-      state.error = tr('chat.upload.tooBig', { name: f.name || tr('chat.file.defaultName') });
-      continue;
-    }
-    list.push(f);
   }
-  for (const f of list) {
-    await uploadOne(f);
-  }
+  // 逐个上传：串行更稳，且队列里的任务会显示为「等待上传」
+  for (const id of queue) await runUpload(id);
+}
+
+/** 重试失败的上传（前置校验失败的没有文件可重传，只能关闭） */
+export function retryUpload(id: number): void {
+  const t = taskById(id);
+  if (!t || t.status !== 'failed' || !pendingFiles.has(id)) return;
+  patchTask(id, { status: 'queued', percent: 0, error: '', retryable: true });
+  void runUpload(id);
+}
+
+/** 关闭（移除）一条上传任务 */
+export function dismissUpload(id: number): void {
+  const i = state.uploads.findIndex((t) => t.id === id);
+  if (i >= 0) state.uploads.splice(i, 1);
+  pendingFiles.delete(id);
 }
 
 export function notifyTyping(): void {

@@ -577,6 +577,67 @@
 mjx-container[jax="SVG"] { display: inline-block; }
 mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 
+/* ---------- 文件上传指示器（输入栏内、输入行上方） ---------- */
+.upload-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: var(--glass-strong);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+  animation: slideUp .18s var(--ease) both;
+}
+.upload-head { color: var(--muted); }
+.upload-item { display: flex; flex-direction: column; gap: 5px; }
+.upload-line { display: flex; align-items: center; gap: 8px; }
+.upload-icon { flex: 0 0 auto; width: 15px; height: 15px; fill: var(--muted); }
+.upload-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.upload-size { flex: 0 0 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.upload-status {
+  flex: 0 0 auto;
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.upload-item.failed .upload-status { color: var(--danger, #f76260); }
+.upload-act {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--primary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.upload-act:hover { background: var(--fill-hover); }
+.upload-bar { height: 4px; overflow: hidden; background: var(--fill); border-radius: 2px; }
+.upload-bar > i {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width .15s linear;
+}
+.upload-bar > i.failed { background: var(--danger, #f76260); }
+
 /* ---------- 移动端（≤767px）：隐藏顶部散落按钮，改用设置面板 ---------- */
 @media (max-width: 767px) {
   .chat-actions { display: none; }

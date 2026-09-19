@@ -3,6 +3,7 @@ import { ref, computed, nextTick } from 'vue';
 import { chatState, sendText, uploadFiles, notifyTyping, dmgating } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import EmojiPanel from './EmojiPanel.vue';
+import UploadProgress from './UploadProgress.vue';
 
 const text = ref('');
 const textarea = ref<HTMLTextAreaElement | null>(null);
@@ -261,6 +262,8 @@ function cancelReply(): void {
     <div v-if="showEmoji" class="emoji-wrap">
       <EmojiPanel @pick="pickEmoji" />
     </div>
+
+    <UploadProgress />
 
     <div class="input-row">
       <button type="button" class="tool-btn" :title="tr('chat.emoji.title')" @click="showEmoji = !showEmoji">😊</button>
