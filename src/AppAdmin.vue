@@ -110,7 +110,8 @@ function logout(): void {
     </nav>
 
     <main class="min-h-0 flex-1 overflow-y-auto">
-      <div class="mx-auto max-w-190 px-4 py-5 pb-10">
+      <!-- 窄屏保持单列满宽；桌面端放宽，避免表格/列表两侧留大片空白 -->
+      <div class="mx-auto max-w-190 px-4 py-5 pb-10 lg:max-w-[1120px] xl:max-w-[1400px]">
         <ApprovalsCard v-if="active === 'approvals'" />
         <UsersCard v-if="active === 'users'" :me="me" />
         <ModerationCard v-if="active === 'moderation'" />

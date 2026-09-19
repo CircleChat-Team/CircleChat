@@ -1463,7 +1463,8 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         // 管理员重置他人密码：目标账号必须重新登录（销毁全部会话 + 断开在线连接）
         auth.destroyUserSessions(name);
         forceLogout(name);
-        audit.add({ actor: me.username, action: 'admin.user.pass', target: name, detail: auditDetail('log.detail.user.pass', { name }), ip });
+        // 管理员「重置他人密码」与本人「修改密码」分开文案，避免混为一类
+        audit.add({ actor: me.username, action: 'admin.user.pass', target: name, detail: auditDetail('log.detail.user.passReset', { name }), ip });
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
@@ -1643,7 +1644,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         sendJSON(res, 409, { ok: false, error: r.reason || '无法发送入群申请' });
         return;
       }
-      audit.add({ actor: me.username, action: 'group.request', target: gid, detail: '申请入群', ip });
+      audit.add({ actor: me.username, action: 'group.request', target: gid, detail: auditDetail('log.detail.group.request'), ip });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -1777,7 +1778,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         sendJSON(res, 409, { ok: false, error: r.reason || '无法发送入群申请' });
         return;
       }
-      audit.add({ actor: me.username, action: 'group.request', target: gid, detail: '申请入群', ip });
+      audit.add({ actor: me.username, action: 'group.request', target: gid, detail: auditDetail('log.detail.group.request'), ip });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -1817,7 +1818,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
       if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权审核该群' }); return; }
       if (!groups.approveJoin(gid, name)) { sendJSON(res, 404, { ok: false, error: '该申请不存在或已处理' }); return; }
-      audit.add({ actor: me.username, action: 'group.request.approve', target: gid, detail: '通过入群：' + name, ip });
+      audit.add({ actor: me.username, action: 'group.request.approve', target: gid, detail: auditDetail('log.detail.group.request.approve', { name }), ip });
       broadcast({ type: 'groups.changed' }); // 让新成员客户端刷新群列表
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -1838,7 +1839,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
       if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权审核该群' }); return; }
       if (!groups.rejectJoin(gid, name)) { sendJSON(res, 404, { ok: false, error: '该申请不存在或已处理' }); return; }
-      audit.add({ actor: me.username, action: 'group.request.reject', target: gid, detail: '拒绝入群：' + name, ip });
+      audit.add({ actor: me.username, action: 'group.request.reject', target: gid, detail: auditDetail('log.detail.group.request.reject', { name }), ip });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {

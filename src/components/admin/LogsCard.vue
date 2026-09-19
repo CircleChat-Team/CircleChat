@@ -36,7 +36,28 @@ const ACTION_KEYS: Record<string, string> = {
   'group.dissolve': 'admin.action.groupDissolve',
   'group.join': 'admin.action.groupJoin',
   'group.leave': 'admin.action.groupLeave',
-  'group.rename': 'admin.action.groupRename'
+  'group.rename': 'admin.action.groupRename',
+  'group.request': 'admin.action.groupRequest',
+  'group.request.approve': 'admin.action.groupRequestApprove',
+  'group.request.reject': 'admin.action.groupRequestReject',
+  'group.announce': 'admin.action.groupAnnounce',
+  'group.avatar': 'admin.action.groupAvatar',
+  'group.file.del': 'admin.action.groupFileDel',
+  'group.member.remove': 'admin.action.groupMemberRemove',
+  'group.transfer': 'admin.action.groupTransfer',
+  'login.2fa': 'admin.action.login2fa',
+  'login.blocked': 'admin.action.loginBlocked',
+  'msg.report': 'admin.action.msgReport',
+  'user.image': 'admin.action.selfImage',
+  'user.rename': 'admin.action.selfRename',
+  'admin.user.image': 'admin.action.userImage',
+  'admin.user.rename': 'admin.action.userRename',
+  'mod.dismiss': 'admin.action.modDismiss',
+  'mod.punish': 'admin.action.modPunish',
+  'mod.revoke': 'admin.action.modRevoke',
+  'twofa.setup': 'admin.action.twofaSetup',
+  'twofa.enable': 'admin.action.twofaEnable',
+  'twofa.disable': 'admin.action.twofaDisable'
 };
 
 const items = ref<LogItem[]>([]);
@@ -85,7 +106,6 @@ function formatDetail(d?: string): string {
 }
 
 function tip(e: LogItem): string {
-  if (!e.ip) return '';
   if (!e.ip) return '';
   // 原来 "IP: " 是硬编码英文，其它语言下也显示英文前缀
   return tr('admin.log.ip', { ip: e.ip }) + (e.target ? tr('admin.log.target') + e.target : '');
