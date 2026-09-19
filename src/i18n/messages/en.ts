@@ -523,6 +523,7 @@ const dict: Record<string, string> = {
   "chat.settings.accent": "Custom accent",
   "chat.settings.accentReset": "Reset",
   "chat.settings.sendKey.label": "Send key",
+  "chat.settings.notifySound": "Notification sound",
   "chat.settings.sendKey.enter": "Enter to send",
   "chat.settings.sendKey.ctrl": "Ctrl+Enter to send",
   "chat.friend.searchPlaceholder": "Search by username",

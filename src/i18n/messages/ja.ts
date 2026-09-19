@@ -477,6 +477,7 @@ const dict: Record<string, string> = {
   "chat.settings.accent": "テーマカラー",
   "chat.settings.accentReset": "リセット",
   "chat.settings.sendKey.label": "送信キー",
+  "chat.settings.notifySound": "通知音",
   "chat.settings.sendKey.enter": "Enterで送信",
   "chat.settings.sendKey.ctrl": "Ctrl+Enterで送信",
   "chat.friend.searchPlaceholder": "ユーザー名で検索",

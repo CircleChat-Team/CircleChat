@@ -1013,6 +1013,13 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
         return;
       }
+      if (patch.notifySound !== undefined &&
+          (typeof patch.notifySound !== 'string' ||
+           patch.notifySound.length > 128 ||
+           !/^[a-zA-Z0-9._-]+\.mp3$/.test(patch.notifySound))) {
+        sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+        return;
+      }
       auth.setSettings(me.username, patch);
       audit.add({ actor: me.username, action: 'settings', detail: auditDetail('log.detail.settings', { json: JSON.stringify(patch) }), ip });
       sendJSON(res, 200, { ok: true, settings: auth.getSettings(me.username) });

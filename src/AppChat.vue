@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { chatState, toggleSelectMode, setNotify, setSendKey } from './core/chat';
+import { chatState, toggleSelectMode, setNotify, setSendKey, setNotifySound } from './core/chat';
+import { NOTIFY_SOUNDS, playNotifyPreview } from './core/sound';
 import { tr } from './core/i18n';
 import { accent, setAccent } from './core/theme';
 import Sidebar from './components/chat/Sidebar.vue';
@@ -37,6 +38,12 @@ function onNotify(e: Event): void {
 
 function onSendKey(mode: 'enter' | 'ctrl'): void {
   setSendKey(mode);
+}
+
+function onNotifySound(e: Event): void {
+  const file = (e.target as HTMLSelectElement).value;
+  setNotifySound(file);
+  playNotifyPreview(file);
 }
 
 function onAccent(e: Event): void {
@@ -139,6 +146,12 @@ function onPassChanged(): void {
             <button type="button" :class="{ on: chatState.sendKey === 'enter' }" @click="onSendKey('enter')">{{ tr('chat.settings.sendKey.enter') }}</button>
             <button type="button" :class="{ on: chatState.sendKey === 'ctrl' }" @click="onSendKey('ctrl')">{{ tr('chat.settings.sendKey.ctrl') }}</button>
           </div>
+        </div>
+        <div class="settings-row">
+          <span>{{ tr('chat.settings.notifySound') }}</span>
+          <select class="settings-select" :value="chatState.notifySound" @change="onNotifySound">
+            <option v-for="s in NOTIFY_SOUNDS" :key="s.file" :value="s.file">{{ s.label }}</option>
+          </select>
         </div>
         <div class="settings-row">
           <span>{{ tr('chat.settings.accent') }}</span>

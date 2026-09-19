@@ -393,6 +393,19 @@
 .settings-seg button + button { border-left: 1px solid var(--border); }
 .settings-seg button.on { background: var(--primary); color: #fff; }
 
+/* 设置项：下拉选择（如消息提示音） */
+.settings-select {
+  max-width: 160px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
 /* ---------- 移动端（≤767px）：隐藏顶部散落按钮，改用设置面板 ---------- */
 @media (max-width: 767px) {
   .chat-actions { display: none; }

@@ -523,6 +523,7 @@ const dict: Record<string, string> = {
   "chat.settings.accent": "自定义配色",
   "chat.settings.accentReset": "恢复默认",
   "chat.settings.sendKey.label": "发送按键",
+  "chat.settings.notifySound": "消息提示音",
   "chat.settings.sendKey.enter": "Enter 发送",
   "chat.settings.sendKey.ctrl": "Ctrl+Enter 发送",
   "chat.friend.searchPlaceholder": "输入用户名搜索",

@@ -9,7 +9,7 @@ import { get, post, url } from './api';
 import { config } from './config';
 import { tr } from './i18n';
 import { fmtSize } from './format';
-import { playIncoming, playOutgoing } from './sound';
+import { DEFAULT_NOTIFY_SOUND, isNotifySound, playIncoming, playOutgoing, setNotifySound as soundSetNotify } from './sound';
 import type {
   ChatMessage,
   ChatUser,
@@ -64,6 +64,7 @@ export interface ChatState {
   typingWho: string | null;
   notifyOn: boolean;
   sendKey: 'enter' | 'ctrl';
+  notifySound: string;
   replyTo: ChatMessage | null;
   profileOpen: boolean;
   profile: ProfileData | null;
@@ -109,6 +110,7 @@ const state = reactive<ChatState>({
   typingWho: null,
   notifyOn: true,
   sendKey: 'enter',
+  notifySound: DEFAULT_NOTIFY_SOUND,
   replyTo: null,
   profileOpen: false,
   profile: null,
@@ -774,12 +776,26 @@ export async function saveSettings(patch: Record<string, unknown>): Promise<void
   await post('/api/settings', patch);
   if (typeof patch.notify === 'boolean') state.notifyOn = patch.notify;
   if (patch.sendKey === 'enter' || patch.sendKey === 'ctrl') state.sendKey = patch.sendKey;
+  if (typeof patch.notifySound === 'string' && isNotifySound(patch.notifySound)) {
+    state.notifySound = patch.notifySound;
+    soundSetNotify(patch.notifySound);
+  }
 }
 
 /** 发送按键模式：enter=Enter 发送 / Ctrl+Enter 换行；ctrl=Ctrl+Enter 发送 / Enter 换行 */
 export function setSendKey(mode: 'enter' | 'ctrl'): void {
   state.sendKey = mode === 'ctrl' ? 'ctrl' : 'enter';
   void post('/api/settings', { sendKey: state.sendKey }).catch(() => {
+    /* 忽略 */
+  });
+}
+
+/** 消息提示音：切换并保存（试听由调用方触发） */
+export function setNotifySound(file: string): void {
+  if (!isNotifySound(file)) return;
+  state.notifySound = file;
+  soundSetNotify(file);
+  void post('/api/settings', { notifySound: file }).catch(() => {
     /* 忽略 */
   });
 }
@@ -856,6 +872,10 @@ export function initChat(): void {
         const s = j.settings as any;
         if (s.notify != null) state.notifyOn = !!s.notify;
         if (s.sendKey === 'enter' || s.sendKey === 'ctrl') state.sendKey = s.sendKey;
+        if (typeof s.notifySound === 'string' && isNotifySound(s.notifySound)) {
+          state.notifySound = s.notifySound;
+          soundSetNotify(s.notifySound);
+        }
       })
       .catch(() => {
         /* 忽略 */
