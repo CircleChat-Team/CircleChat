@@ -825,10 +825,12 @@ export function forwardTo(target: { gid?: string; pm?: string }): void {
   if (merge) {
     const items: MergeItem[] = msgs.map((m) => {
       const isMedia = m.type === 'image' || m.type === 'file' || m.type === 'video' || m.type === 'audio';
+      // 合并转发里不嵌套合并转发本身：content 是结构化 JSON，直接展示会是一坨原文
+      const content = m.type === 'merge' ? tr('chat.merge.label') : (m.content || '');
       const it: MergeItem = {
         from: m.from || '?',
         type: isMedia ? (m.type as 'image' | 'file' | 'video' | 'audio') : 'text',
-        content: m.content || ''
+        content
       };
       if (isMedia) { it.name = m.name || null; it.size = m.size != null ? m.size : null; }
       return it;

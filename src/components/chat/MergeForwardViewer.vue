@@ -5,6 +5,7 @@
 import { computed } from 'vue';
 import { chatState, closeMergeView, asset, fmtSize } from '../../core/chat';
 import { tr } from '../../core/i18n';
+import TextContent from './TextContent.vue';
 
 const view = computed(() => chatState.mergeView);
 </script>
@@ -35,7 +36,9 @@ const view = computed(() => chatState.mergeView);
               target="_blank"
               rel="noopener"
             >{{ it.type === 'audio' ? '🎵' : '📎' }} {{ it.name || tr('chat.file.defaultName') }}<span v-if="it.size"> · {{ fmtSize(it.size) }}</span></a>
-            <div v-else class="merge-item-text">{{ it.content }}</div>
+            <div v-else class="merge-item-text">
+              <TextContent :text="it.content || ''" md />
+            </div>
           </div>
         </div>
       </div>

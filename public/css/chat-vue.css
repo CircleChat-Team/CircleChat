@@ -461,7 +461,8 @@
 .merge-item { display: flex; gap: 8px; }
 .merge-item-from { flex: 0 0 auto; font-size: 12px; color: var(--muted); max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .merge-item-main { flex: 1; min-width: 0; }
-.merge-item-text { font-size: 14px; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+/* 文本项现在走 Markdown 渲染：换行由 <p>/<br> 负责，不能再用 pre-wrap（否则和标签间空白叠加出多余空行） */
+.merge-item-text { font-size: 14px; color: var(--text); word-break: break-word; }
 .merge-item-img { max-width: 100%; max-height: 240px; border-radius: 8px; display: block; }
 .merge-item-file { font-size: 14px; color: var(--primary-dark); text-decoration: none; }
 
