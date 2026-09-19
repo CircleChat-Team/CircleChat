@@ -11,7 +11,7 @@
 
 ```bash
 npm install      # 首次安装前端构建依赖（仅构建期需要）
-npm run build    # 构建前端到 public/dist/
+npm run build    # 构建前端与后端
 npm start        # 启动服务，默认监听 0.0.0.0:8090
 ```
 
@@ -22,11 +22,9 @@ npm start        # 启动服务，默认监听 0.0.0.0:8090
 ## 开发
 
 ```bash
-npm run dev:web     # 终端1：监听 src/ 改动，增量构建到 public/dist/
-npm run dev:server  # 终端2：启动后端服务
-npm run typecheck   # Vue + TS 类型检查
-npm run adduser     # 用户管理：node --experimental-strip-types tools/adduser.ts <用户名> [新密码]
-npm run build:hljs  # 重新打包本地自托管的 highlight.js
+npm run dev                          # 改代码即时生效：监听 src/ 增量构建 + 启动后端（Nitro dev）
+npm run typecheck                    # Vue + TS 类型检查
+npm run adduser -- <用户名> [新密码]  # 用户管理
 ```
 
 ## 配置

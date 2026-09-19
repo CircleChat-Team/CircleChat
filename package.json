@@ -5,12 +5,10 @@
   "description": "CircleChat 自托管轻量聊天服务器（基于 GPL-3.0 开源）",
   "main": ".output/server/index.mjs",
   "scripts": {
-    "start": "node .output/server/index.mjs",
+    "start": "PORT=${PORT:-8090} node .output/server/index.mjs",
     "build": "vite build && nitro build",
     "dev": "vite build --watch & nitro dev",
-    "dev:web": "vite build --watch",
     "typecheck": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
-    "build:hljs": "esbuild tools/hljs-entry.mjs --bundle --minify --format=iife --legal-comments=inline --banner:js=\"/*! highlight.js v11.12.0 | (c) 2006-2024 Josh Goebel and other contributors | BSD-3-Clause | https://github.com/highlightjs/highlight.js | 完整许可证: public/vendor/highlight.LICENSE.txt */\" --outfile=public/vendor/highlight.min.js",
     "adduser": "node --experimental-strip-types tools/adduser.ts"
   },
   "engines": {
