@@ -575,6 +575,8 @@ export interface UploadTask {
   name: string;
   kind: 'image' | 'file';
   size: number;
+  /** 已上传字节数（用于显示「12.3 MB / 45.0 MB」） */
+  loaded: number;
   /** 0-100 */
   percent: number;
   status: 'queued' | 'uploading' | 'done' | 'failed';
@@ -591,6 +593,8 @@ let uploadSeq = 0;
 const pendingFiles = new Map<number, File>();
 /** 任务 id → 速度采样（非响应式，避免每个进度事件都额外渲染一次） */
 const speedTrack = new Map<number, { loaded: number; ts: number; ema: number }>();
+/** 任务 id → 进行中的 XHR，供「取消上传」中断请求 */
+const uploadXhr = new Map<number, XMLHttpRequest>();
 
 function newTask(file: File, gating: boolean): UploadTask {
   const kind: 'image' | 'file' = /^image\//.test(file.type || '') ? 'image' : 'file';
@@ -607,6 +611,7 @@ function newTask(file: File, gating: boolean): UploadTask {
     name,
     kind,
     size: file.size,
+    loaded: 0,
     percent: 0,
     status: error ? 'failed' : 'queued',
     error,
@@ -625,19 +630,26 @@ function patchTask(id: number, patch: Partial<UploadTask>): void {
   if (t) Object.assign(t, patch);
 }
 
-/** POST /api/upload；用 XHR 而非 fetch，因为只有 XHR 能拿到上传进度事件 */
-function postUpload(file: File, onProgress: (loaded: number, total: number) => void): Promise<ApiResult> {
+/** POST /api/upload；用 XHR 而非 fetch：只有 XHR 能拿到上传进度事件，也只有它能被中断 */
+function postUpload(id: number, file: File, onProgress: (loaded: number, total: number) => void): Promise<ApiResult> {
   return new Promise((resolve, reject) => {
     const fd = new FormData();
     fd.append('file', file);
     const xhr = new XMLHttpRequest();
+    uploadXhr.set(id, xhr);
+    const cleanup = (): void => {
+      if (uploadXhr.get(id) === xhr) uploadXhr.delete(id);
+    };
     xhr.open('POST', api('/api/upload'), true);
     xhr.withCredentials = true;
-    xhr.timeout = 120000;
+    // 超时按文件大小估算：固定 2 分钟对大文件必然超时（看起来就像传到一半卡住）。
+    // 下限 2 分钟，上限 30 分钟。
+    xhr.timeout = Math.min(30 * 60 * 1000, Math.max(120000, Math.round((file.size / (50 * 1024)) * 1000)));
     xhr.upload.onprogress = (e: ProgressEvent): void => {
       if (e.lengthComputable && e.total) onProgress(e.loaded, e.total);
     };
     xhr.onload = (): void => {
+      cleanup();
       let body: ApiResult = { ok: false };
       try {
         body = JSON.parse(xhr.responseText || '{}') as ApiResult;
@@ -650,9 +662,9 @@ function postUpload(file: File, onProgress: (loaded: number, total: number) => v
       }
       resolve(body);
     };
-    xhr.onerror = (): void => reject(new Error('network'));
-    xhr.ontimeout = (): void => reject(new Error('timeout'));
-    xhr.onabort = (): void => reject(new Error('abort'));
+    xhr.onerror = (): void => { cleanup(); reject(new Error('network')); };
+    xhr.ontimeout = (): void => { cleanup(); reject(new Error('timeout')); };
+    xhr.onabort = (): void => { cleanup(); reject(new Error('abort')); };
     xhr.send(fd);
   });
 }
@@ -666,9 +678,9 @@ async function runUpload(id: number): Promise<void> {
   const file = pendingFiles.get(id);
   if (!file || !taskById(id)) return;
   speedTrack.set(id, { loaded: 0, ts: 0, ema: 0 });
-  patchTask(id, { status: 'uploading', percent: 0, error: '', speed: 0 });
+  patchTask(id, { status: 'uploading', percent: 0, loaded: 0, error: '', speed: 0 });
   try {
-    const body = await postUpload(file, (loaded, total) => {
+    const body = await postUpload(id, file, (loaded, total) => {
       // 速度：进度事件很密，按 ≥200ms 采样 + 指数平均平滑，避免数字乱跳
       let speed = 0;
       const st = speedTrack.get(id);
@@ -686,7 +698,7 @@ async function runUpload(id: number): Promise<void> {
         speed = Math.max(0, st.ema);
       }
       // 留 1%：等服务器写盘并返回后才算完成
-      patchTask(id, { percent: Math.min(99, Math.round((loaded / total) * 100)), speed });
+      patchTask(id, { percent: Math.min(99, Math.round((loaded / total) * 100)), loaded, speed });
     });
     if (!body.ok) {
       failUpload(id, String(body.error || 'chat.upload.failed'));
@@ -696,7 +708,7 @@ async function runUpload(id: number): Promise<void> {
       failUpload(id, 'chat.dm.gateToast');
       return;
     }
-    patchTask(id, { percent: 100, status: 'done', retryable: false, speed: 0 });
+    patchTask(id, { percent: 100, loaded: file.size, status: 'done', retryable: false, speed: 0 });
     pendingFiles.delete(id);
     const data: Record<string, unknown> = { type: body.kind, content: body.url, name: body.name, size: body.size };
     if (state.activeGid != null) data.gid = state.activeGid;
@@ -704,9 +716,21 @@ async function runUpload(id: number): Promise<void> {
     if (send({ type: 'msg', data })) playOutgoing();
     // 让「已发送」停留一下再收起，避免进度条一闪而过
     window.setTimeout(() => dismissUpload(id), 1200);
-  } catch {
+  } catch (e) {
+    // 用户主动取消：任务已移除，不当作失败（否则会弹一条"上传失败"）
+    if (e instanceof Error && e.message === 'abort') return;
     failUpload(id, 'chat.upload.retry');
   }
+}
+
+/** 取消上传：中断进行中的请求并从队列移除（排队中的任务直接移除） */
+export function cancelUpload(id: number): void {
+  const xhr = uploadXhr.get(id);
+  if (xhr) {
+    uploadXhr.delete(id);
+    try { xhr.abort(); } catch { /* 忽略 */ }
+  }
+  dismissUpload(id);
 }
 
 export async function uploadFiles(files: FileList | File[]): Promise<void> {
@@ -738,6 +762,7 @@ export function dismissUpload(id: number): void {
   if (i >= 0) state.uploads.splice(i, 1);
   pendingFiles.delete(id);
   speedTrack.delete(id);
+  uploadXhr.delete(id);
 }
 
 export function notifyTyping(): void {

@@ -234,6 +234,7 @@ const dict: Record<string, string> = {
   "chat.upload.kindImage": "image",
   "chat.upload.kindFile": "file",
   "chat.upload.queued": "Queued",
+  "chat.upload.cancel": "Cancel",
   "chat.upload.done": "Sent",
   "chat.upload.retryBtn": "Retry",
   "chat.emoji.recent": "Frequent",

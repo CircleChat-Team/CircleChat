@@ -37,7 +37,10 @@ const ROOT = process.cwd(); // 运行根目录（启动目录 = 项目根），N
 const PUB = path.join(ROOT, 'public');
 const UPLOAD_DIR = path.join(PUB, 'uploads');
 // 上传上限（readBody 与消息 size 校验都用它）。改这里时同步更新文案 api.upload.tooLarge。
-const MAX_UPLOAD = 100 * 1024 * 1024; // 上传上限 100MB
+const MAX_UPLOAD = 100 * 1024 * 1024; // 单文件上限 100MB
+// 请求体上限要留足 multipart 头尾开销：否则"文件刚好 99.x MB"会在传完之后才被拒，
+// 客户端却已经允许了，表现就是传到末尾失败 / 卡住。
+const MAX_UPLOAD_BODY = MAX_UPLOAD + 1024 * 1024;
 const MAX_TEXT_LEN = 4096;           // 单条文本长度上限
 
 // 上传文件保留天数：超期后删除硬盘文件，消息记录保留并显示「图片/文件已过期」
@@ -139,18 +142,45 @@ function sendJSON(res: any, status: number, obj: unknown): void {
 function readBody(req: any, limit: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let settled = false;
+    // 已知 Content-Length 时预分配整块：避免 chunks 数组 + Buffer.concat 造成的
+    // 约两倍内存峰值（100MB 上传会瞬间吃掉 200MB+，是大文件"卡住"的主因之一）。
+    const declared = parseInt(req.headers['content-length'] as string, 10);
+    const buf: Buffer | null =
+      Number.isFinite(declared) && declared > 0 && declared <= limit ? Buffer.allocUnsafe(declared) : null;
+    let offset = 0;
     const chunks: Buffer[] = [];
+
+    const settle = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+
     req.on('data', (c: Buffer) => {
+      if (settled) return;
       size += c.length;
       if (size > limit) {
-        reject(new Error('BODY_TOO_LARGE'));
-        req.destroy();
+        settle(() => reject(new Error('BODY_TOO_LARGE')));
+        try { req.destroy(); } catch (e) { /* 忽略 */ }
         return;
       }
-      chunks.push(c);
+      if (buf) {
+        c.copy(buf, offset);
+        offset += c.length;
+      } else {
+        chunks.push(c);
+      }
     });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
+    req.on('end', () => settle(() => resolve(buf ? buf.subarray(0, size) : Buffer.concat(chunks))));
+    // 客户端中断 / 连接断开时必须结束 Promise：否则这个请求会永远悬挂，
+    // 表现为"取消上传或网络抖动后，服务端一直不响应"（大文件上传时会误判成卡死）。
+    const onFail = (e?: Error): void => settle(() => reject(e || new Error('REQUEST_ABORTED')));
+    req.on('error', onFail);
+    req.on('aborted', onFail);
+    req.on('close', () => {
+      if (!req.complete) onFail();
+    });
   });
 }
 
@@ -1955,7 +1985,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     const ctype = req.headers['content-type'] || '';
     const bm = /boundary=([^;]+)/i.exec(ctype);
     if (!bm) { sendJSON(res, 400, { ok: false, error: 'api.upload.notMultipart' }); return; }
-    readBody(req, MAX_UPLOAD + 4096).then((body) => {
+    readBody(req, MAX_UPLOAD_BODY).then((body) => {
       const parts = parseMultipart(body, bm[1].replace(/^"|"$/g, ''));
       const filePart = parts.find((pt) => partFieldName(pt.header) === 'file');
       if (!filePart || !filePart.content.length) {

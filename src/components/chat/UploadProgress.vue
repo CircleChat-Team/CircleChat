@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /* 上传指示器：显示每个文件的上传进度；失败可重试，完成后自动收起 */
 import { computed } from 'vue';
-import { chatState, retryUpload, dismissUpload } from '../../core/chat';
+import { chatState, retryUpload, dismissUpload, cancelUpload } from '../../core/chat';
 import type { UploadTask } from '../../core/chat';
 import { tr, trn } from '../../core/i18n';
 import { fmtSize } from '../../core/format';
@@ -15,6 +15,17 @@ function statusText(t: UploadTask): string {
   if (t.status === 'queued') return tr('chat.upload.queued');
   // 上传中：百分比 + 实时速度
   return t.speed > 0 ? t.percent + '% · ' + fmtSize(t.speed) + '/s' : t.percent + '%';
+}
+
+/** 体积显示：传输中/已完成显示「已上传 / 总量」，其余只显示总量 */
+function sizeText(t: UploadTask): string {
+  if (t.status === 'uploading' || t.status === 'done') return fmtSize(t.loaded) + ' / ' + fmtSize(t.size);
+  return fmtSize(t.size);
+}
+
+/** 排队中与传输中都可以取消 */
+function canCancel(t: UploadTask): boolean {
+  return t.status === 'queued' || t.status === 'uploading';
 }
 
 /** 进度条宽度：失败且不可重试的（超大 / 受限）铺满表示已终止 */
@@ -46,9 +57,17 @@ function barState(t: UploadTask): string {
         </svg>
 
         <span class="upload-name" :title="t.name">{{ t.name }}</span>
-        <span class="upload-size">{{ fmtSize(t.size) }}</span>
+        <span class="upload-size">{{ sizeText(t) }}</span>
         <span class="upload-status">{{ statusText(t) }}</span>
 
+        <button
+          v-if="canCancel(t)"
+          type="button"
+          class="upload-act"
+          :title="tr('chat.upload.cancel')"
+          :aria-label="tr('chat.upload.cancel')"
+          @click="cancelUpload(t.id)"
+        >{{ tr('chat.upload.cancel') }}</button>
         <button
           v-if="t.status === 'failed' && t.retryable"
           type="button"

@@ -225,6 +225,7 @@ const dict: Record<string, string> = {
   "chat.upload.kindImage": "画像",
   "chat.upload.kindFile": "ファイル",
   "chat.upload.queued": "待機中",
+  "chat.upload.cancel": "キャンセル",
   "chat.upload.done": "送信済み",
   "chat.upload.retryBtn": "再試行",
   "chat.emoji.recent": "よく使う",

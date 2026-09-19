@@ -234,6 +234,7 @@ const dict: Record<string, string> = {
   "chat.upload.kindImage": "图片",
   "chat.upload.kindFile": "文件",
   "chat.upload.queued": "等待上传",
+  "chat.upload.cancel": "取消",
   "chat.upload.done": "已发送",
   "chat.upload.retryBtn": "重试",
   "chat.emoji.recent": "常用",

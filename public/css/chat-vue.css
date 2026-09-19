@@ -708,10 +708,15 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
   text-overflow: ellipsis;
   color: var(--text);
 }
-.upload-size { flex: 0 0 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
-.upload-status {
+.upload-size {
   flex: 0 0 auto;
-  max-width: 45%;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.upload-status {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
