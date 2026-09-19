@@ -2,7 +2,7 @@
 /* ============================================================
  * 自定义样式（独立弹窗）：亮/暗两套配色各设 背景 / 面板 / 文字 + 恢复默认
  * ============================================================ */
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { tr } from '../../core/i18n';
 import {
   accent,
@@ -15,6 +15,7 @@ import {
   type ThemeName,
 } from '../../core/theme';
 import { chatState, closeStyle } from '../../core/chat';
+import { useOverlay } from '../../core/useOverlay';
 
 const cur = computed(() => customStyles.value[customTheme.value]);
 const anyCustom = (): boolean =>
@@ -40,11 +41,20 @@ function onResetStyle(): void {
   setAccent('');
   resetCustom(customTheme.value);
 }
+
+// Esc 关闭 + 打开时聚焦弹层 + 关闭后归还焦点
+const rootEl = ref<HTMLElement | null>(null);
+useOverlay({
+  isOpen: () => chatState.styleOpen,
+  onClose: closeStyle,
+  container: () => rootEl.value
+});
 </script>
 
 <template>
   <div
     v-if="chatState.styleOpen"
+    ref="rootEl"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     @click.self="closeStyle"
   >

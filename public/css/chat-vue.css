@@ -828,6 +828,98 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 /* ---------- 群成员列表中的群主标记 ---------- */
 .owner-tag { color: var(--primary); margin-left: 4px; font-size: 12px; }
 
+/* ---------- 页面级轻提示（错误 / 成功） ---------- */
+.app-notice {
+  position: fixed;
+  left: 50%;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #fff;
+  background: #ff3b30;
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  transform: translateX(-50%);
+  animation: noticeIn .2s var(--ease) both;
+}
+.app-notice.ok { background: var(--primary); }
+.app-notice-x {
+  flex: 0 0 auto;
+  padding: 2px 4px;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: #fff;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: .8;
+}
+.app-notice-x:hover { opacity: 1; }
+@keyframes noticeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ---------- 移动端：安全区 / 点击热区 / 长按 ---------- */
+/* 长按消息时 iOS 会弹「拷贝/共享」浮层，干扰我们自己的菜单 */
+.msg { -webkit-touch-callout: none; }
+
+/* 顶栏避开刘海屏（无安全区时 env() 为 0，桌面端观感不变） */
+.chat-header {
+  height: auto;
+  min-height: 60px;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+/* 设置抽屉与底部内容避开 home indicator */
+.settings-body { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+
+/* 触屏设备：小图标按钮热区撑到 40px，拇指更好点 */
+@media (pointer: coarse) {
+  .tool-btn { width: 40px; height: 40px; }
+  .audio-btn { width: 40px; height: 40px; }
+  .settings-close,
+  .merge-x,
+  .forward-x,
+  .imgview-close { min-width: 40px; min-height: 40px; }
+  .ctx-item { min-height: 40px; }
+}
+
+/* 软键盘弹出时重新计算视口高度，避免输入栏被遮（配合 viewport 的 interactive-widget） */
+@supports (height: 100dvh) {
+  .chat-view { height: 100dvh; }
+}
+
+/* ---------- 「回到最新 / N 条新消息」悬浮按钮 ----------
+   放在 .msg-list 内部用 sticky 贴底，这样不依赖输入栏高度（输入框会自动增高）。 */
+.jump-latest {
+  position: sticky;
+  bottom: 10px;
+  align-self: center;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 6px 14px;
+  font-family: inherit;
+  font-size: 12px;
+  color: #fff;
+  background: var(--primary);
+  border: none;
+  border-radius: 999px;
+  box-shadow: var(--shadow-pop);
+  cursor: pointer;
+  animation: slideUp .18s var(--ease) both;
+}
+.jump-latest:hover { filter: brightness(1.05); }
+.jump-arrow { font-size: 13px; line-height: 1; }
+
 /* ---------- 消息根节点相对定位 ---------- */
 .msg { position: relative; }
 

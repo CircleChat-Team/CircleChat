@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { chatState, forwardTo, closeForward, avatarColor } from '../../core/chat';
 import { tr } from '../../core/i18n';
+import { useOverlay } from '../../core/useOverlay';
 
 const groups = computed(() => chatState.myGroups);
 const friends = computed(() => chatState.myFriends);
@@ -21,10 +22,18 @@ function setMode(m: 'single' | 'merge'): void {
 function close(): void {
   closeForward();
 }
+
+// Esc 关闭 + 打开时聚焦弹层 + 关闭后归还焦点
+const rootEl = ref<HTMLElement | null>(null);
+useOverlay({
+  isOpen: () => chatState.forwardOpen,
+  onClose: close,
+  container: () => rootEl.value
+});
 </script>
 
 <template>
-  <div v-if="chatState.forwardOpen" class="forward-mask" @click.self="close">
+  <div v-if="chatState.forwardOpen" ref="rootEl" class="forward-mask" @click.self="close">
     <div class="forward-modal">
       <div class="forward-head">
         <span>{{ tr('chat.forward.title') }}</span>

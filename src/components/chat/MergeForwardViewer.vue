@@ -2,11 +2,12 @@
 /* ============================================================
  * 合并转发查看器：以模态框展示一条 merge 消息内的多条内容
  * ============================================================ */
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { MergeItem } from '../../types';
 import { chatState, closeMergeView, asset, fmtSize } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import { mediaKind } from '../../core/media';
+import { useOverlay } from '../../core/useOverlay';
 import TextContent from './TextContent.vue';
 import AudioPlayer from './AudioPlayer.vue';
 import VideoPlayer from './VideoPlayer.vue';
@@ -17,10 +18,18 @@ const view = computed(() => chatState.mergeView);
 function kindOf(it: MergeItem): 'video' | 'audio' | 'other' {
   return mediaKind(it.type, it.name);
 }
+
+// Esc 关闭 + 打开时聚焦弹层 + 关闭后归还焦点
+const rootEl = ref<HTMLElement | null>(null);
+useOverlay({
+  isOpen: () => !!view.value,
+  onClose: closeMergeView,
+  container: () => rootEl.value
+});
 </script>
 
 <template>
-  <div v-if="view" class="merge-mask" @click.self="closeMergeView">
+  <div v-if="view" ref="rootEl" class="merge-mask" @click.self="closeMergeView">
     <div class="merge-modal">
       <div class="merge-mhead">
         <span class="merge-mtitle">{{ view.title || tr('chat.merge.label') }}</span>

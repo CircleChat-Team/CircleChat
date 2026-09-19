@@ -13,6 +13,7 @@ import {
   mentionsMe,
   fmtSize,
   getProfile,
+  notify,
   openContextMenu,
   openMergeView,
   openImageView,
@@ -85,8 +86,21 @@ function toggleReact(emoji: string): void {
   react(props.msg.idx, emoji);
   showPicker.value = false;
 }
+import { useLongPress } from '../../core/longpress';
+
 // 触屏设备：用点击（而非长按 / 右键）打开消息操作菜单
 const isTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+
+// 移动端长按打开菜单（更符合习惯，也避免轻点就弹出菜单）；点击仍然保留作为兜底
+const rootEl = ref<HTMLElement | null>(null);
+let longPressed = false;
+useLongPress(rootEl, {
+  onLongPress: (x, y) => {
+    if (props.msg.idx == null) return;
+    longPressed = true;
+    openContextMenu(props.msg.idx, x, y);
+  }
+});
 
 function onCtx(e: MouseEvent): void {
   // 桌面端右键打开；移动端不使用长按
@@ -94,6 +108,10 @@ function onCtx(e: MouseEvent): void {
   if (props.msg.idx != null) openContextMenu(props.msg.idx, e.clientX, e.clientY);
 }
 function onMsgClick(e: MouseEvent): void {
+  if (longPressed) {
+    longPressed = false; // 长按已经弹过菜单，别再弹一次
+    return;
+  }
   if (!isTouch || chatState.selectMode) return;
   const t = e.target as HTMLElement | null;
   if (t && t.closest && t.closest('a, button, .msg-avatar, .msg-select-check, .code-block, .reactions, .quote, .react-picker')) return;
@@ -112,6 +130,9 @@ function jumpTo(idx?: number): void {
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     el.classList.add('highlight');
     setTimeout(() => el.classList.remove('highlight'), 1400);
+  } else {
+    // 原消息不在当前加载范围内（最多 500 条）时给个提示，而不是点了没反应
+    notify('chat.reply.notInView');
   }
 }
 
@@ -131,6 +152,7 @@ watch(
   <div v-if="recalled" class="sys-msg">{{ recallTip }}</div>
   <div
     v-else
+    ref="rootEl"
     class="msg"
     :class="[self ? 'self' : 'other', { grouped: grouped, 'mention-me': mentionMe }]"
     :data-idx="msg.idx"

@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { chatState, friendRequest } from '../../core/chat';
 import { get } from '../../core/api';
 import { tr } from '../../core/i18n';
+import { useOverlay } from '../../core/useOverlay';
 import type { ChatUser } from '../../types';
 
 const q = ref('');
@@ -25,11 +26,20 @@ function close(): void {
   results.value = [];
   sent.value = null;
 }
+
+// Esc 关闭 + 打开时聚焦弹层 + 关闭后归还焦点
+const rootEl = ref<HTMLElement | null>(null);
+useOverlay({
+  isOpen: () => chatState.friendSearchOpen,
+  onClose: close,
+  container: () => rootEl.value
+});
 </script>
 
 <template>
   <div
     v-if="chatState.friendSearchOpen"
+    ref="rootEl"
     class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
     @click.self="close"
   >
