@@ -1,5 +1,6 @@
 import http from 'node:http';
-import type { IncomingMessage, Duplex } from 'node:http';
+import type { IncomingMessage } from 'node:http';
+import type { Duplex } from 'node:stream';
 import { handleWsUpgrade } from '../lib/runtime';
 
 // 挂接 WebSocket 升级处理（server.js 的 1:1 搬迁）。

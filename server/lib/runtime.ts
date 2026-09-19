@@ -32,8 +32,6 @@ function auditDetail(key: string, vars?: Record<string, unknown>): string {
 }
 
 // ---------- 配置 ----------
-const PORT = parseInt(process.env.PORT as string, 10) || 8090;
-const HOST = process.env.HOST || '0.0.0.0';
 const ROOT = process.cwd(); // 运行根目录（启动目录 = 项目根），Nitro 打包后改用 process.cwd()
 const PUB = path.join(ROOT, 'public');
 const UPLOAD_DIR = path.join(PUB, 'uploads');
@@ -269,13 +267,6 @@ function broadcastRoom(gid: string | null, dm: string | null, obj: any): void {
   else broadcastGid(gid, obj);
 }
 
-/** 文本中是否 @提及了指定用户名（边界匹配，避免 @apple 误伤 @a） */
-function mentionsUser(text: string, name: string): boolean {
-  if (!text || !name) return false;
-  const esc = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp('(^|[^\\w\\u4e00-\\u9fa5\\-.])@' + esc + '($|[\\s,，。；;！!？?.]|@)', 'u').test(String(text));
-}
-
 function broadcastPresence(): void {
   const present = [...new Set(currentPresent())].sort();
   const away = [...new Set([...clients].filter((c) => !c.invisible && c.away).map(clientId))].sort();
@@ -346,7 +337,7 @@ export function handleWsUpgrade(req: any, socket: any, head: Buffer): void {
   logger.write({ ip, proto: 'ws', method: 'CONNECT', url: '/ws', status: 101, ua: req.headers['user-agent'] });
 }
 
-function shutdownClient(client: any, reason: string): void {
+function shutdownClient(client: any, _reason: string): void {
   if (!clients.has(client)) return;
   clients.delete(client);
   typingLast.delete(client.user.username);
