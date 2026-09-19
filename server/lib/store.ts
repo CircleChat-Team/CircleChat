@@ -33,7 +33,8 @@ function open(): DatabaseSync {
       file_expired INTEGER,
       reply_to     INTEGER,
       gid          TEXT,
-      dm           TEXT
+      dm           TEXT,
+      md           INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_messages_idx ON messages(idx);
     CREATE TABLE IF NOT EXISTS reactions (
@@ -211,6 +212,7 @@ export interface MsgInput {
   gid?: string | null;
   dm?: string | null;
   replyTo?: number;
+  md?: number;
 }
 
 export interface StoredMessage {
@@ -231,6 +233,7 @@ export interface StoredMessage {
   reply_to?: number;
   reactions?: ReactionSummary[];
   reply?: { idx: number; from: string; snippet: string };
+  md?: number;
 }
 
 interface MsgRow {
@@ -249,6 +252,7 @@ interface MsgRow {
   reply_to: number | null;
   gid: string | null;
   dm: string | null;
+  md: number | null;
 }
 
 /**
@@ -273,12 +277,14 @@ export function add(msg: MsgInput): StoredMessage {
   if (msg.name) record.name = String(msg.name).slice(0, 200);
   if (msg.size) record.size = Number(msg.size);
   if (msg.replyTo) record.reply_to = Number(msg.replyTo);
-  d.prepare('INSERT INTO messages (idx, id, "from", type, content, ts, name, size, reply_to, gid, dm) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  if (msg.md != null) record.md = msg.md ? 1 : 0;
+  d.prepare('INSERT INTO messages (idx, id, "from", type, content, ts, name, size, reply_to, gid, dm, md) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(record.idx, record.id, String(record.from), String(record.type), String(record.content), record.ts,
       record.name != null ? record.name : null, record.size != null ? record.size : null,
       record.reply_to != null ? record.reply_to : null,
       record.gid != null ? record.gid : null,
-      record.dm != null ? record.dm : null);
+      record.dm != null ? record.dm : null,
+      record.md != null ? record.md : 0);
   // 按房间裁剪到上限（公共 / 各群 / 各私聊独立保留最近 MAX_MESSAGES 条）
   trimRoom(gid, dm);
   // 广播用的记录也带上引用摘要，其他客户端无需再查一次
@@ -332,6 +338,7 @@ function rowToMsg(r: MsgRow): StoredMessage {
     o.content = '';
   }
   if (r.reply_to != null) o.reply_to = r.reply_to;
+  if (r.md) o.md = r.md;
   return o;
 }
 

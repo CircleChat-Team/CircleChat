@@ -37,15 +37,16 @@ const SCHEMA: Record<string, TableDef> = {
         file_expired INTEGER,
         reply_to     INTEGER,
         gid          TEXT,
-        dm           TEXT
-      );
+        dm           TEXT,
+        md           INTEGER
+        );
       CREATE INDEX IF NOT EXISTS idx_messages_idx ON messages(idx);
     `,
     columns: {
       idx: 'INTEGER', id: 'TEXT', 'from': 'TEXT', type: 'TEXT',
       content: 'TEXT', ts: 'INTEGER', name: 'TEXT', size: 'INTEGER',
       recalled: 'INTEGER', recalled_by: 'TEXT', recalled_at: 'INTEGER',
-      file_expired: 'INTEGER', reply_to: 'INTEGER', gid: 'TEXT', dm: 'TEXT'
+      file_expired: 'INTEGER', reply_to: 'INTEGER', gid: 'TEXT', dm: 'TEXT', md: 'INTEGER'
     }
   },
   users: {

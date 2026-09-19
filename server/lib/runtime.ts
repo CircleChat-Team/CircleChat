@@ -446,7 +446,8 @@ function handleWsText(client: any, text: string): void {
       size: d.size,
       replyTo,
       gid,
-      dm
+      dm,
+      md: type === 'text' && d.md ? 1 : 0
     });
     audit.add({
       actor: from,
