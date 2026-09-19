@@ -1160,8 +1160,6 @@ body {
   opacity: 0;
   transition: opacity .15s var(--ease);
 }
-.msg.grouped:hover .meta,
-.msg.grouped .meta:focus-within { opacity: 1; }
 .msg.grouped .meta-text { display: none; }
 .msg.self.grouped .meta  { right: 0; }
 .msg.other.grouped .meta { left: 0; }
