@@ -13,7 +13,9 @@
 | `public/audio/universfield-new-notification-08-352461.mp3` | 收到消息提示音 | [Pixabay](https://pixabay.com/) · 作者 universfield |
 | `public/audio/universfield-message-ping-351298.mp3` | 发送消息提示音 | [Pixabay](https://pixabay.com/) · 作者 universfield |
 
-## 代码高亮
+## 代码高亮与数学公式
 
-- [highlight.js](https://github.com/highlightjs/highlight.js) —— 代码语法高亮（BSD-3-Clause）。
-  本地自托管于 `public/vendor/`，完整许可证见 `public/vendor/highlight.LICENSE.txt`。
+- [highlight.js](https://github.com/highlightjs/highlight.js) —— 代码语法高亮（BSD-3-Clause），
+  通过 npm 依赖（`highlight.js`）引入并在构建时打包进前端。
+- [MathJax](https://www.mathjax.org/) —— 数学公式渲染（Apache-2.0），
+  通过 npm 依赖（`mathjax-full`）引入并在构建时打包进前端。

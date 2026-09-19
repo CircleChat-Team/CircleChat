@@ -3,7 +3,9 @@
  * 纯文本走 Vue 的文本插值（自动转义），只有经过 highlight.js 转义后的代码块才用 v-html，
  * 因此不存在 XSS 风险。 */
 import { computed } from 'vue';
+import hljs from 'highlight.js/lib/common';
 import { chatState, tr, copyToClipboard } from '../../core/chat';
+import { renderMath, mathReady } from '../../core/math';
 
 interface Token {
   t: 'text' | 'mention' | 'link' | 'code';
@@ -50,17 +52,14 @@ function escapeHtml(s: string): string {
   });
 }
 
-// 语法高亮：highlight.js 未加载 / 语言未知 / 出错时退回纯文本，保证任何情况都能显示
+// 语法高亮：语言未知 / 出错时退回纯文本，保证任何情况都能显示
 function highlight(code: string, lang?: string): string {
-  const hl = (window as unknown as { hljs?: any }).hljs;
   try {
-    if (hl) {
-      const name = String(lang || '').toLowerCase();
-      if (name && hl.getLanguage && hl.getLanguage(name)) {
-        return hl.highlight(code, { language: name, ignoreIllegals: true }).value;
-      }
-      if (code.length <= 20000 && hl.highlightAuto) return hl.highlightAuto(code).value;
+    const name = String(lang || '').toLowerCase();
+    if (name && hljs.getLanguage(name)) {
+      return hljs.highlight(code, { language: name, ignoreIllegals: true }).value;
     }
+    if (code.length <= 20000) return hljs.highlightAuto(code).value;
   } catch {
     /* 退回纯文本 */
   }
@@ -156,11 +155,29 @@ function mdInline(s: string): string {
   return out;
 }
 
+/** 提取数学公式为占位符（避免被 Markdown 规则/转义破坏），返回替换后的文本 */
+function extractMath(src: string, store: { html: string; display: boolean }[]): string {
+  const put = (tex: string, display: boolean): string => {
+    const svg = renderMath(tex, display);
+    const inner = svg || escapeHtml((display ? '$$' : '$') + tex + (display ? '$$' : '$'));
+    store.push({
+      html: display ? '<div class="math-block">' + inner + '</div>' : '<span class="math-inline">' + inner + '</span>',
+      display
+    });
+    return '\u0002M' + (store.length - 1) + '\u0002';
+  };
+  return String(src || '')
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_m, t: string) => put(t, true))
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_m, t: string) => put(t, true))
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_m, t: string) => put(t, false))
+    // 行内 $...$：要求内容含字母/反斜杠/上下标，避免把「$5」这类金额误判为公式
+    .replace(/\$([^$\n]+?)\$/g, (m: string, t: string) => (/[A-Za-z\\^_{}]/.test(t) ? put(t, false) : m));
+}
+
 /** 整段 Markdown 块级渲染为安全 HTML */
 function renderMd(src: string): string {
-  const lines = String(src || '')
-    .replace(/\r\n?/g, '\n')
-    .split('\n');
+  const math: { html: string; display: boolean }[] = [];
+  const lines = extractMath(String(src || '').replace(/\r\n?/g, '\n'), math).split('\n');
   const html: string[] = [];
   let para: string[] = []; // 待合并的普通段落行
 
@@ -173,6 +190,18 @@ function renderMd(src: string): string {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
+
+    // 独占一行的块级公式：直接作为块输出（避免被 <p> 包裹）
+    const onlyMath = /^\s*\u0002M(\d+)\u0002\s*$/.exec(line);
+    if (onlyMath) {
+      const idx = Number(onlyMath[1]);
+      if (math[idx] && math[idx].display) {
+        flush();
+        html.push(math[idx].html);
+        i++;
+        continue;
+      }
+    }
 
     // 围栏代码块
     const fence = /^\s*```\s*(\w*)\s*$/.exec(line);
@@ -256,12 +285,13 @@ function renderMd(src: string): string {
     i++;
   }
   flush();
-  return html.join('');
+  return html.join('').replace(/\u0002M(\d+)\u0002/g, (_a, i: string) => math[Number(i)]?.html || '');
 }
 
 /** Markdown 渲染出的 HTML（仅当 md=true 时使用；已整体转义，安全） */
 const mdHtml = computed<string>(() => {
   if (!props.md) return '';
+  void mathReady.value; // 公式模块加载完成后触发重渲染
   return renderMd(props.text || '');
 });
 
