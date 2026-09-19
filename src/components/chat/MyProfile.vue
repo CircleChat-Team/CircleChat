@@ -20,9 +20,18 @@ import {
   copyToClipboard,
   logout
 } from '../../core/chat';
+import { useOverlay } from '../../core/useOverlay';
 
 const initial = (n: string): string => (n || '?').slice(0, 1);
 const avatarSrc = computed(() => avatarFor(chatState.me));
+
+// Esc 关闭 + 打开时聚焦弹层 + 关闭后归还焦点
+const rootEl = ref<HTMLElement | null>(null);
+useOverlay({
+  isOpen: () => chatState.myProfileOpen,
+  onClose: closeMyProfile,
+  container: () => rootEl.value
+});
 
 // ---- 2FA 状态（打开时从 /api/me 拉取） ----
 const totpEnabled = ref(false);
@@ -42,6 +51,8 @@ const curPass = ref('');
 const newPass = ref('');
 const confirmPass = ref('');
 const passMsg = ref('');
+/** true = 成功提示（绿色）；用文案内容判断是否成功在英文/日文下会误判 */
+const passOk = ref(false);
 const savePassBusy = ref(false);
 
 // ---- 2FA 流程 ----
@@ -141,12 +152,14 @@ function savePassword(): void {
     savePassBusy.value = false;
     if (j.ok) {
       // 改密后服务端已销毁全部会话：提示后回登录页重新登录
+      passOk.value = true;
       passMsg.value = tr('pass.changedRelogin');
       curPass.value = '';
       newPass.value = '';
       confirmPass.value = '';
       window.setTimeout(() => logout(), 1500);
     } else {
+      passOk.value = false;
       passMsg.value = tr(j.error || 'common.opFailed');
     }
   }).catch(() => {
@@ -217,6 +230,7 @@ function copy(s: string): void {
 <template>
   <div
     v-if="chatState.myProfileOpen"
+    ref="rootEl"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     @click.self="closeMyProfile"
   >
@@ -255,6 +269,8 @@ function copy(s: string): void {
               v-model="newName"
               type="text"
               maxlength="20"
+              autocomplete="username"
+              :aria-label="tr('profile.name.placeholder')"
               class="h-9 flex-1 rounded-lg border border-line bg-fill px-2.5 text-sm outline-none focus:border-primary"
               :placeholder="tr('profile.name.placeholder')"
             >
@@ -269,7 +285,8 @@ function copy(s: string): void {
           <input
             v-model="curPass"
             type="password"
-            autocomplete="new-password"
+            autocomplete="current-password"
+            :aria-label="tr('profile.password.current')"
             class="mb-2 h-9 w-full rounded-lg border border-line bg-fill px-2.5 text-sm outline-none focus:border-primary"
             :placeholder="tr('profile.password.current')"
           >
@@ -287,7 +304,7 @@ function copy(s: string): void {
             class="h-9 w-full rounded-lg border border-line bg-fill px-2.5 text-sm outline-none focus:border-primary"
             :placeholder="tr('profile.password.confirm')"
           >
-          <p v-if="passMsg" class="mt-1 text-xs" :class="passMsg.includes('修改') || passMsg === tr('profile.password.updated') ? 'text-success' : 'text-danger'">{{ passMsg }}</p>
+          <p v-if="passMsg" class="mt-1 text-xs" :class="passOk ? 'text-success' : 'text-danger'">{{ passMsg }}</p>
           <button type="button" class="btn-mini mt-2" :disabled="savePassBusy" @click="savePassword">{{ tr('profile.password.save') }}</button>
           <p class="mt-1 text-[11px] text-muted">{{ tr('profile.password.short') }}</p>
         </section>

@@ -169,6 +169,16 @@ function shade(hex: string, k: number): string {
   return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
 }
 
+const DEFAULT_BRAND = '#07c160';
+
+/** 手机浏览器状态栏颜色：跟随自定义强调色（未设置时用品牌绿） */
+function syncThemeColor(): void {
+  const m = document.querySelector('meta[name="theme-color"]');
+  if (!m) return;
+  const c = accent.value && /^#[0-9a-fA-F]{6}$/.test(accent.value) ? accent.value : DEFAULT_BRAND;
+  m.setAttribute('content', c);
+}
+
 /** 应用自定义强调色：覆盖品牌/己方气泡色 */
 export function applyAccent(c: string): void {
   const el = document.documentElement.style;
@@ -176,11 +186,13 @@ export function applyAccent(c: string): void {
     el.removeProperty('--primary');
     el.removeProperty('--primary-dark');
     el.removeProperty('--self');
+    syncThemeColor();
     return;
   }
   el.setProperty('--primary', c);
   el.setProperty('--primary-dark', shade(c, 0.15));
   el.setProperty('--self', c);
+  syncThemeColor();
 }
 
 export function setAccent(c: string): void {
@@ -215,4 +227,5 @@ export function initTheme(): void {
   applyTheme(read());
   applyCustom();
   applyAccent(accent.value);
+  syncThemeColor();
 }

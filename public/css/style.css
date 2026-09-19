@@ -10,6 +10,23 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ---------- 无障碍：键盘焦点可见（鼠标点击不显示，避免干扰观感） ---------- */
+:where(button, a[href], input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--primary, #07c160);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ---------- 无障碍：系统开启「减少动态效果」时收敛动画 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 :root {
   /* 层级 */
   --bg: #f5f5f7;

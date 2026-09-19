@@ -58,6 +58,8 @@ function autoGrow(): void {
   el.style.height = Math.min(el.scrollHeight, 140) + 'px';
 }
 function onInput(): void {
+  // 按 Esc 关掉 @ 候选后如果不复位，@补全会永久失效（原实现只在 send() 里复位）
+  showMention.value = true;
   autoGrow();
   notifyTyping();
 }

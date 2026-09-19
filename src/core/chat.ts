@@ -76,7 +76,12 @@ export interface ChatState {
   friendSearchOpen: boolean;
   groupDialogOpen: boolean;
   groupDialogTab: 'create' | 'join' | 'search';
-  error: string;
+  /** 页面级轻提示（i18n 键或已翻译文本） */
+  notice: string;
+  /** true = 成功提示（绿色），false = 错误提示（红色） */
+  noticeOk: boolean;
+  /** 每次提示自增：用于重播动画 / 重置定时器 */
+  noticeSeq: number;
   loadingHistory: boolean;
   contextMenu: { idx: number; x: number; y: number } | null;
   selectMode: boolean;
@@ -127,7 +132,9 @@ const state = reactive<ChatState>({
   friendSearchOpen: false,
   groupDialogOpen: false,
   groupDialogTab: 'create',
-  error: '',
+  notice: '',
+  noticeOk: false,
+  noticeSeq: 0,
   loadingHistory: false,
   contextMenu: null,
   selectMode: false,
@@ -144,6 +151,24 @@ const state = reactive<ChatState>({
   unread: {},
   uploads: []
 });
+let noticeTimer: number | undefined;
+
+/** 显示一条页面级轻提示（传 i18n 键或已翻译文本）；ok=true 用成功色，几秒后自动消失 */
+export function notify(msg: string, ok = false): void {
+  state.notice = msg;
+  state.noticeOk = ok;
+  state.noticeSeq++;
+  clearTimeout(noticeTimer);
+  noticeTimer = window.setTimeout(() => {
+    state.notice = '';
+  }, ok ? 2400 : 3600);
+}
+
+export function clearNotice(): void {
+  state.notice = '';
+  clearTimeout(noticeTimer);
+}
+
 let ws: WebSocket | null = null;
 let reconnectDelay = 1000;
 let reconnectTimer: number | undefined;
@@ -526,8 +551,9 @@ function loadGroups(): Promise<void> {
 export function sendText(text: string, md?: boolean): void {
   const val = (text || '').trim();
   if (!val) return;
+  // 非好友私聊不允许带引用：给出提示，但保留已输入内容（原实现会静默吞掉并清空引用）
   if (dmgating() && state.replyTo) {
-    state.replyTo = null;
+    notify('chat.dm.gateToast');
     return;
   }
   const data: Record<string, unknown> = { type: 'text', content: val };
@@ -630,7 +656,7 @@ function postUpload(file: File, onProgress: (loaded: number, total: number) => v
 }
 
 function failUpload(id: number, error: string): void {
-  state.error = error;
+  notify(error);
   patchTask(id, { status: 'failed', error: tr(error), retryable: pendingFiles.has(id), speed: 0 });
 }
 
@@ -843,7 +869,7 @@ export function forwardTo(target: { gid?: string; pm?: string }): void {
       if (isMedia) { it.name = m.name || null; it.size = m.size != null ? m.size : null; }
       return it;
     });
-    const content = JSON.stringify({ title: '聊天记录', items });
+    const content = JSON.stringify({ title: tr('chat.merge.defaultTitle'), items });
     send({ type: 'msg', data: { type: 'merge', content, ...target } });
   } else {
     for (const m of msgs) {
@@ -873,9 +899,14 @@ export function dmgating(): boolean {
 export function getProfile(name: string): Promise<void> {
   state.profile = null;
   state.profileOpen = true;
-  return get('/api/profile?name=' + encodeURIComponent(name)).then((j) => {
-    if (j.ok) state.profile = j as unknown as ProfileData;
-  });
+  return get('/api/profile?name=' + encodeURIComponent(name))
+    .then((j) => {
+      if (j.ok) state.profile = j as unknown as ProfileData;
+      else notify(String(j.error || 'common.opFailed')); // 原实现失败时毫无反馈
+    })
+    .catch(() => {
+      notify('common.opFailedRetry');
+    });
 }
 
 export function closeProfile(): void {
@@ -909,7 +940,7 @@ export async function updateAvatar(file: File): Promise<boolean> {
   const res = await fetch(api('/api/upload'), { method: 'POST', body: fd, credentials: 'same-origin' });
   const body = await res.json();
   if (!body.ok || body.kind !== 'image') {
-    state.error = body.error || 'chat.upload.failed';
+    notify(String(body.error || 'chat.upload.failed'));
     return false;
   }
   const j = await post('/api/profile', { image: body.url });
@@ -1064,11 +1095,11 @@ export function maybeNotify(m: ChatMessage): void {
     title = title || peer || '';
   }
   if (!title) title = room || 'CircleChat';
-  const body = m.type === 'image' ? '📷 图片'
-    : m.type === 'video' ? '🎬 视频'
-    : m.type === 'audio' ? '🎵 音频'
-    : m.type === 'file' ? '📎 文件'
-    : m.type === 'merge' ? '📋 合并转发'
+  const body = m.type === 'image' ? tr('chat.notify.body.image')
+    : m.type === 'video' ? tr('chat.notify.body.video')
+    : m.type === 'audio' ? tr('chat.notify.body.audio')
+    : m.type === 'file' ? tr('chat.notify.body.file')
+    : m.type === 'merge' ? tr('chat.notify.body.merge')
     : String(m.content || '');
   try {
     const n = new Notification(title, { body: body.slice(0, 200), tag: 'cc-' + (m.id || Date.now()) });

@@ -118,14 +118,14 @@ onMounted(load);
 
       <div v-for="r in reports" :key="r.id" class="rounded-xl bg-fill px-3 py-2.5 text-[13px]">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-          <span class="font-medium text-ink">被举报：{{ r.msg_from }}</span>
-          <span v-if="r.reported_ip">IP：{{ r.reported_ip }}</span>
-          <span>原因：{{ r.reason || '-' }}</span>
-          <span class="ml-auto">举报者：{{ r.reporter }} · {{ fmtDate(r.created) }}</span>
+          <span class="font-medium text-ink">{{ tr('mod.reported') }}{{ r.msg_from }}</span>
+          <span v-if="r.reported_ip">{{ tr('mod.ip') }}{{ r.reported_ip }}</span>
+          <span>{{ tr('mod.reason') }}{{ r.reason || '-' }}</span>
+          <span class="ml-auto">{{ tr('mod.reporter') }}{{ r.reporter }} · {{ fmtDate(r.created) }}</span>
         </div>
         <div class="mt-1.5 break-words rounded-lg bg-panel px-2.5 py-1.5 text-xs text-muted">
-          <span v-if="r.msg_type === 'image'">[图片]</span>
-          <span v-else-if="r.msg_type === 'file'">[文件]</span>
+          <span v-if="r.msg_type === 'image'">{{ tr('mod.msgImage') }}</span>
+          <span v-else-if="r.msg_type === 'file'">{{ tr('mod.msgFile') }}</span>
           {{ r.msg_snippet || '-' }}
         </div>
 

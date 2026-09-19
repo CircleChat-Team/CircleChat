@@ -86,7 +86,9 @@ function formatDetail(d?: string): string {
 
 function tip(e: LogItem): string {
   if (!e.ip) return '';
-  return 'IP: ' + e.ip + (e.target ? tr('admin.log.target') + e.target : '');
+  if (!e.ip) return '';
+  // 原来 "IP: " 是硬编码英文，其它语言下也显示英文前缀
+  return tr('admin.log.ip', { ip: e.ip }) + (e.target ? tr('admin.log.target') + e.target : '');
 }
 
 onMounted(load);

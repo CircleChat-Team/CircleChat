@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, nextTick, watch } from 'vue';
-import { chatState, openForward, recall, copyToClipboard, copyImage, startSelectWith, reportMessage } from '../../core/chat';
+import { chatState, openForward, recall, copyToClipboard, copyImage, startSelectWith, reportMessage, notify } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import { prompt } from '../../core/dialog';
 
@@ -91,7 +91,8 @@ function onReport(): void {
     const v = reason.trim();
     if (!v) return;
     reportMessage(m.idx!, v).then((ok) => {
-      alert(ok ? tr('chat.report.done') : tr('chat.report.fail'));
+      // 原来用原生 alert()，风格与站内提示不一致
+      notify(ok ? 'chat.report.done' : 'chat.report.fail', ok);
     });
   });
 }

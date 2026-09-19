@@ -121,7 +121,9 @@ function logout(): void {
 
     <div
       v-if="toastMsg"
-      class="fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-ink/90 px-4 py-2 text-sm text-panel shadow-lg"
+      class="pointer-events-none fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-ink/90 px-4 py-2 text-sm text-panel shadow-lg"
+      role="status"
+      aria-live="polite"
     >
       {{ toastMsg }}
     </div>

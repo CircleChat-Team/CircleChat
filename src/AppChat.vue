@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { chatState, toggleSelectMode, setNotify, setSendKey, setNotifySound } from './core/chat';
+import { chatState, toggleSelectMode, setNotify, setSendKey, setNotifySound, clearNotice } from './core/chat';
 import { NOTIFY_SOUNDS, playNotifyPreview } from './core/sound';
 import { tr } from './core/i18n';
 import { accent, setAccent } from './core/theme';
@@ -28,6 +28,11 @@ const title = computed(() => {
 });
 
 const connClass = computed(() => chatState.connState);
+// 连接状态原来只有一个彩色圆点，读屏/悬停都拿不到含义（这三词条本来就存在）
+const connTitle = computed(() => {
+  if (chatState.connState === 'on') return tr('chat.conn.on');
+  return tr(chatState.connState === 'conn' ? 'chat.conn.notReady' : 'chat.conn.off');
+});
 
 // 当前群的群公告（有则显示横幅）
 const activeAnnouncement = computed(() => {
@@ -70,6 +75,19 @@ function onPassChanged(): void {
 
 <template>
   <div class="chat-view" :class="{ 'sidebar-open': sidebarOpen }">
+    <!-- 页面级轻提示：上传失败、门禁拦截、举报结果等（此前这类错误完全是静默的） -->
+    <div
+      v-if="chatState.notice"
+      :key="chatState.noticeSeq"
+      class="app-notice"
+      :class="{ ok: chatState.noticeOk }"
+      role="status"
+      aria-live="polite"
+    >
+      <span>{{ tr(chatState.notice) }}</span>
+      <button type="button" class="app-notice-x" :aria-label="tr('common.close')" @click="clearNotice">×</button>
+    </div>
+
     <Sidebar @navigate="sidebarOpen = false" />
 
     <div class="sidebar-backdrop" @click="sidebarOpen = false"></div>
@@ -89,7 +107,7 @@ function onPassChanged(): void {
         </button>
 
         <div class="chat-title">
-          <span class="dot" :class="connClass"></span>
+          <span class="dot" :class="connClass" role="status" :title="connTitle" :aria-label="connTitle"></span>
           <span id="chatTitle">{{ title }}</span>
         </div>
 
