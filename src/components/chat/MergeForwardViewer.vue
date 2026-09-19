@@ -21,13 +21,20 @@ const view = computed(() => chatState.mergeView);
           <div class="merge-item-from">{{ it.from }}</div>
           <div class="merge-item-main">
             <img v-if="it.type === 'image'" class="merge-item-img" :src="asset(it.content || '')" alt="" loading="lazy" />
+            <video
+              v-else-if="it.type === 'video'"
+              class="merge-item-img"
+              :src="asset(it.content || '')"
+              controls
+              preload="metadata"
+            ></video>
             <a
-              v-else-if="it.type === 'file'"
+              v-else-if="it.type === 'file' || it.type === 'audio'"
               class="merge-item-file"
               :href="asset(it.content || '')"
               target="_blank"
               rel="noopener"
-            >📎 {{ it.name || tr('chat.file.defaultName') }}<span v-if="it.size"> · {{ fmtSize(it.size) }}</span></a>
+            >{{ it.type === 'audio' ? '🎵' : '📎' }} {{ it.name || tr('chat.file.defaultName') }}<span v-if="it.size"> · {{ fmtSize(it.size) }}</span></a>
             <div v-else class="merge-item-text">{{ it.content }}</div>
           </div>
         </div>

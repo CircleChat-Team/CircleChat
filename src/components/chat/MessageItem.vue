@@ -15,10 +15,12 @@ import {
   getProfile,
   openContextMenu,
   openMergeView,
+  openImageView,
   toggleSelect
 } from '../../core/chat';
 import { QUICK_EMOJIS } from '../../core/emojis';
 import TextContent from './TextContent.vue';
+import AudioPlayer from './AudioPlayer.vue';
 
 const props = defineProps<{ msg: ChatMessage; prev?: ChatMessage }>();
 
@@ -59,6 +61,9 @@ const mergeTitle = computed(() => (mergeData.value && mergeData.value.title) || 
 const mergeCount = computed(() => (mergeData.value ? mergeData.value.items.length : 0));
 function openMerge(): void {
   if (props.msg.idx != null) openMergeView(props.msg.idx);
+}
+function openImage(src: string): void {
+  openImageView(asset(src));
 }
 
 function initial(name: string): string {
@@ -147,15 +152,26 @@ watch(
         <div class="quote-text">{{ quoteText }}</div>
       </div>
 
-      <a
+      <div
         v-if="msg.type === 'image' && !expired"
-        :href="asset(msg.content)"
-        target="_blank"
-        rel="noopener"
         class="bubble image-bubble"
+        @click.stop="openImage(msg.content)"
       >
         <img :src="asset(msg.content)" :alt="msg.name || tr('chat.image.alt')" loading="lazy" />
-      </a>
+      </div>
+      <video
+        v-else-if="msg.type === 'video' && !expired"
+        class="video-bubble"
+        :src="asset(msg.content)"
+        controls
+        preload="metadata"
+        @click.stop
+      ></video>
+      <AudioPlayer
+        v-else-if="msg.type === 'audio' && !expired"
+        :src="asset(msg.content)"
+        :name="msg.name || ''"
+      />
       <div v-else-if="msg.type === 'text'" class="bubble">
         <TextContent :text="msg.content" md />
       </div>

@@ -133,7 +133,7 @@ export interface PenaltyItem {
 /** 聊天消息（GET /api/messages、WS 下发 msg） */
 export interface ChatMessage {
   idx?: number;
-  type: 'text' | 'image' | 'file' | 'merge';
+  type: 'text' | 'image' | 'file' | 'video' | 'audio' | 'merge';
   from: string;
   to?: string;
   gid?: string | null;
@@ -164,7 +164,7 @@ export interface ChatMessage {
 /** 合并转发中的单条记录（type: 'merge' 消息的 content 解析结果） */
 export interface MergeItem {
   from: string;
-  type: 'text' | 'image' | 'file';
+  type: 'text' | 'image' | 'file' | 'video' | 'audio';
   /** text 为文本内容；image/file 为 /uploads 地址 */
   content?: string;
   name?: string | null;

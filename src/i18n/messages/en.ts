@@ -530,6 +530,8 @@ const dict: Record<string, string> = {
   "group.announceSet": "Set group notice",
   "group.announcePrompt": "Enter the group notice (empty to clear)",
   "group.announceSaved": "Group notice updated",
+  "chat.media.play": "Play",
+  "chat.media.pause": "Pause",
   "chat.settings.sendKey.enter": "Enter to send",
   "chat.settings.sendKey.ctrl": "Ctrl+Enter to send",
   "chat.friend.searchPlaceholder": "Search by username",

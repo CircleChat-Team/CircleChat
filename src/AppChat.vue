@@ -15,6 +15,7 @@ import GroupDialog from './components/chat/GroupDialog.vue';
 import ContextMenu from './components/chat/ContextMenu.vue';
 import ForwardPicker from './components/chat/ForwardPicker.vue';
 import MergeForwardViewer from './components/chat/MergeForwardViewer.vue';
+import ImageViewer from './components/chat/ImageViewer.vue';
 import ForceChangePassword from './components/common/ForceChangePassword.vue';
 
 const title = computed(() => {
@@ -138,6 +139,7 @@ function onPassChanged(): void {
     <ContextMenu />
     <ForwardPicker />
     <MergeForwardViewer />
+    <ImageViewer />
 
     <!-- 移动端设置面板：将顶栏散落的按钮统一收纳 -->
     <div class="settings-mask" :class="{ show: settingsOpen }" @click="settingsOpen = false"></div>

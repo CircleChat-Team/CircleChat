@@ -58,6 +58,9 @@ function passwordStrength(p: string): boolean {
 
 // 图片扩展名（仅用于「扩展名伪装成图片但内容不是图片」时降级处理）
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
+// 视频/音频扩展名：按扩展名归类为 video/audio（可内联播放；不可脚本执行，安全）
+const VIDEO_EXTS = new Set(['.mp4', '.webm', '.ogv', '.mov', '.m4v']);
+const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac']);
 
 // 上传目录内的合法文件名：随机 hex + 扩展名（与上传落盘、消息校验同一套规则）。
 // 文件管理的「列出 / 删除」据此严格校验，杜绝 ../ 之类的路径穿越。
@@ -85,7 +88,13 @@ const MIME: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.wav': 'audio/wav',
   '.ogg': 'audio/ogg',
-  '.m4a': 'audio/mp4'
+  '.m4a': 'audio/mp4',
+  '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/x-m4v',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac'
 };
 
 function sendJSON(res: any, status: number, obj: unknown): void {
@@ -138,10 +147,11 @@ function serveStatic(req: any, res: any, pathname: string): void {
     }
     const ext = path.extname(filePath).toLowerCase();
     let type = MIME[ext] || 'application/octet-stream';
-    // 上传目录防存储型 XSS：除图片外一律作为附件下载，
+    // 上传目录防存储型 XSS：仅图片(png/jpeg/gif/webp)与视频/音频可内联，其余一律作为附件下载，
     // 避免 .html / .svg / .xml 等被浏览器以本站同源页面身份渲染并执行脚本。
+    const inlineOk = /^image\/(png|jpeg|gif|webp)$/.test(type) || /^(video|audio)\//.test(type);
     let attachment = false;
-    if (filePath.startsWith(UPLOAD_DIR + path.sep) && !/^image\/(png|jpeg|gif|webp)$/.test(type)) {
+    if (filePath.startsWith(UPLOAD_DIR + path.sep) && !inlineOk) {
       type = 'application/octet-stream';
       attachment = true;
     }
@@ -161,6 +171,26 @@ function serveStatic(req: any, res: any, pathname: string): void {
         'X-Content-Type-Options': 'nosniff'
       };
       if (attachment) headers['Content-Disposition'] = 'attachment';
+      // 视频/音频：支持 Range 请求（播放器拖动进度需要）
+      if (!attachment && /^(video|audio)\//.test(type)) {
+        headers['Accept-Ranges'] = 'bytes';
+        const range = req.headers['range'];
+        const rm = range && /^bytes=(\d*)-(\d*)$/.exec(range);
+        if (rm) {
+          const total = data.length;
+          let start = rm[1] ? parseInt(rm[1], 10) : 0;
+          let end = rm[2] ? parseInt(rm[2], 10) : total - 1;
+          if (!Number.isFinite(start) || start < 0) start = 0;
+          if (!Number.isFinite(end) || end >= total) end = total - 1;
+          if (start > end) { res.writeHead(416, { 'Content-Range': 'bytes */' + total }); res.end(); return; }
+          const chunk = data.slice(start, end + 1);
+          headers['Content-Range'] = 'bytes ' + start + '-' + end + '/' + total;
+          headers['Content-Length'] = String(chunk.length);
+          res.writeHead(206, headers);
+          res.end(chunk);
+          return;
+        }
+      }
       // 先压缩再发头，避免 writeHead 后 setHeader 报错
       if (acceptGzip && big) {
         try {
@@ -386,7 +416,7 @@ function handleWsText(client: any, text: string): void {
   }
   if (msg.type === 'msg') {
     const d = msg.data || {};
-    const type = d.type === 'image' || d.type === 'file' || d.type === 'merge' ? d.type : 'text';
+    const type = d.type === 'image' || d.type === 'file' || d.type === 'video' || d.type === 'audio' || d.type === 'merge' ? d.type : 'text';
     let content = String(d.content || '').slice(0, type === 'merge' ? 8000 : (type === 'text' ? MAX_TEXT_LEN : 300));
     const from = client.user.username;
     // 处罚拦截：禁言 / 封禁 / IP 封禁的用户不能继续发消息
@@ -1837,19 +1867,17 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       const ext = path.extname(origName).toLowerCase();
 
       // 不限文件类型，一律接收。
-      // 是否为图片只按文件内容（魔数）判断，与文件名无关。
+      // 图片按文件内容（魔数）判断；视频/音频按扩展名归类（可内联播放、不可脚本执行，安全）。
       const sniffed = sniffImage(buf);
-      const kind = sniffed ? 'image' : 'file';
-
-      // 落盘扩展名：
-      //   图片 -> 用嗅探出的真实格式，保证能被正确内联显示（改名成 .png 的假图片也会被识破）；
-      //   其它 -> 保留原扩展名（仅保留安全字符），扩展名伪装成图片但内容不是则降级为 .bin。
+      let kind: 'image' | 'video' | 'audio' | 'file';
       let saveExt: string;
       if (sniffed) {
-        saveExt = '.' + sniffed;
+        kind = 'image';
+        saveExt = '.' + sniffed; // 用嗅探出的真实格式，保证能被正确内联显示
       } else {
         const safeExt = /^\.[a-z0-9]{1,8}$/i.test(ext) ? ext.toLowerCase() : '.bin';
-        saveExt = IMAGE_EXTS.has(safeExt) ? '.bin' : safeExt;
+        saveExt = IMAGE_EXTS.has(safeExt) ? '.bin' : safeExt; // 扩展名伪装成图片但内容不是 → 降级 .bin
+        kind = VIDEO_EXTS.has(saveExt) ? 'video' : (AUDIO_EXTS.has(saveExt) ? 'audio' : 'file');
       }
       const saveName = crypto.randomBytes(8).toString('hex') + saveExt;
       const savePath = path.join(UPLOAD_DIR, saveName);

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, nextTick, watch } from 'vue';
-import { chatState, openForward, recall, copyToClipboard, startSelectWith, reportMessage } from '../../core/chat';
+import { chatState, openForward, recall, copyToClipboard, copyImage, startSelectWith, reportMessage } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import { prompt } from '../../core/dialog';
 
@@ -54,7 +54,14 @@ function onReply(): void {
   close();
 }
 function onCopy(): void {
-  if (msg.value) copyToClipboard(msg.value.content || '');
+  const m = msg.value;
+  if (!m) { close(); return; }
+  if (m.type === 'image') {
+    // 图片：优先把图片本身写入剪贴板，失败再回退为复制地址
+    copyImage(m.content || '').then((ok) => { if (!ok) copyToClipboard(m.content || ''); });
+  } else {
+    copyToClipboard(m.content || '');
+  }
   close();
 }
 function onForward(): void {

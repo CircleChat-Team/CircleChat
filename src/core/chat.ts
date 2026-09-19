@@ -84,6 +84,7 @@ export interface ChatState {
   forwardSource: number[];
   forwardMode: 'single' | 'merge';
   mergeView: MergeData | null;
+  imageView: string | null;
   reactTargetIdx: number | null;
   muted: boolean;
   mutedUntil: number | null;
@@ -132,6 +133,7 @@ const state = reactive<ChatState>({
   forwardSource: [],
   forwardMode: 'single',
   mergeView: null,
+  imageView: null,
   reactTargetIdx: null,
   muted: false,
   mutedUntil: null,
@@ -651,6 +653,32 @@ export function closeMergeView(): void {
   state.mergeView = null;
 }
 
+/** 打开图片灯箱查看 */
+export function openImageView(src: string): void {
+  if (src) state.imageView = src;
+}
+export function closeImageView(): void {
+  state.imageView = null;
+}
+
+/** 复制图片到剪贴板（失败返回 false，调用方可回退为复制地址） */
+export async function copyImage(src: string): Promise<boolean> {
+  try {
+    const res = await fetch(src, { credentials: 'same-origin' });
+    const blob = await res.blob();
+    const type = blob.type || 'image/png';
+    const w = window as unknown as { ClipboardItem?: new (items: Record<string, Blob>) => unknown };
+    const cb = (navigator as unknown as { clipboard?: { write?: (items: unknown[]) => Promise<void> } }).clipboard;
+    if (w.ClipboardItem && cb && cb.write) {
+      await cb.write([new w.ClipboardItem({ [type]: blob })]);
+      return true;
+    }
+  } catch {
+    /* 忽略，调用方回退为复制地址 */
+  }
+  return false;
+}
+
 function findMsg(idx: number): ChatMessage | undefined {
   return state.messages.find((m) => m.idx === idx);
 }
@@ -662,10 +690,10 @@ export function forwardTo(target: { gid?: string; pm?: string }): void {
   const merge = state.forwardMode === 'merge';
   if (merge) {
     const items: MergeItem[] = msgs.map((m) => {
-      const isMedia = m.type === 'image' || m.type === 'file';
+      const isMedia = m.type === 'image' || m.type === 'file' || m.type === 'video' || m.type === 'audio';
       const it: MergeItem = {
         from: m.from || '?',
-        type: isMedia ? (m.type as 'image' | 'file') : 'text',
+        type: isMedia ? (m.type as 'image' | 'file' | 'video' | 'audio') : 'text',
         content: m.content || ''
       };
       if (isMedia) { it.name = m.name || null; it.size = m.size != null ? m.size : null; }
@@ -892,7 +920,12 @@ export function maybeNotify(m: ChatMessage): void {
     title = title || peer || '';
   }
   if (!title) title = room || 'CircleChat';
-  const body = m.type === 'image' ? '📷 图片' : m.type === 'file' ? '📎 文件' : m.type === 'merge' ? '📋 合并转发' : String(m.content || '');
+  const body = m.type === 'image' ? '📷 图片'
+    : m.type === 'video' ? '🎬 视频'
+    : m.type === 'audio' ? '🎵 音频'
+    : m.type === 'file' ? '📎 文件'
+    : m.type === 'merge' ? '📋 合并转发'
+    : String(m.content || '');
   try {
     const n = new Notification(title, { body: body.slice(0, 200), tag: 'cc-' + (m.id || Date.now()) });
     n.onclick = () => {

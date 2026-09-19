@@ -530,6 +530,8 @@ const dict: Record<string, string> = {
   "group.announceSet": "设置群公告",
   "group.announcePrompt": "输入群公告内容（留空可清除）",
   "group.announceSaved": "群公告已更新",
+  "chat.media.play": "播放",
+  "chat.media.pause": "暂停",
   "chat.settings.sendKey.enter": "Enter 发送",
   "chat.settings.sendKey.ctrl": "Ctrl+Enter 发送",
   "chat.friend.searchPlaceholder": "输入用户名搜索",
