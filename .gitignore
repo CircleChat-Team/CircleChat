@@ -1,30 +1,39 @@
 # ============================================================
-# ChatPlus 隐私排除列表 —— 对话/用户数据库、SSH 密钥、日志、凭据
-# 说明：凡包含用户隐私/密钥/会话数据的文件一律不进版本库。
+# ChatPlus / CircleChat .gitignore
+# 隐私与安全原则：用户数据、密钥、环境变量、构建产物一律不进版本库
 # ============================================================
 
-# --- 运行时数据（对话数据库、用户数据库、各类日志/状态） ---
-data/*
-data/**
-public/uploads/*
+# ------------------------------
+# 运行时持久化数据（用户/对话数据库、上传文件）
+# ------------------------------
+data/
+public/uploads/
 *.db
 *.db-journal
 *.sqlite
 *.sqlite3
 
-# --- 日志与临时文件 ---
-*.log
-*.access.log
-*.tmp
-*.bak
-*.swp
-*~
+# ------------------------------
+# 备份、导出、聊天历史
+# ------------------------------
+backups/
+backup/
+export/
+chat_history*
+*conversation*.json
+*chat*.json
 
-# --- SSH 私钥 / 证书 / 凭据类文件 ---
+# ------------------------------
+# 环境变量、密钥、证书、凭据（重点安全项）
+# ------------------------------
+.env
+.env.*
+# 保留示例模板
+!.env.example
+
+# SSH私钥、证书、密钥文件
 id_rsa
-id_rsa.pub
 id_ed25519
-id_ed25519.pub
 id_dsa
 id_ecdsa
 *.pem
@@ -43,23 +52,40 @@ _askpass*
 credentials
 credentials.json
 production.env
-.env
-.env.*
-!.env.example
 
-# --- 对话/隐私导出文件 ---
-backups/
-backup/*
-export/*
-chat_history*
-*conversation*.json
-*chat*.json
+# ------------------------------
+# 日志、临时、备份交换文件
+# ------------------------------
+*.log
+*.access.log
+*.tmp
+*.bak
+*.swp
+*~
 
-# --- 编辑器等 ---
-.idea/*
-.vscode/*
+# ------------------------------
+# Node 依赖
+# ------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ------------------------------
+# IDE / 编辑器本地配置
+# ------------------------------
+.idea/
+.vscode/
 .directory
-node_modules
-# 构建产物（由源码构建，不纳入版本管理）
+
+# ------------------------------
+# Nitro + Vite 构建产物 & 缓存
+# ------------------------------
 public/dist/
-.codebuddy/memory/
+.nitro/
+.output/
+
+# ------------------------------
+# CodeBuddy 本地会话记忆（插件上下文，不属于项目源码）
+# ------------------------------
+.codebuddy/
