@@ -333,6 +333,22 @@ function currentPresent(): string[] {
   return [...clients].filter((c) => !c.invisible).map(clientId);
 }
 
+/**
+ * 强制某用户重新登录：先告知其在线客户端（跳过 exceptToken 对应的那条连接），再断开。
+ * 用于改密后失效会话——客户端收到 logged.out 会跳回登录页。
+ */
+function forceLogout(name: string, exceptToken?: string): number {
+  let n = 0;
+  for (const c of [...clients]) {
+    if (c.user.username !== name) continue;
+    if (exceptToken && c.user.token === exceptToken) continue;
+    try { c.sendText(JSON.stringify({ type: 'logged.out' })); } catch (e) { /* 忽略 */ }
+    try { c.close(); } catch (e) { /* 忽略 */ }
+    n++;
+  }
+  return n;
+}
+
 // 心跳：每 30s 发 Ping，两次未响应则断开
 const HEARTBEAT_MS = 30 * 1000;
 setInterval(() => {
@@ -788,8 +804,12 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         return;
       }
       auth.setPassword(me.username, np);
+      // 改密后必须重新登录：销毁该账号全部会话，并让其其它在线设备立即下线
+      // （当前这条连接由前端自行跳转登录页，故用 exceptToken 跳过）
+      const closed = auth.destroyUserSessions(me.username);
+      forceLogout(me.username, me.token);
       audit.add({ actor: me.username, action: 'self.pass', detail: auditDetail('log.detail.user.pass', { name: me.username }), ip });
-      sendJSON(res, 200, { ok: true });
+      sendJSON(res, 200, { ok: true, sessionsClosed: closed });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
       sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
@@ -812,6 +832,12 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         if (name === me.username) {
           sendJSON(res, 200, { ok: true, newName: name });
           logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        // 内置管理员不允许改名：ensureAdmin() 会在它不存在时用默认密码重建，改名等于挖一个后门
+        if (me.username === 'admin') {
+          sendJSON(res, 400, { ok: false, error: 'api.admin.cannotRenameAdmin' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
           return;
         }
         if (!auth.renameUser(me.username, name)) {
@@ -1374,6 +1400,49 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       return;
     }
 
+    // POST /api/admin/user/rename —— 修改用户名 {name, newName}
+    if (pathname === '/api/admin/user/rename' && req.method === 'POST') {
+      readBody(req, 2048).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+        const newName = o && typeof o.newName === 'string' ? o.newName.trim() : '';
+        if (!name || !USERNAME_RE.test(newName)) {
+          sendJSON(res, 400, { ok: false, error: 'api.user.nameFormat' });
+          return;
+        }
+        if (name === newName) {
+          sendJSON(res, 200, { ok: true, newName });
+          return;
+        }
+        // 内置管理员不允许改名（同自助改名）：ensureAdmin() 会用默认密码重建它
+        if (name === 'admin') {
+          sendJSON(res, 400, { ok: false, error: 'api.admin.cannotRenameAdmin' });
+          return;
+        }
+        // renameUser 会在一个事务里同步 users / messages / dm / reactions / groups / friends 等全部引用
+        if (!auth.renameUser(name, newName)) {
+          sendJSON(res, 400, { ok: false, error: 'api.user.nameTaken' });
+          return;
+        }
+        auth.renameSession(name, newName); // 会话继续有效：改名不必重新登录
+        // 在线连接同步改名，并让该用户的前端刷新自己的身份
+        for (const c of [...clients]) {
+          if (c.user.username !== name) continue;
+          c.user.username = newName;
+          try { c.sendText(JSON.stringify({ type: 'me.changed', username: newName })); } catch (e) { /* 忽略 */ }
+        }
+        broadcast({ type: 'friends.changed' });
+        broadcastPresence();
+        audit.add({ actor: me.username, action: 'admin.user.rename', target: newName, detail: auditDetail('log.detail.user.rename', { old: name, name: newName }), ip });
+        sendJSON(res, 200, { ok: true, newName });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
+      });
+      return;
+    }
+
     // POST /api/admin/user/pass —— 重置密码 {name, password}
     if (pathname === '/api/admin/user/pass' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
@@ -1389,6 +1458,9 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
           sendJSON(res, 404, { ok: false, error: 'api.user.notFound' });
           return;
         }
+        // 管理员重置他人密码：目标账号必须重新登录（销毁全部会话 + 断开在线连接）
+        auth.destroyUserSessions(name);
+        forceLogout(name);
         audit.add({ actor: me.username, action: 'admin.user.pass', target: name, detail: auditDetail('log.detail.user.pass', { name }), ip });
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });

@@ -17,7 +17,8 @@ import {
   twofaSetup,
   twofaEnable,
   twofaDisable,
-  copyToClipboard
+  copyToClipboard,
+  logout
 } from '../../core/chat';
 
 const initial = (n: string): string => (n || '?').slice(0, 1);
@@ -139,10 +140,12 @@ function savePassword(): void {
     .then((j) => {
     savePassBusy.value = false;
     if (j.ok) {
-      passMsg.value = tr('profile.password.updated');
+      // 改密后服务端已销毁全部会话：提示后回登录页重新登录
+      passMsg.value = tr('pass.changedRelogin');
       curPass.value = '';
       newPass.value = '';
       confirmPass.value = '';
+      window.setTimeout(() => logout(), 1500);
     } else {
       passMsg.value = tr(j.error || 'common.opFailed');
     }

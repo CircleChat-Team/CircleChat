@@ -497,6 +497,20 @@ export function destroySession(token: string): void {
   if (token) sessions.delete(token);
 }
 
+/** 销毁某用户的全部会话（改密后强制重新登录）；返回被销毁的会话数 */
+export function destroyUserSessions(username: string): number {
+  const name = String(username || '');
+  if (!name) return 0;
+  let n = 0;
+  for (const [token, s] of sessions) {
+    if (s.username === name) {
+      sessions.delete(token);
+      n++;
+    }
+  }
+  return n;
+}
+
 /** 从 Cookie 头中解析 token */
 export function tokenFromCookie(cookieHeader: string | undefined): string | null {
   if (!cookieHeader) return null;

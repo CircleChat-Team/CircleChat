@@ -210,7 +210,7 @@ function connectWs(): void {
   };
 
   sock.onmessage = (ev: MessageEvent) => {
-    let obj: { type?: string; data?: any; from?: string; users?: string[]; away?: string[]; by?: string; owner?: string; admin?: boolean } | null = null;
+    let obj: { type?: string; data?: any; from?: string; users?: string[]; away?: string[]; by?: string; owner?: string; admin?: boolean; username?: string } | null = null;
     try {
       obj = JSON.parse(ev.data as string);
     } catch {
@@ -254,6 +254,14 @@ function connectWs(): void {
         break;
       case 'friends.changed':
         loadFriends();
+        break;
+      case 'logged.out':
+        // 会话已被服务端销毁（如改密）：回到登录页重新登录
+        location.replace('/login.html');
+        break;
+      case 'me.changed':
+        // 管理员修改了用户名：刷新页面以更新身份信息
+        if (obj.username) location.reload();
         break;
       default:
         break;

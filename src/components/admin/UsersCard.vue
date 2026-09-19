@@ -74,7 +74,24 @@ function changePass(u: UserItem): void {
       return;
     }
     post('/api/admin/user/pass', { name: u.name, password: p }).then((j) => {
-      toast(j.ok ? tr('admin.users.passReset') : tr(j.error || 'common.opFailed'));
+      toast(j.ok ? tr('admin.users.passResetLogout') : tr(j.error || 'common.opFailed'));
+    });
+  });
+}
+
+function rename(u: UserItem): void {
+  prompt({
+    title: tr('admin.users.renameTitle'),
+    text: tr('admin.users.renamePrompt', { name: u.name }),
+    okText: tr('admin.users.renameOk'),
+    input: { type: 'text', placeholder: u.name, maxLength: 20 }
+  }).then((v) => {
+    if (v == null) return;
+    const newName = v.trim();
+    if (!newName || newName === u.name) return;
+    post('/api/admin/user/rename', { name: u.name, newName }).then((j) => {
+      toast(j.ok ? tr('admin.users.renamed', { name: newName }) : tr(j.error || 'common.opFailed'));
+      if (j.ok) load();
     });
   });
 }
@@ -176,6 +193,13 @@ onMounted(load);
         </span>
         <span class="shrink-0 text-[11px] text-muted">{{ fmtDate(u.created) }}</span>
 
+        <button
+          type="button"
+          class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
+          @click="rename(u)"
+        >
+          {{ tr('admin.users.changeName') }}
+        </button>
         <button
           type="button"
           class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-primary hover:text-primary"

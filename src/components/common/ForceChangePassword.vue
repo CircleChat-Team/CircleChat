@@ -17,6 +17,8 @@ const confirm = ref('');
 const showPass = ref(false);
 const loading = ref(false);
 const err = ref('');
+/** 修改成功：服务端已销毁会话，须用新密码重新登录 */
+const done = ref(false);
 
 function submit(): void {
   if (!passwordOk(np.value)) {
@@ -34,6 +36,10 @@ function submit(): void {
       loading.value = false;
       if (j.ok) {
         emit('done');
+        // 改密后服务端会销毁该账号全部会话：必须用新密码重新登录
+        err.value = '';
+        done.value = true;
+        window.setTimeout(() => location.replace('/login.html'), 1600);
         return;
       }
       // error 可能是 i18n 键或直出文案，tr 对未知键原样返回
@@ -52,7 +58,9 @@ function submit(): void {
       <h2 class="text-lg font-semibold">{{ tr('pass.forceTitle') }}</h2>
       <p v-if="forced" class="mt-1 text-xs text-muted">{{ tr('pass.forceHint') }}</p>
 
-      <form class="mt-4 flex flex-col gap-3" autocomplete="off" @submit.prevent="submit">
+      <p v-if="done" class="mt-4 rounded-xl bg-fill px-3 py-2 text-center text-xs text-muted">{{ tr('pass.changedRelogin') }}</p>
+
+      <form v-else class="mt-4 flex flex-col gap-3" autocomplete="off" @submit.prevent="submit">
         <input
           v-model="current"
           :type="showPass ? 'text' : 'password'"
