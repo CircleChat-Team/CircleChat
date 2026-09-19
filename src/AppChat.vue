@@ -96,8 +96,8 @@ function onPassChanged(): void {
         <button
           type="button"
           class="settings-toggle"
-          :title="tr('chat.settings')"
-          :aria-label="tr('chat.settings')"
+          :title="tr('chat.settings.title')"
+          :aria-label="tr('chat.settings.title')"
           @click="settingsOpen = true"
         >
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -122,7 +122,7 @@ function onPassChanged(): void {
     <div class="settings-mask" :class="{ show: settingsOpen }" @click="settingsOpen = false"></div>
     <aside class="settings-panel" :class="{ open: settingsOpen }">
       <div class="settings-head">
-        <span>{{ tr('chat.settings') }}</span>
+        <span>{{ tr('chat.settings.title') }}</span>
         <button type="button" class="settings-close" :title="tr('common.close')" :aria-label="tr('common.close')" @click="settingsOpen = false">✕</button>
       </div>
       <div class="settings-body">
@@ -134,7 +134,7 @@ function onPassChanged(): void {
           </label>
         </div>
         <div class="settings-row">
-          <span>{{ tr('chat.settings.sendKey') }}</span>
+          <span>{{ tr('chat.settings.sendKey.label') }}</span>
           <div class="settings-seg">
             <button type="button" :class="{ on: chatState.sendKey === 'enter' }" @click="onSendKey('enter')">{{ tr('chat.settings.sendKey.enter') }}</button>
             <button type="button" :class="{ on: chatState.sendKey === 'ctrl' }" @click="onSendKey('ctrl')">{{ tr('chat.settings.sendKey.ctrl') }}</button>
