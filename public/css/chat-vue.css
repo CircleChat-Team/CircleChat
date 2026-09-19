@@ -582,17 +582,15 @@
 /* ---------- 群成员列表中的群主标记 ---------- */
 .owner-tag { color: var(--primary); margin-left: 4px; font-size: 12px; }
 
-/* ---------- 消息根节点相对定位，供多选勾选框绝对定位 ---------- */
+/* ---------- 消息根节点相对定位 ---------- */
 .msg { position: relative; }
 
-/* ---------- 多选勾选框：进入多选模式后显示在消息左侧 ---------- */
+/* ---------- 多选勾选框：进入多选模式后显示在头像与气泡之间（行内布局，避免被裁切/跑偏） ---------- */
 .msg-select-check {
-  position: absolute;
-  top: 50%;
-  left: -22px;
-  transform: translateY(-50%);
+  align-self: center;
   width: 18px;
   height: 18px;
+  margin: 0 2px;
   border: 1.5px solid var(--faint);
   border-radius: 50%;
   background: var(--bg);
@@ -602,11 +600,10 @@
   font-size: 12px;
   color: #fff;
   cursor: pointer;
-  flex-shrink: 0;
+  flex: 0 0 auto;
   z-index: 4;
 }
 .msg-select-check.on { background: var(--primary); border-color: var(--primary); }
-.msg.self .msg-select-check { left: auto; right: -22px; }
 
 /* ---------- 右键菜单（替代悬浮操作条） ---------- */
 .ctx-menu {
