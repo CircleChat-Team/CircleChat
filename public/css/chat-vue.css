@@ -430,6 +430,19 @@
 /* ---------- 代码块行号列（pre 默认有 margin，需清零以与代码列对齐） ---------- */
 .code-gutter { margin: 0; }
 
+/* ---------- 代码块横向滚动条：适配深色底，细窄不突兀 ---------- */
+.code-body {
+  scrollbar-width: thin;                                  /* Firefox */
+  scrollbar-color: rgba(255, 255, 255, .22) transparent; /* Firefox */
+}
+.code-body::-webkit-scrollbar { height: 8px; }            /* WebKit / Chromium */
+.code-body::-webkit-scrollbar-track { background: transparent; }
+.code-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, .18);
+  border-radius: 8px;
+}
+.code-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .32); }
+
 /* ---------- 群成员列表中的群主标记 ---------- */
 .owner-tag { color: var(--primary); margin-left: 4px; font-size: 12px; }
 
