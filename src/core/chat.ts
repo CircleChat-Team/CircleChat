@@ -25,7 +25,9 @@ import type {
 } from '../types';
 
 const PAGE = 30; // 每批渲染 / 加载条数
-const MAX_UPLOAD_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
+/** 提示文案里展示的上限，由 MAX_UPLOAD_SIZE 推导，改上限时无需同步改文案 */
+const MAX_UPLOAD_LABEL = Math.round(MAX_UPLOAD_SIZE / 1024 / 1024) + 'MB';
 const GROUP_GAP_MS = 5 * 60 * 1000; // 同一人 5 分钟内连发视为一组
 
 function clock(ts?: number | null): string {
@@ -599,7 +601,7 @@ function newTask(file: File, gating: boolean): UploadTask {
       : tr('chat.file.defaultName'));
   let error = '';
   if (gating && kind !== 'image') error = tr('chat.dm.gateToast');
-  else if (file.size > MAX_UPLOAD_SIZE) error = tr('chat.upload.tooBig', { name });
+  else if (file.size > MAX_UPLOAD_SIZE) error = tr('chat.upload.tooBig', { name, max: MAX_UPLOAD_LABEL });
   return {
     id: ++uploadSeq,
     name,

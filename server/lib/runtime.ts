@@ -35,7 +35,8 @@ function auditDetail(key: string, vars?: Record<string, unknown>): string {
 const ROOT = process.cwd(); // 运行根目录（启动目录 = 项目根），Nitro 打包后改用 process.cwd()
 const PUB = path.join(ROOT, 'public');
 const UPLOAD_DIR = path.join(PUB, 'uploads');
-const MAX_UPLOAD = 20 * 1024 * 1024; // 上传上限 20MB
+// 上传上限（readBody 与消息 size 校验都用它）。改这里时同步更新文案 api.upload.tooLarge。
+const MAX_UPLOAD = 100 * 1024 * 1024; // 上传上限 100MB
 const MAX_TEXT_LEN = 4096;           // 单条文本长度上限
 
 // 上传文件保留天数：超期后删除硬盘文件，消息记录保留并显示「图片/文件已过期」

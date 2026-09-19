@@ -95,7 +95,7 @@ npm run build       # 构建前端（Vite）与后端（Nitro）
 ## 安全与数据
 
 - 密码 SHA256 加盐存储；HttpOnly 会话 Cookie（7 天）；同 IP 登录限速（5 次失败锁 10 分钟）。
-- 上传类型白名单 + 图片魔数校验 + 路径穿越防护，单文件上限 20MB。
+- 上传类型白名单 + 图片魔数校验 + 路径穿越防护，单文件上限 100MB（服务端 `MAX_UPLOAD`，前端 `MAX_UPLOAD_SIZE`，两处需一致）。
 - 每个房间保留最近 500 条消息，持久化于 `data/chatplus.db`（SQLite）。
 - 所有 HTTP 请求与 WebSocket 连接写入 `data/access.log`（应用层网络监控）。
 - 后端核心模块位于 `server/lib/`（Nitro 版，由原 `server.js` + `lib/` 整体迁移而来），修改后端前请谨慎。
