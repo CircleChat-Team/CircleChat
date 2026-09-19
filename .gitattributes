@@ -1,0 +1,15 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.wav binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+
+# 本地自托管的第三方构建产物（由 tools/hljs-entry.mjs 打包）
+public/vendor/** linguist-vendored

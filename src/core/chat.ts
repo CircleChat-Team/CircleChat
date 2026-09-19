@@ -9,6 +9,7 @@ import { get, post, url } from './api';
 import { config } from './config';
 import { tr } from './i18n';
 import { fmtSize } from './format';
+import { playIncoming, playOutgoing } from './sound';
 import type {
   ChatMessage,
   ChatUser,
@@ -206,6 +207,8 @@ function connectWs(): void {
           bumpRoom(obj.data);
           maybeNotify(obj.data);
           if (msgInActiveRoom(obj.data)) appendMsg(obj.data);
+          // 仅他人发来的消息播提示音（自己发出的由发送端播放，避免重复响）
+          if (obj.data.from !== state.me) playIncoming();
         }
         break;
       case 'recall':
@@ -504,7 +507,7 @@ async function uploadOne(file: File): Promise<void> {
   const data: Record<string, unknown> = { type: body.kind, content: body.url, name: body.name, size: body.size };
   if (state.activeGid != null) data.gid = state.activeGid;
   if (state.activeDmPeer != null) data.pm = state.activeDmPeer;
-  send({ type: 'msg', data });
+  if (send({ type: 'msg', data })) playOutgoing();
 }
 
 export async function uploadFiles(files: FileList | File[]): Promise<void> {
