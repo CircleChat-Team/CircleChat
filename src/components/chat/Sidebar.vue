@@ -54,6 +54,9 @@ const sortedItems = computed<Entry[]>(() => {
 function keyOf(e: Entry): string {
   return e.kind + ':' + (e.kind === 'group' ? e.ref.id : e.ref.name);
 }
+function unreadText(n: number): string {
+  return n > 99 ? '99+' : String(n);
+}
 function initial(name: string): string {
   return (name || '?').slice(0, 1);
 }
@@ -152,6 +155,7 @@ const emit = defineEmits(['navigate']);
               {{ initial(item.ref.name) }}
             </span>
             <span class="truncate">{{ item.ref.name }}<i v-if="item.ref.owner === chatState.me"> {{ tr('common.me') }}</i></span>
+            <span v-if="chatState.unread['g:' + item.ref.id]" class="unread-dot">{{ unreadText(chatState.unread['g:' + item.ref.id]) }}</span>
           </button>
           <button
             v-if="item.ref.owner === chatState.me || chatState.isAdmin"
@@ -179,6 +183,7 @@ const emit = defineEmits(['navigate']);
               {{ isAway(item.ref.name) ? tr('common.away') : (isOnline(item.ref.name) ? tr('common.online') : tr('common.offline')) }}
             </div>
           </div>
+          <span v-if="chatState.unread['d:' + item.ref.name]" class="unread-dot">{{ unreadText(chatState.unread['d:' + item.ref.name]) }}</span>
         </div>
       </div>
 

@@ -479,6 +479,24 @@
 .group-announce .ga-label { flex: 0 0 auto; font-weight: 600; color: var(--primary-dark); }
 .group-announce .ga-text { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
 
+/* ---------- 未读红点/计数 ---------- */
+.unread-dot {
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+  background: #ff3b30;
+  border-radius: 9px;
+}
+
 /* ---------- 移动端（≤767px）：隐藏顶部散落按钮，改用设置面板 ---------- */
 @media (max-width: 767px) {
   .chat-actions { display: none; }

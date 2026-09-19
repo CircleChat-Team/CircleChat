@@ -88,6 +88,7 @@ export interface ChatState {
   muted: boolean;
   mutedUntil: number | null;
   lastTs: Record<string, number>;
+  unread: Record<string, number>;
 }
 
 const state = reactive<ChatState>({
@@ -134,7 +135,8 @@ const state = reactive<ChatState>({
   reactTargetIdx: null,
   muted: false,
   mutedUntil: null,
-  lastTs: {}
+  lastTs: {},
+  unread: {}
 });
 let ws: WebSocket | null = null;
 let reconnectDelay = 1000;
@@ -214,9 +216,13 @@ function connectWs(): void {
         if (obj.data) {
           bumpRoom(obj.data);
           maybeNotify(obj.data);
-          if (msgInActiveRoom(obj.data)) appendMsg(obj.data);
-          // 仅他人发来的消息播提示音（自己发出的由发送端播放，避免重复响）
-          if (obj.data.from !== state.me) playIncoming();
+          const inRoom = msgInActiveRoom(obj.data);
+          if (inRoom) appendMsg(obj.data);
+          // 仅他人发来的消息：非当前会话则累加未读，并播提示音
+          if (obj.data.from !== state.me) {
+            if (!inRoom) addUnread(obj.data);
+            playIncoming();
+          }
         }
         break;
       case 'recall':
@@ -301,6 +307,28 @@ function bumpRoom(m: ChatMessage): void {
     const peer = String(m.dm).split(':').filter(Boolean).find((n) => n !== state.me);
     if (peer) state.lastTs['d:' + peer] = Date.now();
   }
+}
+
+/** 会话键：群 g:id / 私聊 d:peer */
+function roomKeyOf(m: ChatMessage): string | null {
+  if (m.gid != null) return 'g:' + String(m.gid);
+  if (m.dm) {
+    const peer = String(m.dm).split(':').filter(Boolean).find((n) => n !== state.me);
+    if (peer) return 'd:' + peer;
+  }
+  return null;
+}
+
+/** 非当前会话收到消息时累加未读 */
+function addUnread(m: ChatMessage): void {
+  const k = roomKeyOf(m);
+  if (!k) return;
+  state.unread[k] = (state.unread[k] || 0) + 1;
+}
+
+/** 进入某会话时清除其未读 */
+export function clearUnread(key: string): void {
+  if (state.unread[key]) delete state.unread[key];
 }
 
 function handleRecall(data: { idx?: number; by?: string; owner?: string; admin?: boolean }): void {
@@ -392,6 +420,7 @@ export function switchRoom(gid: string | null): void {
   state.activeDmPeer = null;
   state.replyTo = null;
   state.activeGroupMembers = [];
+  if (gid != null) clearUnread('g:' + String(gid));
   resetRoom();
   if (gid != null) loadGroupMembers(gid);
   loadHistory();
@@ -403,6 +432,7 @@ export function switchRoomToDm(peer: string): void {
   state.activeDmPeer = p;
   state.activeGid = null;
   state.replyTo = null;
+  clearUnread('d:' + p);
   resetRoom();
   loadHistory();
 }
