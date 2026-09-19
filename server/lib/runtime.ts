@@ -1009,6 +1009,10 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
         return;
       }
+      if (patch.sendKey !== undefined && patch.sendKey !== 'enter' && patch.sendKey !== 'ctrl') {
+        sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+        return;
+      }
       auth.setSettings(me.username, patch);
       audit.add({ actor: me.username, action: 'settings', detail: auditDetail('log.detail.settings', { json: JSON.stringify(patch) }), ip });
       sendJSON(res, 200, { ok: true, settings: auth.getSettings(me.username) });

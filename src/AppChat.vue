@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { chatState, toggleSelectMode, setNotify } from './core/chat';
+import { chatState, toggleSelectMode, setNotify, setSendKey } from './core/chat';
 import { tr } from './core/i18n';
 import { accent, setAccent } from './core/theme';
 import Sidebar from './components/chat/Sidebar.vue';
@@ -33,6 +33,10 @@ const settingsOpen = ref(false);
 function onNotify(e: Event): void {
   const v = (e.target as HTMLInputElement).checked;
   void setNotify(v);
+}
+
+function onSendKey(mode: 'enter' | 'ctrl'): void {
+  setSendKey(mode);
 }
 
 function onAccent(e: Event): void {
@@ -128,6 +132,13 @@ function onPassChanged(): void {
             <input type="checkbox" :checked="chatState.notifyOn" @change="onNotify" />
             <span class="slider"></span>
           </label>
+        </div>
+        <div class="settings-row">
+          <span>{{ tr('chat.settings.sendKey') }}</span>
+          <div class="settings-seg">
+            <button type="button" :class="{ on: chatState.sendKey === 'enter' }" @click="onSendKey('enter')">{{ tr('chat.settings.sendKey.enter') }}</button>
+            <button type="button" :class="{ on: chatState.sendKey === 'ctrl' }" @click="onSendKey('ctrl')">{{ tr('chat.settings.sendKey.ctrl') }}</button>
+          </div>
         </div>
         <div class="settings-row">
           <span>{{ tr('chat.settings.accent') }}</span>

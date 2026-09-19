@@ -63,6 +63,7 @@ export interface ChatState {
   connState: 'on' | 'conn' | 'off';
   typingWho: string | null;
   notifyOn: boolean;
+  sendKey: 'enter' | 'ctrl';
   replyTo: ChatMessage | null;
   profileOpen: boolean;
   profile: ProfileData | null;
@@ -107,6 +108,7 @@ const state = reactive<ChatState>({
   connState: 'off',
   typingWho: null,
   notifyOn: true,
+  sendKey: 'enter',
   replyTo: null,
   profileOpen: false,
   profile: null,
@@ -770,6 +772,15 @@ function handlePenalty(data: any): void {
 export async function saveSettings(patch: Record<string, unknown>): Promise<void> {
   await post('/api/settings', patch);
   if (typeof patch.notify === 'boolean') state.notifyOn = patch.notify;
+  if (patch.sendKey === 'enter' || patch.sendKey === 'ctrl') state.sendKey = patch.sendKey;
+}
+
+/** 发送按键模式：enter=Enter 发送 / Ctrl+Enter 换行；ctrl=Ctrl+Enter 发送 / Enter 换行 */
+export function setSendKey(mode: 'enter' | 'ctrl'): void {
+  state.sendKey = mode === 'ctrl' ? 'ctrl' : 'enter';
+  void post('/api/settings', { sendKey: state.sendKey }).catch(() => {
+    /* 忽略 */
+  });
 }
 
 /**
@@ -840,7 +851,10 @@ export function initChat(): void {
     });
     get('/api/settings')
       .then((j) => {
-        if (j.ok && j.settings && (j.settings as any).notify != null) state.notifyOn = !!(j.settings as any).notify;
+        if (!j.ok || !j.settings) return;
+        const s = j.settings as any;
+        if (s.notify != null) state.notifyOn = !!s.notify;
+        if (s.sendKey === 'enter' || s.sendKey === 'ctrl') state.sendKey = s.sendKey;
       })
       .catch(() => {
         /* 忽略 */

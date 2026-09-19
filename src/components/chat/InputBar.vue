@@ -18,6 +18,14 @@ const gating = computed(() => dmgating());
 const reply = computed(() => chatState.replyTo);
 const typing = computed(() => chatState.typingWho);
 
+// 触屏设备（手机/平板）：Enter 一律换行、不发送，发送靠按钮
+const isTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+// 输入栏 / 编辑器提示：随发送按键设置变化；触屏设备提示用发送按钮
+const sendHint = computed(() => {
+  if (isTouch) return tr('chat.input.hint.touch');
+  return tr(chatState.sendKey === 'ctrl' ? 'chat.input.hint.ctrl' : 'chat.input.hint.enter');
+});
+
 const replyText = computed(() => {
   const r = chatState.replyTo;
   if (!r) return '';
@@ -92,16 +100,26 @@ function onKey(e: KeyboardEvent): void {
       return;
     }
   }
-  if (e.key === 'Enter') {
-    if (!e.ctrlKey && !e.shiftKey && !e.metaKey) {
+  if (e.key !== 'Enter') return;
+  // 触屏（手机/平板）：Enter 一律换行，不发送（交给 textarea 默认行为）
+  if (isTouch) return;
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (chatState.sendKey === 'ctrl') {
+    // Ctrl+Enter 发送；单独 Enter / Shift+Enter 换行
+    if (ctrl) {
       e.preventDefault();
       send();
-      return;
     }
-    // Ctrl+Enter / Shift+Enter / Cmd+Enter = 换行
+    return;
+  }
+  // 默认：Enter 发送；Ctrl+Enter / Shift+Enter 换行
+  if (ctrl || e.shiftKey) {
     e.preventDefault();
     insertNewline();
+    return;
   }
+  e.preventDefault();
+  send();
 }
 function toggleMd(): void {
   md.value = !md.value;
@@ -292,7 +310,7 @@ function cancelReply(): void {
       >MD</button>
       <button
         type="button"
-        class="tool-btn"
+        class="tool-btn expand-btn"
         :title="tr('chat.input.expand')"
         :disabled="!!mutedText"
         @click="openEditor"
@@ -331,7 +349,7 @@ function cancelReply(): void {
           :title="tr('chat.input.mdToggle')"
           @click="toggleMd"
         >MD</button>
-        <span class="editor-hint">{{ tr('chat.input.bigHint') }}</span>
+        <span class="editor-hint">{{ sendHint }}</span>
         <div class="editor-actions">
           <button type="button" class="btn-mini btn-ghost" @click="closeEditor">{{ tr('common.cancel') }}</button>
           <button type="button" class="btn-mini btn-primary" @click="sendEditor">{{ tr('chat.send') }}</button>

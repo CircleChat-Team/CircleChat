@@ -270,7 +270,7 @@
 .sidebar-toggle .icon { width: 22px; height: 22px; }
 
 .settings-toggle {
-  display: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 38px;
@@ -372,11 +372,43 @@
 .settings-link.danger:hover { background: rgba(255, 59, 48, .1); }
 .settings-link .icon { width: 18px; height: 18px; }
 
+/* ---------- 设置项：分段选择（如发送按键） ---------- */
+.settings-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.settings-seg button {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.settings-seg button + button { border-left: 1px solid var(--border); }
+.settings-seg button.on { background: var(--primary); color: #fff; }
+
 /* ---------- 移动端（≤767px）：隐藏顶部散落按钮，改用设置面板 ---------- */
 @media (max-width: 767px) {
   .chat-actions { display: none; }
   .settings-toggle { display: inline-flex; margin-left: auto; }
   .chat-title { flex: 1; min-width: 0; }
+
+  /* 输入栏窄屏优化：发送按钮只留图标，避免一行按钮溢出把发送挤出屏幕 */
+  .send-btn {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+  }
+  .send-btn span { display: none; }
+  /* 放大编辑器入口在移动端收起，给输入框留空间 */
+  .expand-btn { display: none; }
 }
 
 /* ============================================================
