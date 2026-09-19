@@ -3,11 +3,20 @@
  * 合并转发查看器：以模态框展示一条 merge 消息内的多条内容
  * ============================================================ */
 import { computed } from 'vue';
+import type { MergeItem } from '../../types';
 import { chatState, closeMergeView, asset, fmtSize } from '../../core/chat';
 import { tr } from '../../core/i18n';
+import { mediaKind } from '../../core/media';
 import TextContent from './TextContent.vue';
+import AudioPlayer from './AudioPlayer.vue';
+import VideoPlayer from './VideoPlayer.vue';
 
 const view = computed(() => chatState.mergeView);
+
+/** 与聊天区一致：媒体类型优先，type='file' 时按扩展名兜底（兼容 .mkv 等历史数据） */
+function kindOf(it: MergeItem): 'video' | 'audio' | 'other' {
+  return mediaKind(it.type, it.name);
+}
 </script>
 
 <template>
@@ -22,20 +31,25 @@ const view = computed(() => chatState.mergeView);
           <div class="merge-item-from">{{ it.from }}</div>
           <div class="merge-item-main">
             <img v-if="it.type === 'image'" class="merge-item-img" :src="asset(it.content || '')" alt="" loading="lazy" />
-            <video
-              v-else-if="it.type === 'video'"
-              class="merge-item-img"
+            <VideoPlayer
+              v-else-if="kindOf(it) === 'video'"
               :src="asset(it.content || '')"
-              controls
-              preload="metadata"
-            ></video>
+              :name="it.name"
+              :size="it.size"
+            />
+            <AudioPlayer
+              v-else-if="kindOf(it) === 'audio'"
+              :src="asset(it.content || '')"
+              :name="it.name || ''"
+              :size="it.size"
+            />
             <a
-              v-else-if="it.type === 'file' || it.type === 'audio'"
+              v-else-if="it.type === 'file'"
               class="merge-item-file"
               :href="asset(it.content || '')"
               target="_blank"
               rel="noopener"
-            >{{ it.type === 'audio' ? '🎵' : '📎' }} {{ it.name || tr('chat.file.defaultName') }}<span v-if="it.size"> · {{ fmtSize(it.size) }}</span></a>
+            >📎 {{ it.name || tr('chat.file.defaultName') }}<span v-if="it.size"> · {{ fmtSize(it.size) }}</span></a>
             <div v-else class="merge-item-text">
               <TextContent :text="it.content || ''" md />
             </div>
