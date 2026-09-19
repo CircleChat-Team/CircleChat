@@ -19,6 +19,7 @@
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {
+    "@types/node": "^22.10.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-vue": "^6.0.8",
     "esbuild": "^0.28.2",

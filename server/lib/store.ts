@@ -125,7 +125,7 @@ function trim(): void {
   const cnt = (d.prepare('SELECT COUNT(*) AS c FROM messages').get() as { c: number }).c;
   if (cnt <= MAX_MESSAGES) return;
   const over = cnt - MAX_MESSAGES;
-  const removed = d.prepare('SELECT * FROM messages ORDER BY idx ASC LIMIT ?').all(over) as MsgRow[];
+  const removed = d.prepare('SELECT * FROM messages ORDER BY idx ASC LIMIT ?').all(over) as unknown as MsgRow[];
   const maxRemoved = removed[removed.length - 1].idx;
   d.prepare('DELETE FROM messages WHERE idx <= ?').run(maxRemoved);
   cleanupFiles(removed);
@@ -221,8 +221,8 @@ export interface StoredMessage {
   type: string;
   content: string;
   ts: number;
-  gid?: string;
-  dm?: string;
+  gid?: string | null;
+  dm?: string | null;
   recalled?: number;
   recalled_by?: string;
   recalled_at?: number | null;
@@ -307,7 +307,7 @@ function trimRoom(gid: string | null, dm: string | null): void {
   const cnt = (d.prepare('SELECT COUNT(*) AS c FROM messages' + clause).get(...params) as { c: number }).c;
   if (cnt <= MAX_MESSAGES) return;
   const over = cnt - MAX_MESSAGES;
-  const removed = d.prepare('SELECT * FROM messages' + clause + 'ORDER BY idx ASC LIMIT ?').all(...params, over) as MsgRow[];
+  const removed = d.prepare('SELECT * FROM messages' + clause + 'ORDER BY idx ASC LIMIT ?').all(...params, over) as unknown as MsgRow[];
   const maxRemoved = removed[removed.length - 1].idx;
   d.prepare('DELETE FROM messages WHERE idx <= ?').run(maxRemoved);
   cleanupFiles(removed);
@@ -357,7 +357,7 @@ const SELECT_COLS = 'idx, id, "from", type, content, ts, name, size, recalled, r
 export function all(gid: string | null, dm: string | null): StoredMessage[] {
   const d = open();
   const { clause, params } = roomClause(gid, dm);
-  const rows = d.prepare('SELECT ' + SELECT_COLS + ' FROM messages' + clause + 'ORDER BY idx ASC').all(...params) as MsgRow[];
+  const rows = d.prepare('SELECT ' + SELECT_COLS + ' FROM messages' + clause + 'ORDER BY idx ASC').all(...params) as unknown as MsgRow[];
   const list = rows.map(rowToMsg);
 
   const rmap = allReactions();
@@ -440,7 +440,7 @@ export function cleanupExpired(ttlDays: number): number {
 export function dissolveMessages(gid: string | null): void {
   if (gid == null) return;
   const d = open();
-  const removed = d.prepare('SELECT * FROM messages WHERE gid = ? AND dm IS NULL').all(String(gid)) as MsgRow[];
+  const removed = d.prepare('SELECT * FROM messages WHERE gid = ? AND dm IS NULL').all(String(gid)) as unknown as MsgRow[];
   d.prepare('DELETE FROM messages WHERE gid = ? AND dm IS NULL').run(String(gid));
   cleanupFiles(removed);
   // 同步清理该群消息上的表情回应
@@ -459,7 +459,7 @@ export function filesByRoom(gid: string | null, dm: string | null): StoredMessag
     'SELECT ' + SELECT_COLS + ' FROM messages' + clause +
     " AND type IN ('image', 'file') AND (recalled IS NULL OR recalled = 0)" +
     " AND (file_expired IS NULL OR file_expired = 0) ORDER BY idx DESC LIMIT 500"
-  ).all(...params) as MsgRow[];
+  ).all(...params) as unknown as MsgRow[];
   return rows.map(rowToMsg);
 }
 
@@ -513,7 +513,7 @@ export function expireByFile(base: string): number {
     " AND (recalled IS NULL OR recalled = 0) AND (file_expired IS NULL OR file_expired = 0)" +
     " AND content LIKE ?"
   ).run('%/' + String(base));
-  return info && info.changes ? info.changes : 0;
+  return info && info.changes ? Number(info.changes) : 0;
 }
 
 export { MAX_MESSAGES, DB_FILE, DB_FILE as MSGS_FILE };

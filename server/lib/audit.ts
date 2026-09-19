@@ -117,7 +117,7 @@ export function list(opt: ListOpt): { total: number; logs: AuditRow[] } {
   const total = (d.prepare('SELECT COUNT(*) AS c FROM audit_logs' + whereSql).get(...args) as { c: number }).c;
   const logs = d
     .prepare('SELECT id, ts, actor, action, target, detail, ip FROM audit_logs' + whereSql + ' ORDER BY id DESC LIMIT ? OFFSET ?')
-    .all(...args, limit, offset) as AuditRow[];
+    .all(...args, limit, offset) as unknown as AuditRow[];
   return { total, logs };
 }
 

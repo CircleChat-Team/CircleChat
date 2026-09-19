@@ -131,7 +131,7 @@ function migrateFromJson(): void {
 
 /** 返回 { name: {pass, created, role, image, settings, updated} } 供接口层使用 */
 export function loadUsers(): Record<string, StoredUser> {
-  const rows = open().prepare('SELECT name, pass, created, role, image, settings, updated FROM users').all() as UserRow[];
+  const rows = open().prepare('SELECT name, pass, created, role, image, settings, updated FROM users').all() as unknown as UserRow[];
   const map: Record<string, StoredUser> = {};
   for (const r of rows) map[r.name] = rowToUser(r) as StoredUser;
   return map;
@@ -140,7 +140,7 @@ export function loadUsers(): Record<string, StoredUser> {
 // ---------- 内置账号 ----------
 
 /** 内置管理员账号（role=admin：可管理用户、可撤回任意人的消息） */
-const BUILTIN_ADMIN = { name: 'admin', pass: 'Admin1234', role: 'admin', mustChange: 1 };
+const BUILTIN_ADMIN = { name: 'admin', pass: 'Admin1234', role: 'admin', mustChange: true };
 
 interface Account {
   name: string;
