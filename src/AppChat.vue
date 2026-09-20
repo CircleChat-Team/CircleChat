@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { chatState, toggleSelectMode, setNotify, setSendKey, setNotifySound, clearNotice, uploadFiles } from './core/chat';
-import { NOTIFY_SOUNDS, playNotifyPreview } from './core/sound';
+import { computed, ref, watch } from 'vue';
+import {
+  chatState,
+  toggleSelectMode,
+  setNotify,
+  setSendKey,
+  setNotifySound,
+  setSoundIn,
+  setSoundOut,
+  clearNotice,
+  uploadFiles
+} from './core/chat';
+import { NOTIFY_SOUNDS, playNotifyPreview, playOutgoingPreview } from './core/sound';
 import { tr } from './core/i18n';
 import { accent, setAccent } from './core/theme';
 import Sidebar from './components/chat/Sidebar.vue';
@@ -60,6 +70,28 @@ function onNotifySound(e: Event): void {
   setNotifySound(file);
   playNotifyPreview(file);
 }
+
+// 打开开关时试听一次，让用户知道这个开关对应的是哪个声音
+function onSoundIn(e: Event): void {
+  const on = (e.target as HTMLInputElement).checked;
+  setSoundIn(on);
+  if (on) playNotifyPreview(chatState.notifySound);
+}
+
+function onSoundOut(e: Event): void {
+  const on = (e.target as HTMLInputElement).checked;
+  setSoundOut(on);
+  if (on) playOutgoingPreview();
+}
+
+// 标签页标题跟随当前会话（与登录页/群管理页的做法一致）
+watch(
+  title,
+  (t) => {
+    document.title = t && t !== 'CircleChat' ? t + ' · CircleChat' : 'CircleChat';
+  },
+  { immediate: true }
+);
 
 function onAccent(e: Event): void {
   setAccent((e.target as HTMLInputElement).value);
@@ -203,6 +235,20 @@ function onDrop(e: DragEvent): void {
           <span>{{ tr('chat.notify.label') }}</span>
           <label class="switch">
             <input type="checkbox" :checked="chatState.notifyOn" @change="onNotify" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="settings-row">
+          <span>{{ tr('chat.settings.soundIn') }}</span>
+          <label class="switch">
+            <input type="checkbox" :checked="chatState.soundIn" @change="onSoundIn" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="settings-row">
+          <span>{{ tr('chat.settings.soundOut') }}</span>
+          <label class="switch">
+            <input type="checkbox" :checked="chatState.soundOut" @change="onSoundOut" />
             <span class="slider"></span>
           </label>
         </div>

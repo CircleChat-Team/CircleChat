@@ -70,6 +70,10 @@ export interface ChatState {
   notifyOn: boolean;
   sendKey: 'enter' | 'ctrl';
   notifySound: string;
+  /** 接收消息提示音开关 */
+  soundIn: boolean;
+  /** 发送消息提示音开关 */
+  soundOut: boolean;
   replyTo: ChatMessage | null;
   profileOpen: boolean;
   profile: ProfileData | null;
@@ -128,6 +132,8 @@ const state = reactive<ChatState>({
   notifyOn: true,
   sendKey: 'enter',
   notifySound: DEFAULT_NOTIFY_SOUND,
+  soundIn: true,
+  soundOut: true,
   replyTo: null,
   profileOpen: false,
   profile: null,
@@ -172,6 +178,16 @@ export function notify(msg: string, ok = false): void {
 export function clearNotice(): void {
   state.notice = '';
   clearTimeout(noticeTimer);
+}
+
+/** 自己发出消息的提示音（受设置里的「发送消息提示音」开关控制） */
+function playSent(): void {
+  if (state.soundOut) playOutgoing();
+}
+
+/** 收到他人消息的提示音（受设置里的「接收消息提示音」开关控制） */
+function playReceived(): void {
+  if (state.soundIn) playIncoming();
 }
 
 let ws: WebSocket | null = null;
@@ -257,7 +273,7 @@ function connectWs(): void {
           // 仅他人发来的消息：非当前会话则累加未读，并播提示音
           if (obj.data.from !== state.me) {
             if (!inRoom) addUnread(obj.data);
-            playIncoming();
+            playReceived();
           }
         }
         break;
@@ -459,6 +475,48 @@ export function loadOlder(): void {
   state.topIndex = Math.max(0, state.topIndex - PAGE);
 }
 
+/**
+ * 把当前会话写进地址栏（?gid= / ?dm=），刷新后可直接回到同一个会话。
+ * 用 replaceState 而不是 pushState：只是让地址栏如实反映当前会话，
+ * 不想让"后退"在会话之间来回跳（那需要额外处理 popstate）。
+ * 其它查询参数原样保留。
+ */
+function syncRoomUrl(): void {
+  if (typeof history === 'undefined' || !history.replaceState || typeof location === 'undefined') return;
+  let url: string;
+  try {
+    const p = new URLSearchParams(location.search);
+    if (state.activeGid != null) {
+      p.set('gid', state.activeGid);
+      p.delete('dm');
+    } else if (state.activeDmPeer != null) {
+      p.set('dm', state.activeDmPeer);
+      p.delete('gid');
+    } else {
+      p.delete('gid');
+      p.delete('dm');
+    }
+    const q = p.toString();
+    url = location.pathname + (q ? '?' + q : '') + location.hash;
+  } catch {
+    return; // 环境不支持 URLSearchParams 时静默跳过
+  }
+  history.replaceState(null, '', url);
+}
+
+/** 从地址栏读出要恢复的会话（gid / dm 二选一，都没有则返回空） */
+function roomFromUrl(): { gid: string | null; dm: string | null } {
+  try {
+    const p = new URLSearchParams(location.search);
+    return {
+      gid: (p.get('gid') || '').trim() || null,
+      dm: (p.get('dm') || '').trim() || null
+    };
+  } catch {
+    return { gid: null, dm: null };
+  }
+}
+
 export function switchRoom(gid: string | null): void {
   state.activeGid = gid == null ? null : String(gid);
   state.activeDmPeer = null;
@@ -466,6 +524,7 @@ export function switchRoom(gid: string | null): void {
   state.activeGroupMembers = [];
   if (gid != null) clearUnread('g:' + String(gid));
   resetRoom();
+  syncRoomUrl();
   if (gid != null) loadGroupMembers(gid);
   loadHistory();
 }
@@ -478,6 +537,7 @@ export function switchRoomToDm(peer: string): void {
   state.replyTo = null;
   clearUnread('d:' + p);
   resetRoom();
+  syncRoomUrl();
   loadHistory();
 }
 
@@ -567,7 +627,7 @@ export function sendText(text: string, md?: boolean): void {
   if (state.activeDmPeer != null) data.pm = state.activeDmPeer;
   if (state.replyTo && state.replyTo.idx != null) data.replyTo = state.replyTo.idx;
   if (!send({ type: 'msg', data })) return;
-  playOutgoing();
+  playSent();
   state.replyTo = null;
 }
 
@@ -909,7 +969,7 @@ function dispatchUpload(id: number, r: { kind: string; url: string; name: string
   const data: Record<string, unknown> = { type: r.kind, content: r.url, name: r.name, size: r.size };
   if (state.activeGid != null) data.gid = state.activeGid;
   if (state.activeDmPeer != null) data.pm = state.activeDmPeer;
-  if (send({ type: 'msg', data })) playOutgoing();
+  if (send({ type: 'msg', data })) playSent();
   // 让「已发送」停留一下再收起，避免进度条一闪而过
   window.setTimeout(() => dismissUpload(id), 1200);
 }
@@ -1415,6 +1475,8 @@ export async function saveSettings(patch: Record<string, unknown>): Promise<void
     state.notifySound = patch.notifySound;
     soundSetNotify(patch.notifySound);
   }
+  if (typeof patch.soundIn === 'boolean') state.soundIn = patch.soundIn;
+  if (typeof patch.soundOut === 'boolean') state.soundOut = patch.soundOut;
 }
 
 /** 发送按键模式：enter=Enter 发送 / Ctrl+Enter 换行；ctrl=Ctrl+Enter 发送 / Enter 换行 */
@@ -1431,6 +1493,22 @@ export function setNotifySound(file: string): void {
   state.notifySound = file;
   soundSetNotify(file);
   void post('/api/settings', { notifySound: file }).catch(() => {
+    /* 忽略 */
+  });
+}
+
+/** 接收消息提示音开关（试听由调用方触发） */
+export function setSoundIn(on: boolean): void {
+  state.soundIn = !!on;
+  void post('/api/settings', { soundIn: state.soundIn }).catch(() => {
+    /* 忽略 */
+  });
+}
+
+/** 发送消息提示音开关（试听由调用方触发） */
+export function setSoundOut(on: boolean): void {
+  state.soundOut = !!on;
+  void post('/api/settings', { soundOut: state.soundOut }).catch(() => {
     /* 忽略 */
   });
 }
@@ -1500,8 +1578,14 @@ export function initChat(): void {
   loadMe().then((ok) => {
     if (!ok) return;
     Promise.all([loadUsers(), loadFriends(), loadGroups()]).then(() => {
-      // 移除公共频道：默认进入第一个群组；若没有任何会话则保持空状态由用户自选
-      if (state.activeGid == null && state.activeDmPeer == null && state.myGroups.length) {
+      // 会话恢复优先级：地址栏 → 第一个群组 → 空状态（移除公共频道后不再默认进公共房）。
+      // gid / dm 必须是真实存在的会话才采纳，避免复制来的坏链接把界面带进空态。
+      const want = roomFromUrl();
+      if (want.gid && state.myGroups.some((g) => g.id === want.gid)) {
+        switchRoom(want.gid);
+      } else if (want.dm && want.dm !== state.me && state.allUsers.some((u) => u.name === want.dm)) {
+        switchRoomToDm(want.dm);
+      } else if (state.activeGid == null && state.activeDmPeer == null && state.myGroups.length) {
         switchRoom(state.myGroups[0].id);
       }
       connectWs();
@@ -1516,6 +1600,8 @@ export function initChat(): void {
           state.notifySound = s.notifySound;
           soundSetNotify(s.notifySound);
         }
+        if (typeof s.soundIn === 'boolean') state.soundIn = s.soundIn;
+        if (typeof s.soundOut === 'boolean') state.soundOut = s.soundOut;
       })
       .catch(() => {
         /* 忽略 */

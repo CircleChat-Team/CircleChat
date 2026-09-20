@@ -99,3 +99,8 @@ export function playOutgoing(): void {
 export function playNotifyPreview(file: string): void {
   play(notifyAudio(file));
 }
+
+/** 设置面板试听「发送提示音」（打开开关时给个反馈） */
+export function playOutgoingPreview(): void {
+  play(outgoing);
+}

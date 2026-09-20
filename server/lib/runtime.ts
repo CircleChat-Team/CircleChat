@@ -1539,6 +1539,15 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
         return;
       }
+      // 收发提示音各自的开关
+      if (patch.soundIn !== undefined && typeof patch.soundIn !== 'boolean') {
+        sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+        return;
+      }
+      if (patch.soundOut !== undefined && typeof patch.soundOut !== 'boolean') {
+        sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+        return;
+      }
       auth.setSettings(me.username, patch);
       audit.add({ actor: me.username, action: 'settings', detail: auditDetail('log.detail.settings', { json: JSON.stringify(patch) }), ip });
       sendJSON(res, 200, { ok: true, settings: auth.getSettings(me.username) });
