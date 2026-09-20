@@ -147,14 +147,16 @@ const MIME: Record<string, string> = {
   '.m4b': 'audio/mp4'
 };
 
-function sendJSON(res: any, status: number, obj: unknown): void {
+/** 附加响应头（例如跨域头）；与默认头同名的会覆盖默认头 */
+function sendJSON(res: any, status: number, obj: unknown, extraHeaders?: Record<string, string>): void {
   // 连接可能已被客户端断开或请求体超限后销毁，此时写响应会抛错
   if (res.writableEnded || res.destroyed) return;
   const body = JSON.stringify(obj);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff'
+    'X-Content-Type-Options': 'nosniff',
+    ...(extraHeaders || {})
   });
   res.end(body);
 }
@@ -1041,6 +1043,37 @@ async function finalizeUpload(
 
 // ---------- HTTP 路由 ----------
 
+/**
+ * 应用标识与版本（供 /api/app-manifest 下发）。
+ * 环境变量优先，缺省读 package.json 的 name/version——版本随发布自动更新，
+ * 不必在代码里维护一份会过期的常量。
+ */
+function readAppInfo(): { id: string; version: string } {
+  let id = 'circlechat';
+  let version = '0.0.0';
+  try {
+    const o = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')) as { name?: string; version?: string };
+    if (o && typeof o.name === 'string' && o.name) id = o.name;
+    if (o && typeof o.version === 'string' && o.version) version = o.version;
+  } catch (e) {
+    // 工作目录里没有 package.json（容器启动时 cwd 未必是项目根）：用兜底值
+  }
+  return { id: process.env.APP_ID || id, version: process.env.APP_VERSION || version };
+}
+const APP_INFO = readAppInfo();
+
+/**
+ * /api/app-manifest 的跨域响应头。
+ * 桌面应用（Electron / Tauri / 本地客户端）没有同源概念，来源直接放开。
+ * 该接口不下发凭据、也不认 Cookie，放开来源不会扩大本站的攻击面。
+ */
+const APP_MANIFEST_CORS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400'
+};
+
 function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string): void {
   const t0 = Date.now();
 
@@ -1211,6 +1244,43 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     }).catch((e) => {
       sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
     });
+    return;
+  }
+
+  // GET /api/app-manifest —— 公开：给桌面应用下发的应用清单（标识 + 版本 + 时间戳 + 服务端签名）
+  // 放在鉴权门槛之前：桌面应用不带本站会话 Cookie，走不了登录态。
+  // 签名密钥取自环境变量 APP_SECRET，只用于计算签名、绝不下发。
+  if (pathname === '/api/app-manifest') {
+    // 跨域预检：桌面应用若带自定义请求头（非简单请求），浏览器/客户端会先发 OPTIONS
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, { ...APP_MANIFEST_CORS, 'Cache-Control': 'no-store' });
+      res.end();
+      return;
+    }
+    if (req.method !== 'GET') {
+      sendJSON(res, 405, { ok: false, error: 'method_not_allowed' }, APP_MANIFEST_CORS);
+      logger.write({ ip, method: req.method, url: pathname, status: 405, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const secret = process.env.APP_SECRET || '';
+    if (!secret) {
+      // 未配置密钥就一份都不发：宁可接口不可用，也不给出无签名（可被伪造）的清单
+      sendJSON(res, 503, { ok: false, error: 'app_secret_not_configured' }, APP_MANIFEST_CORS);
+      logger.write({ ip, method: req.method, url: pathname, status: 503, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const timestamp = Math.floor(Date.now() / 1000); // Unix 时间戳（秒）
+    // 按约定：sha256(app_id + version + timestamp + APP_SECRET)
+    const signature = crypto.createHash('sha256')
+      .update(APP_INFO.id + APP_INFO.version + timestamp + secret)
+      .digest('hex');
+    sendJSON(res, 200, {
+      app_id: APP_INFO.id,
+      version: APP_INFO.version,
+      timestamp,
+      signature
+    }, APP_MANIFEST_CORS);
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
 
