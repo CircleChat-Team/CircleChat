@@ -42,14 +42,16 @@ function onRegistered(name: string): void {
 </script>
 
 <template>
-  <div class="relative flex min-h-screen items-center justify-center bg-bg px-4 py-8">
+  <!-- 纵向 flex：卡片用 my-auto 垂直居中，页脚在正常文档流里。
+       内容变高时 auto 外边距自动归零、页脚随之下移，不会像 absolute 贴底那样压住卡片 -->
+  <div class="flex min-h-screen flex-col items-center bg-bg px-4 py-8">
     <!-- 登录页无顶栏，主题与语言切换独立悬浮 -->
     <div class="fixed right-4 top-4 flex items-center gap-1">
       <ThemeToggle />
       <LangMenu />
     </div>
 
-    <div class="w-full max-w-105 rounded-2xl border border-line bg-panel p-7 shadow-lg">
+    <div class="my-auto w-full max-w-105 rounded-2xl border border-line bg-panel p-7 shadow-lg">
       <div class="text-center">
         <h1 class="text-2xl font-semibold tracking-tight">CircleChat</h1>
         <p class="mt-1 text-xs text-muted">{{ tr('login.tag') }}</p>
@@ -76,7 +78,7 @@ function onRegistered(name: string): void {
       <p class="mt-5 text-center text-[11px] text-muted">{{ tr('login.footer', { url: displayBase() }) }}</p>
     </div>
 
-    <!-- 页面底部版权与项目地址 -->
-    <AppFooter class="absolute bottom-0 left-0 right-0" />
+    <!-- 页面底部版权与项目地址（正常文档流，随内容下移，不再贴视口底部） -->
+    <AppFooter />
   </div>
 </template>

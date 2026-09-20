@@ -206,7 +206,6 @@ const emit = defineEmits(['navigate']);
           <ThemeToggle />
         </div>
       </div>
-      <AppFooter />
       <div v-if="userMenuOpen" class="user-menu">
         <button type="button" class="user-menu-item" @click="openMyProfileCb">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
@@ -227,5 +226,8 @@ const emit = defineEmits(['navigate']);
         </button>
       </div>
     </div>
+
+    <!-- 版权与项目地址：侧栏最底部独立一行，与侧栏内容同为左对齐 -->
+    <AppFooter align="left" class="px-3 pb-2" />
   </aside>
 </template>
