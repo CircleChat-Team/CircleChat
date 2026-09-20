@@ -41,7 +41,11 @@ function close(): void {
 }
 
 function onKey(e: KeyboardEvent): void {
-  if (e.key === 'Escape') close();
+  if (e.key !== 'Escape') return;
+  // 处于浏览器全屏 / 小窗时，Esc 先交给浏览器退出，避免"刚退出全屏弹窗也被关掉"
+  const d = document as Document & { pictureInPictureElement?: Element | null };
+  if (d.fullscreenElement || d.pictureInPictureElement) return;
+  close();
 }
 
 /** 小窗播放中：遮罩不拦截页面点击，页面照常可用 */
