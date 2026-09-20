@@ -465,6 +465,7 @@ const dict: Record<string, string> = {
   "api.upload.sessionGone": "上传会话已失效，正在重新上传",
   "api.upload.badChunk": "分片校验失败，请重试",
   "api.upload.incomplete": "分片未传完",
+  "api.upload.merging": "文件正在合并，请稍候重试",
   "api.register.submitted": "注册申请已提交，请等待管理员审核通过后登录",
   "log.detail.login.ok": "登录成功",
   "log.detail.login.fail.rateLimited": "触发登录限速（10 分钟内失败次数过多）",

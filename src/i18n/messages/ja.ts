@@ -465,6 +465,7 @@ const dict: Record<string, string> = {
   "api.upload.sessionGone": "アップロードセッションが失効しました。再開します",
   "api.upload.badChunk": "分割データの検証に失敗しました。再試行してください",
   "api.upload.incomplete": "分割データが未完了です",
+  "api.upload.merging": "ファイルを結合中です。しばらくして再試行してください",
   "api.register.submitted": "登録を送信しました。ログイン前に管理者の承認をお待ちください",
   "log.detail.login.ok": "ログインしました",
   "log.detail.login.fail.rateLimited": "ログイン制限を超えました（10分間に失敗が多すぎます）",

@@ -764,24 +764,53 @@ function postUpload(id: number, file: File, onProgress: (loaded: number, total: 
   });
 }
 
+/** 中断某个任务所有在途请求（分片失败时立刻掐断同任务的其它分片，不再空耗带宽） */
+function abortInFlight(id: number): void {
+  const set = uploadXhr.get(id);
+  if (!set) return;
+  for (const xhr of Array.from(set)) {
+    try { xhr.abort(); } catch { /* 忽略 */ }
+  }
+}
+
+/**
+ * 分片 sha256（十六进制小写）。
+ * 服务端会拿它逐片比对，能挡住「长度正好没变」的传输损坏。
+ * 非安全上下文 / 老浏览器没有 crypto.subtle 时返回空串 —— 服务端会跳过这项校验，
+ * 不影响上传（只是少了这道保险）。
+ */
+async function sha256Hex(blob: Blob): Promise<string> {
+  const subtle = (crypto as Crypto & { subtle?: SubtleCrypto }).subtle;
+  if (!subtle || !subtle.digest) return '';
+  try {
+    const digest = await subtle.digest('SHA-256', await blob.arrayBuffer());
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return ''; // 计算失败就退化为不校验，不因此让上传失败
+  }
+}
+
 /** 上传单个分片；resolve 表示服务端已确认收到该片 */
-function uploadChunk(id: number, file: File, sess: ChunkSession, index: number): Promise<void> {
+async function uploadChunk(id: number, file: File, sess: ChunkSession, index: number): Promise<void> {
   const start = index * CHUNK_SIZE;
   const end = Math.min(file.size, start + CHUNK_SIZE);
+  const blob = file.slice(start, end);
+  const sha = await sha256Hex(blob);
+  if (!taskById(id)) throw new Error('abort'); // 校验期间被取消
   const fd = new FormData();
-  fd.append('file', file.slice(start, end), 'chunk');
-  const url = api('/api/upload/chunk?uploadId=' + encodeURIComponent(sess.uploadId) + '&index=' + index);
-  return postForm(id, url, fd, (loaded) => {
+  fd.append('file', blob, 'chunk');
+  const url = api('/api/upload/chunk?uploadId=' + encodeURIComponent(sess.uploadId)
+    + '&index=' + index + (sha ? '&sha=' + sha : ''));
+  const r = await postForm(id, url, fd, (loaded) => {
     sess.loaded[index] = loaded;
     syncChunkProgress(id, sess);
-  }, uploadTimeout(end - start)).then((r) => {
-    if (r.status < 200 || r.status >= 300 || !r.body.ok) {
-      throw new Error('chunk ' + index + ' http ' + r.status);
-    }
-    sess.loaded[index] = end - start; // 以服务端确认的片大小为准，避免最后一片多算
-    sess.done[index] = true;
-    syncChunkProgress(id, sess);
-  });
+  }, uploadTimeout(end - start));
+  if (r.status < 200 || r.status >= 300 || !r.body.ok) {
+    throw new Error('chunk ' + index + ' http ' + r.status);
+  }
+  sess.loaded[index] = end - start; // 以服务端确认的片大小为准，避免最后一片多算
+  sess.done[index] = true;
+  syncChunkProgress(id, sess);
 }
 
 /** 把各片进度聚合到任务上（已传字节 / 百分比 / 速度 / 已传片数） */
@@ -970,10 +999,17 @@ async function runUploadChunked(id: number, file: File, sess: ChunkSession): Pro
   // 只补传缺失的分片，最多 MAX_CONCURRENT_CHUNKS 片同时在传
   const todo: number[] = [];
   for (let i = 0; i < sess.chunks; i++) if (!sess.done[i]) todo.push(i);
-  await runPool(todo, MAX_CONCURRENT_CHUNKS, (i) => {
+  await runPool(todo, MAX_CONCURRENT_CHUNKS, async (i) => {
     // 期间被取消就不再派发新分片（抛 abort 让上层静默收口）
     if (!taskById(id)) throw new Error('abort');
-    return uploadChunk(id, file, sess, i);
+    try {
+      await uploadChunk(id, file, sess, i);
+    } catch (e) {
+      // 任一片失败：先掐断同任务的其它在途分片（反正半截的片不会被服务端记账，
+      // 白传完也没用），再抛出 → runPool 停止派发新片
+      abortInFlight(id);
+      throw e;
+    }
   });
 
   if (!taskById(id)) return; // 取消后不必再去 complete
@@ -1010,13 +1046,8 @@ async function runUpload(id: number): Promise<void> {
 
 /** 取消上传：中断该任务所有在途请求（含并发的分片）并从队列移除 */
 export function cancelUpload(id: number): void {
-  const set = uploadXhr.get(id);
-  if (set) {
-    uploadXhr.delete(id);
-    for (const xhr of Array.from(set)) {
-      try { xhr.abort(); } catch { /* 忽略 */ }
-    }
-  }
+  abortInFlight(id);
+  uploadXhr.delete(id);
   // 分片会话：通知服务端清掉已上传的分片（失败也不影响本地移除）
   const sess = sessions.get(id);
   if (sess && sess.uploadId) void post('/api/upload/abort', { uploadId: sess.uploadId });

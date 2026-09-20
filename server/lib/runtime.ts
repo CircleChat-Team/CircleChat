@@ -55,7 +55,12 @@ const CHUNK_BODY_LIMIT = CHUNK_SIZE + 1024 * 1024;                   // 单片�
 // 分片会话：每个上传会话一个目录，里面是 meta.json + <index>.part
 const SESS_DIR = path.join(TMP_DIR, 'sessions');
 const UPLOAD_ID_RE = /^[a-f0-9]{24}$/;
+const CHUNK_SHA_RE = /^[a-f0-9]{64}$/;                                  // 客户端上报的分片 sha256
 const SESSION_TTL = 24 * 3600 * 1000; // 会话（半成品）保留 24 小时，过期由 purgeUploadTmp 清掉
+/** 会话元数据内存缓存（见 readSession） */
+const sessionCache = new Map<string, SessionMeta>();
+/** 正在合并的会话：同一 uploadId 的 complete 串行化，避免重复读分片 / 重复写目标文件 */
+const mergingUploads = new Set<string>();
 
 // 上传文件保留天数：超期后删除硬盘文件，消息记录保留并显示「图片/文件已过期」
 // 可用环境变量 FILE_TTL_DAYS 覆盖，默认 15 天
@@ -457,10 +462,12 @@ export function purgeUploadTmp(): void {
   let ids: string[] = [];
   try { ids = fs.readdirSync(SESS_DIR); } catch (e) { return; }
   for (const id of ids) {
-    if (!UPLOAD_ID_RE.test(id)) continue;
     const dir = sessionDir(id);
     try {
-      if (now - fs.statSync(dir).mtimeMs > SESSION_TTL) removeSession(id);
+      if (now - fs.statSync(dir).mtimeMs <= SESSION_TTL) continue;
+      // 名字不合规的（历史遗留 / 手工产物）也一并清掉，否则它们永远不会被回收
+      if (UPLOAD_ID_RE.test(id)) removeSession(id);
+      else fs.rmSync(dir, { recursive: true, force: true });
     } catch (e) { /* 忽略 */ }
   }
 }
@@ -500,12 +507,17 @@ function safeFileName(name: unknown): string {
 }
 
 function readSession(id: string): SessionMeta | null {
+  // 分片上传期间每个 chunk 请求都要读一次 meta.json，走内存免掉每片一次的同步磁盘读；
+  // 磁盘仍是唯一真相（进程重启后由 readSession 回源），缓存只在写入/删除时同步失效。
+  const cached = sessionCache.get(id);
+  if (cached) return cached;
   try {
     const o = JSON.parse(fs.readFileSync(path.join(sessionDir(id), 'meta.json'), 'utf8')) as SessionMeta;
     if (!o || typeof o.name !== 'string' || !Number.isInteger(o.size) || !Number.isInteger(o.chunks)) return null;
     // 分片数必须与体积自洽，防止 meta 被篡改后越界读写
     if (o.size <= 0 || o.size > MAX_UPLOAD || o.chunks < 1 || o.chunks > MAX_CHUNKS) return null;
     if (o.chunks !== Math.ceil(o.size / CHUNK_SIZE)) return null;
+    sessionCache.set(id, o);
     return o;
   } catch (e) {
     return null; // 目录/文件不存在或 JSON 损坏
@@ -515,9 +527,11 @@ function readSession(id: string): SessionMeta | null {
 function writeSession(id: string, meta: SessionMeta): void {
   fs.mkdirSync(sessionDir(id), { recursive: true });
   fs.writeFileSync(path.join(sessionDir(id), 'meta.json'), JSON.stringify(meta));
+  sessionCache.set(id, meta);
 }
 
 function removeSession(id: string): void {
+  sessionCache.delete(id); // 缓存生命周期与目录一致：目录没了就不该再从缓存里"读到"它
   try { fs.rmSync(sessionDir(id), { recursive: true, force: true }); } catch (e) { /* 忽略 */ }
 }
 
@@ -533,27 +547,48 @@ function receivedChunks(meta: SessionMeta, dir: string): number[] {
   return out;
 }
 
-/** 把 src 追加到已打开的写入流（不结束流） */
-function appendToStream(src: string, ws: fs.WriteStream): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const rs = fs.createReadStream(src);
-    rs.on('error', reject);
-    rs.on('end', resolve);
-    rs.pipe(ws, { end: false });
-  });
-}
-
-/** 按序合并所有分片为最终文件（单片时直接 rename，避免多余拷贝） */
+/**
+ * 按序合并所有分片为最终文件（单片时直接 rename，避免多余拷贝）。
+ *
+ * 全程流式（createReadStream + pipe）：一次只驻留一个分片的缓冲，不整块读入内存，
+ * 也不会阻塞事件循环（只有开头/结尾的 rename、unlink 是同步调用）。
+ *
+ * 两个必须注意的点：
+ *   1. `pipe` **不会**把目标流的 error 转给源流，未监听的 'error' 会升级成未捕获异常
+ *      直接把进程干掉（磁盘写满 / 权限不足时就会踩到）→ 这里把写入流错误转成 rejection；
+ *   2. 失败时主动 destroy 当前读流，避免留下未关闭的 fd。
+ */
 async function materialize(meta: SessionMeta, dir: string, destPath: string): Promise<void> {
   if (meta.chunks === 1) {
     fs.renameSync(partPath(dir, 0), destPath);
     return;
   }
   const ws = fs.createWriteStream(destPath);
-  try {
-    for (let i = 0; i < meta.chunks; i++) await appendToStream(partPath(dir, i), ws);
+  const opened: fs.ReadStream[] = [];
+  let onWsError: (e: Error) => void = () => { /* 下一行立即被替换 */ };
+  const wsFailed = new Promise<never>((_resolve, reject) => { onWsError = reject; });
+  ws.on('error', (e: Error) => onWsError(e));
+
+  const copy = (async (): Promise<void> => {
+    for (let i = 0; i < meta.chunks; i++) {
+      const rs = fs.createReadStream(partPath(dir, i));
+      opened.push(rs);
+      await new Promise<void>((resolve, reject) => {
+        rs.on('error', reject);
+        rs.on('end', resolve);
+        rs.pipe(ws, { end: false });
+      });
+    }
     await new Promise<void>((resolve) => ws.end(resolve));
+  })();
+
+  try {
+    // 谁先失败就以谁为准：拷贝出错 或 目标流出错，都会立刻中断
+    await Promise.race([copy, wsFailed]);
   } catch (e) {
+    for (const rs of opened) {
+      try { rs.destroy(); } catch (e2) { /* 忽略 */ }
+    }
     try { ws.destroy(); } catch (e2) { /* 忽略 */ }
     try { fs.unlinkSync(destPath); } catch (e2) { /* 忽略 */ }
     throw e;
@@ -2451,8 +2486,12 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     // 单片体积必须精确匹配（仅最后一片可短），否则拼接结果会损坏
     const expect = chunkSizeOf(meta, index);
     const dir = sessionDir(uploadId);
+    // 客户端可带上本片 sha256：能挡住「长度正好不变」的传输损坏 / 内容错片
+    // （不上报也接受，老客户端与不支持 crypto.subtle 的浏览器照常可用）
+    const wantSha = (urlObj.searchParams.get('sha') || '').trim().toLowerCase();
     streamUploadToDisk(req, bm[1].replace(/^"|"$/g, ''), { maxBytes: expect, dir }).then((part) => {
-      if (part.size !== expect) {
+      const bad = part.size !== expect || (CHUNK_SHA_RE.test(wantSha) && part.sha !== wantSha);
+      if (bad) {
         try { fs.unlinkSync(part.tmpPath); } catch (e) { /* 忽略 */ }
         sendJSON(res, 400, { ok: false, error: 'api.upload.badChunk' });
         logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -2491,21 +2530,33 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         logger.write({ ip, method: req.method, url: pathname, status: 409, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
-      const sha = await shaOfParts(meta, dir);
-      const head = headOfFirstPart(dir);
-      const r = await finalizeUpload(head, meta.name, meta.size, sha, (dest) => materialize(meta, dir, dest));
-      removeSession(uploadId); // 已落盘（或命中去重），分片目录不再需要
-      audit.add({
-        actor: me.username,
-        action: 'upload',
-        detail: r.deduped
-          ? auditDetail('log.detail.upload.dedup', { name: r.name, size: r.size })
-          : auditDetail(r.kind === 'image' ? 'log.detail.upload.image' : 'log.detail.upload.file',
-            { name: r.name, size: r.size }),
-        ip
-      });
-      sendJSON(res, 200, { ok: true, kind: r.kind, url: r.url, name: r.name, size: r.size, deduped: r.deduped });
-      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      // 同一 uploadId 的合并串行化：重复/并发调用只会浪费一次读分片 + 写目标文件的开销，
+      // 结果虽然被 sha 去重兜住了，但没必要让它们真的跑起来。
+      if (mergingUploads.has(uploadId)) {
+        sendJSON(res, 409, { ok: false, error: 'api.upload.merging' });
+        logger.write({ ip, method: req.method, url: pathname, status: 409, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      mergingUploads.add(uploadId);
+      try {
+        const sha = await shaOfParts(meta, dir);
+        const head = headOfFirstPart(dir);
+        const r = await finalizeUpload(head, meta.name, meta.size, sha, (dest) => materialize(meta, dir, dest));
+        removeSession(uploadId); // 已落盘（或命中去重），分片目录不再需要
+        audit.add({
+          actor: me.username,
+          action: 'upload',
+          detail: r.deduped
+            ? auditDetail('log.detail.upload.dedup', { name: r.name, size: r.size })
+            : auditDetail(r.kind === 'image' ? 'log.detail.upload.image' : 'log.detail.upload.file',
+              { name: r.name, size: r.size }),
+          ip
+        });
+        sendJSON(res, 200, { ok: true, kind: r.kind, url: r.url, name: r.name, size: r.size, deduped: r.deduped });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      } finally {
+        mergingUploads.delete(uploadId); // 无论成功失败都放锁，失败后可立即重试
+      }
     }).catch((e) => {
       // 合并失败时**保留**会话与分片，客户端可直接重试 complete
       sendJSON(res, e && e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.upload.failed' });

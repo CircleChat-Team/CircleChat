@@ -465,6 +465,7 @@ const dict: Record<string, string> = {
   "api.upload.sessionGone": "Upload session expired, restarting",
   "api.upload.badChunk": "Chunk verification failed, please retry",
   "api.upload.incomplete": "Upload incomplete",
+  "api.upload.merging": "File is being assembled, please retry shortly",
   "api.register.submitted": "Registration submitted; please wait for admin approval before signing in",
   "log.detail.login.ok": "Login succeeded",
   "log.detail.login.fail.rateLimited": "Login rate limit triggered (too many failures in 10 minutes)",
