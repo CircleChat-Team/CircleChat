@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { chatState, toggleSelectMode, setNotify, setSendKey, setNotifySound, clearNotice } from './core/chat';
+import { chatState, toggleSelectMode, setNotify, setSendKey, setNotifySound, clearNotice, uploadFiles } from './core/chat';
 import { NOTIFY_SOUNDS, playNotifyPreview } from './core/sound';
 import { tr } from './core/i18n';
 import { accent, setAccent } from './core/theme';
@@ -71,6 +71,28 @@ function resetAccent(): void {
 function onPassChanged(): void {
   chatState.mustChange = false;
 }
+
+// 整屏拖拽上传：把文件拖到聊天区任意位置都能发送（此前只有输入栏一小条可接收）
+const dragDepth = ref(0);
+function isFileDrag(e: DragEvent): boolean {
+  return !!(e.dataTransfer && Array.from(e.dataTransfer.types).indexOf('Files') !== -1);
+}
+function onDragOver(e: DragEvent): void {
+  if (isFileDrag(e)) e.preventDefault();
+}
+function onDragEnter(e: DragEvent): void {
+  if (isFileDrag(e)) dragDepth.value++;
+}
+function onDragLeave(): void {
+  dragDepth.value = Math.max(0, dragDepth.value - 1);
+}
+function onDrop(e: DragEvent): void {
+  dragDepth.value = 0;
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+    e.preventDefault();
+    uploadFiles(e.dataTransfer.files);
+  }
+}
 </script>
 
 <template>
@@ -92,7 +114,15 @@ function onPassChanged(): void {
 
     <div class="sidebar-backdrop" @click="sidebarOpen = false"></div>
 
-    <main class="chat-main">
+    <main
+      class="chat-main"
+      @dragenter="onDragEnter"
+      @dragleave="onDragLeave"
+      @dragover="onDragOver"
+      @drop="onDrop"
+    >
+      <div v-if="dragDepth" class="drop-mask"><div class="drop-tip">{{ tr('chat.dropTip') }}</div></div>
+
       <header class="chat-header">
         <button
           type="button"

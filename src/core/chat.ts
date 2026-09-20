@@ -586,15 +586,30 @@ export interface UploadTask {
   retryable: boolean;
   /** 实时上传速度（字节/秒）；未在传输中时为 0 */
   speed: number;
+  /** 图片缩略图（本地 object URL，仅用于上传面板预览；移除任务时需 revoke） */
+  thumbUrl?: string;
 }
 
 let uploadSeq = 0;
+/** 同时进行的上传数：全串行太慢、全并行又挤带宽，取 3 作折中 */
+const MAX_CONCURRENT_UPLOADS = 3;
 /** 任务 id → 待上传文件；不放进响应式状态，避免 Vue 代理 DOM 对象 */
 const pendingFiles = new Map<number, File>();
 /** 任务 id → 速度采样（非响应式，避免每个进度事件都额外渲染一次） */
 const speedTrack = new Map<number, { loaded: number; ts: number; ema: number }>();
 /** 任务 id → 进行中的 XHR，供「取消上传」中断请求 */
 const uploadXhr = new Map<number, XMLHttpRequest>();
+/** 排队等待调度的任务 id（FIFO） */
+const waitQueue: number[] = [];
+/** 当前正在上传的任务数（受 MAX_CONCURRENT_UPLOADS 限制） */
+let runningUploads = 0;
+/**
+ * 还没发出消息的任务 id。并发上传会打乱完成顺序，这里先把成功结果攒在
+ * readyResults 里，按 id 升序发送，保证消息顺序与用户选择顺序一致。
+ */
+const unsentIds = new Set<number>();
+/** 任务 id → 已上传成功、等待按序发送的结果 */
+const readyResults = new Map<number, { kind: string; url: string; name: string; size: number }>();
 
 function newTask(file: File, gating: boolean): UploadTask {
   const kind: 'image' | 'file' = /^image\//.test(file.type || '') ? 'image' : 'file';
@@ -671,7 +686,51 @@ function postUpload(id: number, file: File, onProgress: (loaded: number, total: 
 
 function failUpload(id: number, error: string): void {
   notify(error);
+  unsentIds.delete(id);
+  readyResults.delete(id);
   patchTask(id, { status: 'failed', error: tr(error), retryable: pendingFiles.has(id), speed: 0 });
+  flushReady(); // 失败的排队任务不再阻塞后面已完成的任务
+}
+
+/** 按 id 升序把已上传成功的任务发出去；最早的那个还没就绪就先等（避免并发导致消息乱序） */
+function flushReady(): void {
+  for (;;) {
+    let min = Infinity;
+    for (const id of unsentIds) if (id < min) min = id;
+    if (min === Infinity) return;
+    const r = readyResults.get(min);
+    if (!r) return;
+    unsentIds.delete(min);
+    readyResults.delete(min);
+    dispatchUpload(min, r);
+  }
+}
+
+/** 上传成功后组装并发送消息；发送后短暂停留再收起进度条 */
+function dispatchUpload(id: number, r: { kind: string; url: string; name: string; size: number }): void {
+  const t = taskById(id);
+  if (!t) return;
+  patchTask(id, { percent: 100, loaded: t.size, status: 'done', retryable: false, speed: 0 });
+  pendingFiles.delete(id);
+  const data: Record<string, unknown> = { type: r.kind, content: r.url, name: r.name, size: r.size };
+  if (state.activeGid != null) data.gid = state.activeGid;
+  if (state.activeDmPeer != null) data.pm = state.activeDmPeer;
+  if (send({ type: 'msg', data })) playOutgoing();
+  // 让「已发送」停留一下再收起，避免进度条一闪而过
+  window.setTimeout(() => dismissUpload(id), 1200);
+}
+
+/** 从排队队列取任务开跑，直到用满并发数；每个任务结束后再补位 */
+function pumpQueue(): void {
+  while (runningUploads < MAX_CONCURRENT_UPLOADS && waitQueue.length) {
+    const id = waitQueue.shift() as number;
+    if (!pendingFiles.has(id) || !taskById(id)) continue; // 已被取消 / 已移除
+    runningUploads++;
+    void runUpload(id).finally(() => {
+      runningUploads--;
+      pumpQueue();
+    });
+  }
 }
 
 async function runUpload(id: number): Promise<void> {
@@ -708,14 +767,14 @@ async function runUpload(id: number): Promise<void> {
       failUpload(id, 'chat.dm.gateToast');
       return;
     }
-    patchTask(id, { percent: 100, loaded: file.size, status: 'done', retryable: false, speed: 0 });
-    pendingFiles.delete(id);
-    const data: Record<string, unknown> = { type: body.kind, content: body.url, name: body.name, size: body.size };
-    if (state.activeGid != null) data.gid = state.activeGid;
-    if (state.activeDmPeer != null) data.pm = state.activeDmPeer;
-    if (send({ type: 'msg', data })) playOutgoing();
-    // 让「已发送」停留一下再收起，避免进度条一闪而过
-    window.setTimeout(() => dismissUpload(id), 1200);
+    // 先攒结果，等更早的任务也就绪后按序发送
+    readyResults.set(id, {
+      kind: String(body.kind),
+      url: String(body.url),
+      name: String(body.name),
+      size: Number(body.size)
+    });
+    flushReady();
   } catch (e) {
     // 用户主动取消：任务已移除，不当作失败（否则会弹一条"上传失败"）
     if (e instanceof Error && e.message === 'abort') return;
@@ -733,19 +792,21 @@ export function cancelUpload(id: number): void {
   dismissUpload(id);
 }
 
-export async function uploadFiles(files: FileList | File[]): Promise<void> {
+export function uploadFiles(files: FileList | File[]): void {
   const gating = dmgating();
-  const queue: number[] = [];
   for (const f of Array.from(files)) {
     const t = newTask(f, gating);
     state.uploads.push(t);
-    if (t.status === 'queued') {
-      pendingFiles.set(t.id, f);
-      queue.push(t.id);
+    // 前置校验不通过（超大 / 私聊受限）的直接标红，不进队列
+    if (t.status !== 'queued') continue;
+    if (t.kind === 'image' && /^image\//.test(f.type || '')) {
+      try { t.thumbUrl = URL.createObjectURL(f); } catch { /* 忽略（不支持时退化为图标） */ }
     }
+    pendingFiles.set(t.id, f);
+    unsentIds.add(t.id);
+    waitQueue.push(t.id);
   }
-  // 逐个上传：串行更稳，且队列里的任务会显示为「等待上传」
-  for (const id of queue) await runUpload(id);
+  pumpQueue(); // 最多同时传 MAX_CONCURRENT_UPLOADS 个，其余排队等待
 }
 
 /** 重试失败的上传（前置校验失败的没有文件可重传，只能关闭） */
@@ -753,16 +814,36 @@ export function retryUpload(id: number): void {
   const t = taskById(id);
   if (!t || t.status !== 'failed' || !pendingFiles.has(id)) return;
   patchTask(id, { status: 'queued', percent: 0, error: '', retryable: true, speed: 0 });
-  void runUpload(id);
+  unsentIds.add(id);
+  waitQueue.push(id);
+  pumpQueue();
+}
+
+/** 一键重试所有可重试的失败任务 */
+export function retryAllFailed(): void {
+  for (const t of [...state.uploads]) {
+    if (t.status === 'failed' && t.retryable) retryUpload(t.id);
+  }
 }
 
 /** 关闭（移除）一条上传任务 */
 export function dismissUpload(id: number): void {
   const i = state.uploads.findIndex((t) => t.id === id);
-  if (i >= 0) state.uploads.splice(i, 1);
+  if (i >= 0) {
+    const t = state.uploads[i];
+    if (t.thumbUrl) {
+      try { URL.revokeObjectURL(t.thumbUrl); } catch { /* 忽略 */ }
+    }
+    state.uploads.splice(i, 1);
+  }
+  const qi = waitQueue.indexOf(id);
+  if (qi >= 0) waitQueue.splice(qi, 1);
   pendingFiles.delete(id);
   speedTrack.delete(id);
   uploadXhr.delete(id);
+  unsentIds.delete(id);
+  readyResults.delete(id);
+  flushReady(); // 移除可能让后面已完成的任务不再被阻塞
 }
 
 export function notifyTyping(): void {

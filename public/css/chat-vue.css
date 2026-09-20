@@ -696,10 +696,32 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 .upload-panel.shifted { bottom: calc(100% + 44px); }
 .upload-panel::-webkit-scrollbar { width: 6px; }
 .upload-panel::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, .35); border-radius: 6px; }
-.upload-head { color: var(--muted); }
+.upload-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+}
+.upload-head-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .upload-item { display: flex; flex-direction: column; gap: 5px; }
 .upload-line { display: flex; align-items: center; gap: 8px; }
 .upload-icon { flex: 0 0 auto; width: 15px; height: 15px; fill: var(--muted); }
+/* 图片任务直接显示本地缩略图，比统一图标更容易辨认 */
+.upload-thumb {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--fill);
+}
+.upload-item.done .upload-icon { fill: var(--primary); }
 .upload-name {
   flex: 1 1 auto;
   min-width: 0;
@@ -737,6 +759,7 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
   cursor: pointer;
 }
 .upload-act:hover { background: var(--fill-hover); }
+.upload-bar.overall { height: 5px; }
 .upload-bar { height: 4px; overflow: hidden; background: var(--fill); border-radius: 2px; }
 .upload-bar > i {
   display: block;

@@ -11,7 +11,6 @@ const bigEl = ref<HTMLTextAreaElement | null>(null);
 const editOpen = ref(false); // 放大编辑器
 const showEmoji = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
-const dragDepth = ref(0);
 const showMention = ref(true);
 
 const gating = computed(() => dmgating());
@@ -204,40 +203,13 @@ function onFile(e: Event): void {
   if (inp.files && inp.files.length) uploadFiles(inp.files);
   inp.value = '';
 }
-function onDrop(e: DragEvent): void {
-  dragDepth.value = 0;
-  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
-    e.preventDefault();
-    uploadFiles(e.dataTransfer.files);
-  }
-}
-function isFileDrag(e: DragEvent): boolean {
-  return !!(e.dataTransfer && Array.from(e.dataTransfer.types).indexOf('Files') !== -1);
-}
-function onDragOver(e: DragEvent): void {
-  if (isFileDrag(e)) e.preventDefault();
-}
-function onDragEnter(e: DragEvent): void {
-  if (isFileDrag(e)) dragDepth.value++;
-}
-function onDragLeave(): void {
-  dragDepth.value = Math.max(0, dragDepth.value - 1);
-}
 function cancelReply(): void {
   chatState.replyTo = null;
 }
 </script>
 
 <template>
-  <footer
-    class="chat-inputbar"
-    @dragenter="onDragEnter"
-    @dragleave="onDragLeave"
-    @dragover="onDragOver"
-    @drop="onDrop"
-  >
-    <div v-if="dragDepth" class="drop-mask"><div class="drop-tip">{{ tr('chat.dropTip') }}</div></div>
-
+  <footer class="chat-inputbar">
     <div v-if="typing" class="typing-bar">{{ tr('chat.typing', { name: typing }) }}</div>
 
     <div v-if="reply" class="reply-bar">

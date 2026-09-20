@@ -1,20 +1,47 @@
 <script setup lang="ts">
 /* 上传指示器：显示每个文件的上传进度；失败可重试，完成后自动收起 */
 import { computed } from 'vue';
-import { chatState, retryUpload, dismissUpload, cancelUpload } from '../../core/chat';
+import { chatState, retryUpload, retryAllFailed, dismissUpload, cancelUpload } from '../../core/chat';
 import type { UploadTask } from '../../core/chat';
 import { tr, trn } from '../../core/i18n';
 import { fmtSize } from '../../core/format';
 
 const tasks = computed<UploadTask[]>(() => chatState.uploads);
 const busy = computed(() => tasks.value.some((t) => t.status === 'uploading' || t.status === 'queued'));
+/** 有可重试的失败任务时，给出「全部重试」入口 */
+const hasRetryable = computed(() => tasks.value.some((t) => t.status === 'failed' && t.retryable));
+
+/** 总进度：按字节加权（小文件传完不会被大文件拖成"没进展"的错觉） */
+const overallPct = computed(() => {
+  const active = tasks.value.filter((t) => t.status !== 'failed');
+  const total = active.reduce((a, t) => a + t.size, 0);
+  if (!total) return 0;
+  const loaded = active.reduce((a, t) => a + Math.min(t.loaded, t.size), 0);
+  return Math.min(100, Math.round((loaded / total) * 100));
+});
 
 function statusText(t: UploadTask): string {
   if (t.status === 'failed') return t.error || tr('chat.upload.failed');
   if (t.status === 'done') return tr('chat.upload.done');
   if (t.status === 'queued') return tr('chat.upload.queued');
-  // 上传中：百分比 + 实时速度
-  return t.speed > 0 ? t.percent + '% · ' + fmtSize(t.speed) + '/s' : t.percent + '%';
+  // 上传中：百分比 + 实时速度 + 预计剩余时间
+  const parts = [t.percent + '%'];
+  if (t.speed > 0) parts.push(fmtSize(t.speed) + '/s');
+  const eta = etaText(t);
+  if (eta) parts.push(eta);
+  return parts.join(' · ');
+}
+
+/** 预计剩余时间：按当前速度外推；不足 1 秒或未测得速度时不显示 */
+function etaText(t: UploadTask): string {
+  if (t.speed <= 0) return '';
+  const remain = (t.size - t.loaded) / t.speed;
+  if (!Number.isFinite(remain) || remain < 1) return '';
+  const sec = Math.round(remain);
+  const human = sec < 60
+    ? tr('chat.upload.unitSec', { n: sec })
+    : tr('chat.upload.unitMin', { n: Math.floor(sec / 60), s: sec % 60 });
+  return tr('chat.upload.remaining', { time: human });
 }
 
 /** 体积显示：传输中/已完成显示「已上传 / 总量」，其余只显示总量 */
@@ -43,13 +70,24 @@ function barState(t: UploadTask): string {
 
 <template>
   <div v-if="tasks.length" class="upload-panel">
-    <div v-if="tasks.length > 1 && busy" class="upload-head">
-      {{ trn('chat.upload.files', tasks.length) }}
+    <div v-if="tasks.length > 1" class="upload-head">
+      <span class="upload-head-text">
+        {{ trn('chat.upload.summary', tasks.length) }}
+        <template v-if="busy"> · {{ tr('chat.upload.overall', { pct: overallPct }) }}</template>
+      </span>
+      <button v-if="hasRetryable" type="button" class="upload-act" @click="retryAllFailed">
+        {{ tr('chat.upload.retryAll') }}
+      </button>
+    </div>
+
+    <div v-if="busy" class="upload-bar overall">
+      <i :style="{ width: overallPct + '%' }"></i>
     </div>
 
     <div v-for="t in tasks" :key="t.id" class="upload-item" :class="t.status">
       <div class="upload-line">
-        <svg v-if="t.kind === 'image'" class="upload-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <img v-if="t.thumbUrl" class="upload-thumb" :src="t.thumbUrl" alt="" />
+        <svg v-else-if="t.kind === 'image'" class="upload-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" />
         </svg>
         <svg v-else class="upload-icon" viewBox="0 0 24 24" aria-hidden="true">

@@ -3,7 +3,7 @@ import { run } from '../lib/migrate';
 import * as auth from '../lib/auth';
 import * as store from '../lib/store';
 import * as audit from '../lib/audit';
-import { runFileCleanup, FILE_CLEANUP_INTERVAL, UPLOAD_DIR } from '../lib/runtime';
+import { runFileCleanup, purgeUploadTmp, FILE_CLEANUP_INTERVAL, UPLOAD_DIR } from '../lib/runtime';
 
 // 启动初始化（与 server.js L1897-1914 一致）：
 // migrate -> auth.init -> store.load -> audit.load -> mkdir(uploads) -> 清理定时器
@@ -13,6 +13,7 @@ export default defineNitroPlugin(() => {
   store.load();
   audit.load();               // 初始化审计日志表
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  purgeUploadTmp(); // 清理上次进程被强杀遗留的上传半成品
 
   // 过期文件清理：启动执行一次，之后定期检查（仅删硬盘文件，消息记录保留）
   runFileCleanup();
@@ -24,3 +25,4 @@ export default defineNitroPlugin(() => {
   console.log(' 消息保留: 最近 ' + store.MAX_MESSAGES + ' 条');
   console.log('==========================================');
 });
+

@@ -36,6 +36,9 @@ function auditDetail(key: string, vars?: Record<string, unknown>): string {
 const ROOT = process.cwd(); // 运行根目录（启动目录 = 项目根），Nitro 打包后改用 process.cwd()
 const PUB = path.join(ROOT, 'public');
 const UPLOAD_DIR = path.join(PUB, 'uploads');
+// 上传临时目录：multipart 边收边写到这里，落盘校验（去重/魔数）通过后再 rename 进 UPLOAD_DIR。
+// 独立成子目录是为了让「文件列表 / 静态服务」天然忽略半成品文件。
+const TMP_DIR = path.join(UPLOAD_DIR, '.tmp');
 // 上传上限（readBody 与消息 size 校验都用它）。改这里时同步更新文案 api.upload.tooLarge。
 const MAX_UPLOAD = 100 * 1024 * 1024; // 单文件上限 100MB
 // 请求体上限要留足 multipart 头尾开销：否则"文件刚好 99.x MB"会在传完之后才被拒，
@@ -264,28 +267,170 @@ function serveStatic(req: any, res: any, pathname: string): void {
   });
 }
 
-// ---------- multipart 解析（自研，仅支持文件字段） ----------
+// ---------- multipart 解析（边收边写盘，仅支持文件字段） ----------
 
-function parseMultipart(buf: Buffer, boundary: string): { header: string; content: Buffer }[] {
-  const delim = Buffer.from('--' + boundary);
-  const parts: { header: string; content: Buffer }[] = [];
-  let pos = 0;
-  for (;;) {
-    const start = buf.indexOf(delim, pos);
-    if (start === -1) break;
-    const headerEnd = buf.indexOf('\r\n\r\n', start);
-    if (headerEnd === -1) break;
-    const headerBuf = buf.slice(start + delim.length + 2, headerEnd); // 跳过行尾 \r\n
-    const next = buf.indexOf(delim, headerEnd + 4);
-    if (next === -1) break;
-    const content = buf.slice(headerEnd + 4, next - 2); // 去掉尾部 \r\n
-    parts.push({ header: headerBuf.toString('latin1'), content });
-    pos = next + delim.length;
-    // 判断是否结束标记 --boundary--
-    if (buf[pos] === 0x2d && buf[pos + 1] === 0x2d) break; // '--'
-    if (buf[pos] === 0x0d && buf[pos + 1] === 0x0a) pos += 2;
+interface StreamedFile {
+  /** 原始文件名（已做路径/非法字符清理） */
+  name: string;
+  /** 文件字节数 */
+  size: number;
+  /** 内容 sha256（十六进制），用于去重 */
+  sha: string;
+  /** 已落盘的临时文件绝对路径，调用方负责 rename 或删除 */
+  tmpPath: string;
+  /** 前 16 字节，供图片魔数嗅探 */
+  head: Buffer;
+}
+
+/**
+ * 流式解析 multipart，把 name="file" 的字段直接写入 TMP_DIR 下的临时文件，并增量计算 sha256。
+ *
+ * 对比「先 readBody 收全量、再 parseMultipart 切片」：
+ *   1. 内存占用从「约等于文件大小」降到常数级（只保留一个边界扫描窗口），
+ *      大文件上传不再出现内存尖峰，多路并发上传也更安全；
+ *   2. 数据边到边写盘，收到即可开始持久化，省掉一次整块 memcpy；
+ *   3. 未命中的其他字段 / 前导垃圾内容直接丢弃，不驻留内存。
+ *
+ * 失败语义：超过 MAX_UPLOAD → TOO_LARGE；没有 file 字段 → NO_FILE；请求中断 → REQUEST_ABORTED。
+ */
+function streamUploadToDisk(req: any, boundary: string): Promise<StreamedFile> {
+  return new Promise((resolve, reject) => {
+    const dash = Buffer.from('--' + boundary);
+    const crlfDash = Buffer.from('\r\n--' + boundary);
+    fs.mkdirSync(TMP_DIR, { recursive: true });
+    const tmpPath = path.join(TMP_DIR, '.tmp-' + crypto.randomBytes(12).toString('hex'));
+    const out = fs.createWriteStream(tmpPath);
+    const hash = crypto.createHash('sha256');
+
+    let buf: Buffer = Buffer.alloc(0);
+    let head: Buffer = Buffer.alloc(0);
+    let size = 0;
+    let received = 0;
+    let name: string | null = null;
+    let state: 'preamble' | 'headers' | 'body' | 'skip' = 'preamble';
+    let paused = false;
+    let settled = false;
+
+    const removeTmp = (): void => { try { fs.unlinkSync(tmpPath); } catch (e) { /* 文件可能尚未创建 */ } };
+    const fail = (err: Error): void => {
+      if (settled) return;
+      settled = true;
+      // 超限 / 中断时立刻掐断请求，避免客户端继续白传数据
+      if (err.message === 'TOO_LARGE') { try { req.destroy(); } catch (e) { /* 忽略 */ } }
+      try { out.destroy(); } catch (e) { /* 忽略 */ }
+      removeTmp();
+      reject(err);
+    };
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      // 等写入流真正 flush 到磁盘再 resolve，保证调用方 rename 时文件已完整
+      out.end(() => resolve({ name: name || 'file', size, sha: hash.digest('hex'), tmpPath, head }));
+    };
+    out.on('error', (e: Error) => fail(e));
+
+    // 写出文件内容：累计大小 / sha / 魔数头；write 出现背压时暂停请求，drain 后继续
+    const writeChunk = (chunk: Buffer): void => {
+      if (!chunk.length || settled) return;
+      size += chunk.length;
+      if (size > MAX_UPLOAD) { fail(new Error('TOO_LARGE')); return; }
+      hash.update(chunk);
+      if (head.length < 16) head = Buffer.concat([head, chunk.subarray(0, 16 - head.length)]);
+      if (!out.write(chunk)) {
+        paused = true;
+        req.pause();
+        out.once('drain', () => {
+          if (settled) return;
+          paused = false;
+          req.resume();
+          pump();
+        });
+      }
+    };
+
+    // 状态机：按需消费 buf，消费不完就留到下一块数据；跨块的边界用「保留尾部」处理
+    const pump = (): void => {
+      while (!settled && !paused) {
+        if (state === 'preamble') {
+          const i = buf.indexOf(dash);
+          if (i === -1) {
+            if (buf.length > dash.length + 2) buf = buf.slice(buf.length - dash.length - 2);
+            return;
+          }
+          const after = i + dash.length;
+          if (buf.length < after + 2) { buf = buf.slice(i); return; } // 边界后还有 1 字节没到
+          if (buf[after] === 0x2d && buf[after + 1] === 0x2d) { fail(new Error('NO_FILE')); return; } // --boundary-- 收尾
+          if (buf[after] === 0x0d && buf[after + 1] === 0x0a) { buf = buf.slice(after + 2); state = 'headers'; continue; }
+          buf = buf.slice(i + 1); // 伪边界，继续向后找
+          continue;
+        }
+        if (state === 'headers') {
+          const i = buf.indexOf('\r\n\r\n');
+          if (i === -1) {
+            if (buf.length > 16 * 1024) fail(new Error('BAD_HEADERS'));
+            return;
+          }
+          const header = buf.slice(0, i).toString('latin1');
+          buf = buf.slice(i + 4);
+          if (partFieldName(header) === 'file') { name = partFilename(header) || 'file'; state = 'body'; }
+          else state = 'skip';
+          continue;
+        }
+        if (state === 'skip') {
+          const idx = buf.indexOf(crlfDash);
+          if (idx === -1) { if (buf.length > crlfDash.length) buf = buf.slice(buf.length - crlfDash.length); return; }
+          buf = buf.slice(idx + 2); // 指向下一个 --boundary
+          state = 'preamble';
+          continue;
+        }
+        // body：找「\r\n--boundary」判定文件内容结束
+        const idx = buf.indexOf(crlfDash);
+        if (idx !== -1) {
+          const content = buf.slice(0, idx);
+          buf = buf.slice(idx); // 保留边界，drain 后重入时 idx===0 不会重复写出
+          writeChunk(content);
+          if (settled || paused) return;
+          finish();
+          return;
+        }
+        if (buf.length > crlfDash.length) {
+          const end = buf.length - crlfDash.length;
+          const chunk = buf.slice(0, end);
+          buf = buf.slice(end); // 尾部可能跨块，留到下次拼接
+          writeChunk(chunk);
+          if (settled || paused) return;
+        }
+        return;
+      }
+    };
+
+    req.on('data', (c: Buffer) => {
+      if (settled) return;
+      received += c.length;
+      if (received > MAX_UPLOAD_BODY) { fail(new Error('TOO_LARGE')); return; }
+      buf = buf.length ? Buffer.concat([buf, c]) : c;
+      pump();
+    });
+    req.on('end', () => { if (!settled) fail(new Error('INCOMPLETE')); });
+    const onFail = (e?: Error): void => fail(e || new Error('REQUEST_ABORTED'));
+    req.on('error', onFail);
+    req.on('aborted', onFail);
+    req.on('close', () => { if (!req.complete) onFail(); });
+  });
+}
+
+/** 清理上传临时目录里的残留文件（进程被强杀时会留下 .tmp-*，启动时兜底清一次） */
+export function purgeUploadTmp(): void {
+  let names: string[] = [];
+  try { names = fs.readdirSync(TMP_DIR); } catch (e) { return; } // 目录不存在视为无需清理
+  const now = Date.now();
+  for (const n of names) {
+    if (n.indexOf('.tmp-') !== 0) continue;
+    const p = path.join(TMP_DIR, n);
+    try {
+      if (now - fs.statSync(p).mtimeMs > 24 * 3600 * 1000) fs.unlinkSync(p);
+    } catch (e) { /* 忽略 */ }
   }
-  return parts;
 }
 
 function partFilename(header: string): string | null {
@@ -1986,21 +2131,21 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     const ctype = req.headers['content-type'] || '';
     const bm = /boundary=([^;]+)/i.exec(ctype);
     if (!bm) { sendJSON(res, 400, { ok: false, error: 'api.upload.notMultipart' }); return; }
-    readBody(req, MAX_UPLOAD_BODY).then((body) => {
-      const parts = parseMultipart(body, bm[1].replace(/^"|"$/g, ''));
-      const filePart = parts.find((pt) => partFieldName(pt.header) === 'file');
-      if (!filePart || !filePart.content.length) {
-        sendJSON(res, 400, { ok: false, error: 'api.upload.noFile' });
-        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
-        return;
-      }
-      const buf = filePart.content;
-      const origName = partFilename(filePart.header) || 'file';
+    // 声明体积就超限的直接拒绝：不必让客户端把上百 MB 传完才失败（"传到 99% 才报错"）。
+    const declared = parseInt(req.headers['content-length'] as string, 10);
+    if (Number.isFinite(declared) && declared > MAX_UPLOAD_BODY) {
+      sendJSON(res, 413, { ok: false, error: 'api.upload.tooLarge' });
+      logger.write({ ip, method: req.method, url: pathname, status: 413, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      try { req.destroy(); } catch (e) { /* 忽略 */ }
+      return;
+    }
+    streamUploadToDisk(req, bm[1].replace(/^"|"$/g, '')).then((file) => {
+      const origName = file.name;
       const ext = path.extname(origName).toLowerCase();
 
       // 不限文件类型，一律接收。
       // 图片按文件内容（魔数）判断；视频/音频按扩展名归类（可内联播放、不可脚本执行，安全）。
-      const sniffed = sniffImage(buf);
+      const sniffed = sniffImage(file.head);
       let kind: 'image' | 'video' | 'audio' | 'file';
       let saveExt: string;
       if (sniffed) {
@@ -2013,19 +2158,25 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       }
       // 内容去重：按 sha256 判断这份内容是否已经落过盘，是的话直接复用已有文件，
       // 磁盘上同一份内容只会存一遍（多条消息可以指向同一个 /uploads/xxx）。
-      const sha = crypto.createHash('sha256').update(buf).digest('hex');
-      const hit = store.findUploadBySha(sha);
+      const hit = store.findUploadBySha(file.sha);
       let saveName: string;
       let deduped = false;
       if (hit && UPLOAD_NAME_RE.test(hit) && fs.existsSync(path.join(UPLOAD_DIR, hit))) {
         saveName = hit; // 命中且文件还在 → 不再写盘
         deduped = true;
+        try { fs.unlinkSync(file.tmpPath); } catch (e) { /* 忽略 */ }
       } else {
         saveName = crypto.randomBytes(8).toString('hex') + saveExt;
-        const savePath = path.join(UPLOAD_DIR, saveName);
         fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-        fs.writeFileSync(savePath, buf);
-        store.putUpload(sha, saveName, buf.length);
+        // 临时文件已经在 UPLOAD_DIR 的子目录里（同一文件系统），rename 是原子操作，不会出现半截文件
+        try {
+          fs.renameSync(file.tmpPath, path.join(UPLOAD_DIR, saveName));
+        } catch (e) {
+          // 极少数跨设备 / 被占用的情况退回拷贝
+          fs.copyFileSync(file.tmpPath, path.join(UPLOAD_DIR, saveName));
+          try { fs.unlinkSync(file.tmpPath); } catch (e2) { /* 忽略 */ }
+        }
+        store.putUpload(file.sha, saveName, file.size);
       }
       // 复用已有文件时类型要按最终落盘名判定：扩展名可能和本次上传的原始扩展名不同
       const finalExt = path.extname(saveName).toLowerCase();
@@ -2034,9 +2185,9 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         actor: me.username,
         action: 'upload',
         detail: deduped
-          ? auditDetail('log.detail.upload.dedup', { name: origName, size: buf.length })
+          ? auditDetail('log.detail.upload.dedup', { name: origName, size: file.size })
           : auditDetail(kind === 'image' ? 'log.detail.upload.image' : 'log.detail.upload.file',
-            { name: origName, size: buf.length }),
+            { name: origName, size: file.size }),
         ip
       });
       sendJSON(res, 200, {
@@ -2044,12 +2195,16 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         kind,
         url: '/uploads/' + saveName,
         name: origName,
-        size: buf.length,
+        size: file.size,
         deduped
       });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
-      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: e.message === 'BODY_TOO_LARGE' ? 'api.upload.tooLarge' : 'api.upload.failed' });
+      const msg = e && e.message;
+      const status = msg === 'TOO_LARGE' ? 413 : (msg === 'NO_FILE' ? 400 : 400);
+      const error = msg === 'TOO_LARGE' ? 'api.upload.tooLarge' : (msg === 'NO_FILE' ? 'api.upload.noFile' : 'api.upload.failed');
+      sendJSON(res, status, { ok: false, error });
+      logger.write({ ip, method: req.method, url: pathname, status, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     });
     return;
   }
@@ -2098,6 +2253,7 @@ export function runFileCleanup(): void {
   } catch (e: any) {
     console.error('[cleanup] 文件过期清理失败：' + (e && e.message ? e.message : e));
   }
+  purgeUploadTmp(); // 顺带收拾上传临时目录里的残留半成品
 }
 
 export { UPLOAD_DIR, FILE_CLEANUP_INTERVAL };
