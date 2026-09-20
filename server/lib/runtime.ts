@@ -46,6 +46,17 @@ const MAX_UPLOAD = 100 * 1024 * 1024; // 单文件上限 100MB
 const MAX_UPLOAD_BODY = MAX_UPLOAD + 1024 * 1024;
 const MAX_TEXT_LEN = 4096;           // 单条文本长度上限
 
+// ---------- 分片上传 ----------
+// 大文件拆成固定大小的分片并行上传：单片失败只需重传该片，且可在断线/刷新后续传。
+// CHUNK_SIZE 必须与前端 src/core/chat.ts 的 CHUNK_SIZE 保持一致。
+const CHUNK_SIZE = 5 * 1024 * 1024;                                  // 每片 5MB
+const MAX_CHUNKS = Math.ceil(MAX_UPLOAD / CHUNK_SIZE) + 1;           // 分片数上限（多留 1 片余量）
+const CHUNK_BODY_LIMIT = CHUNK_SIZE + 1024 * 1024;                   // 单片请求体上限（含 multipart 开销）
+// 分片会话：每个上传会话一个目录，里面是 meta.json + <index>.part
+const SESS_DIR = path.join(TMP_DIR, 'sessions');
+const UPLOAD_ID_RE = /^[a-f0-9]{24}$/;
+const SESSION_TTL = 24 * 3600 * 1000; // 会话（半成品）保留 24 小时，过期由 purgeUploadTmp 清掉
+
 // 上传文件保留天数：超期后删除硬盘文件，消息记录保留并显示「图片/文件已过期」
 // 可用环境变量 FILE_TTL_DAYS 覆盖，默认 15 天
 const FILE_TTL_DAYS = Math.max(1, parseInt(process.env.FILE_TTL_DAYS as string, 10) || 15);
@@ -282,8 +293,16 @@ interface StreamedFile {
   head: Buffer;
 }
 
+/** 流式解析的落盘参数：分片上传需要更小的上限与独立的会话目录 */
+interface StreamOpts {
+  /** 单次请求允许的最大文件字节数，默认 MAX_UPLOAD（单文件上限） */
+  maxBytes?: number;
+  /** 临时文件落盘目录，默认 TMP_DIR */
+  dir?: string;
+}
+
 /**
- * 流式解析 multipart，把 name="file" 的字段直接写入 TMP_DIR 下的临时文件，并增量计算 sha256。
+ * 流式解析 multipart，把 name="file" 的字段直接写入 dir 下的临时文件，并增量计算 sha256。
  *
  * 对比「先 readBody 收全量、再 parseMultipart 切片」：
  *   1. 内存占用从「约等于文件大小」降到常数级（只保留一个边界扫描窗口），
@@ -291,14 +310,17 @@ interface StreamedFile {
  *   2. 数据边到边写盘，收到即可开始持久化，省掉一次整块 memcpy；
  *   3. 未命中的其他字段 / 前导垃圾内容直接丢弃，不驻留内存。
  *
- * 失败语义：超过 MAX_UPLOAD → TOO_LARGE；没有 file 字段 → NO_FILE；请求中断 → REQUEST_ABORTED。
+ * 失败语义：超过 maxBytes → TOO_LARGE；没有 file 字段 → NO_FILE；请求中断 → REQUEST_ABORTED。
  */
-function streamUploadToDisk(req: any, boundary: string): Promise<StreamedFile> {
+function streamUploadToDisk(req: any, boundary: string, opts: StreamOpts = {}): Promise<StreamedFile> {
+  const maxBytes = opts.maxBytes || MAX_UPLOAD;
+  const dir = opts.dir || TMP_DIR;
+  const bodyLimit = maxBytes + 1024 * 1024; // 留出 multipart 头尾开销
   return new Promise((resolve, reject) => {
     const dash = Buffer.from('--' + boundary);
     const crlfDash = Buffer.from('\r\n--' + boundary);
-    fs.mkdirSync(TMP_DIR, { recursive: true });
-    const tmpPath = path.join(TMP_DIR, '.tmp-' + crypto.randomBytes(12).toString('hex'));
+    fs.mkdirSync(dir, { recursive: true });
+    const tmpPath = path.join(dir, '.tmp-' + crypto.randomBytes(12).toString('hex'));
     const out = fs.createWriteStream(tmpPath);
     const hash = crypto.createHash('sha256');
 
@@ -333,7 +355,7 @@ function streamUploadToDisk(req: any, boundary: string): Promise<StreamedFile> {
     const writeChunk = (chunk: Buffer): void => {
       if (!chunk.length || settled) return;
       size += chunk.length;
-      if (size > MAX_UPLOAD) { fail(new Error('TOO_LARGE')); return; }
+      if (size > maxBytes) { fail(new Error('TOO_LARGE')); return; }
       hash.update(chunk);
       if (head.length < 16) head = Buffer.concat([head, chunk.subarray(0, 16 - head.length)]);
       if (!out.write(chunk)) {
@@ -407,7 +429,7 @@ function streamUploadToDisk(req: any, boundary: string): Promise<StreamedFile> {
     req.on('data', (c: Buffer) => {
       if (settled) return;
       received += c.length;
-      if (received > MAX_UPLOAD_BODY) { fail(new Error('TOO_LARGE')); return; }
+      if (received > bodyLimit) { fail(new Error('TOO_LARGE')); return; }
       buf = buf.length ? Buffer.concat([buf, c]) : c;
       pump();
     });
@@ -419,17 +441,151 @@ function streamUploadToDisk(req: any, boundary: string): Promise<StreamedFile> {
   });
 }
 
-/** 清理上传临时目录里的残留文件（进程被强杀时会留下 .tmp-*，启动时兜底清一次） */
+/** 清理上传临时目录里的残留文件与过期分片会话（进程被强杀时会留下 .tmp-*，启动时兜底清一次） */
 export function purgeUploadTmp(): void {
-  let names: string[] = [];
-  try { names = fs.readdirSync(TMP_DIR); } catch (e) { return; } // 目录不存在视为无需清理
   const now = Date.now();
+  let names: string[] = [];
+  try { names = fs.readdirSync(TMP_DIR); } catch (e) { /* 目录不存在视为无需清理 */ }
   for (const n of names) {
     if (n.indexOf('.tmp-') !== 0) continue;
     const p = path.join(TMP_DIR, n);
     try {
-      if (now - fs.statSync(p).mtimeMs > 24 * 3600 * 1000) fs.unlinkSync(p);
+      if (now - fs.statSync(p).mtimeMs > SESSION_TTL) fs.unlinkSync(p);
     } catch (e) { /* 忽略 */ }
+  }
+  // 分片会话目录：超过 TTL 未完成即整目录删除（半成品没有再保留的价值）
+  let ids: string[] = [];
+  try { ids = fs.readdirSync(SESS_DIR); } catch (e) { return; }
+  for (const id of ids) {
+    if (!UPLOAD_ID_RE.test(id)) continue;
+    const dir = sessionDir(id);
+    try {
+      if (now - fs.statSync(dir).mtimeMs > SESSION_TTL) removeSession(id);
+    } catch (e) { /* 忽略 */ }
+  }
+}
+
+// ---------- 分片上传会话（磁盘持久化，支持断线/刷新后续传） ----------
+
+interface SessionMeta {
+  /** 原始文件名（已清理非法字符） */
+  name: string;
+  /** 文件总字节数（客户端声明，落盘时以实际分片大小复核） */
+  size: number;
+  /** 分片总数 */
+  chunks: number;
+  /** 归属账号：只有本人能续传/完成自己的会话 */
+  owner: string;
+  /** 创建时间（毫秒） */
+  ts: number;
+}
+
+function sessionDir(id: string): string {
+  return path.join(SESS_DIR, id);
+}
+
+function partPath(dir: string, index: number): string {
+  return path.join(dir, index + '.part');
+}
+
+/** 第 index 片应有的字节数：最后一片可能不足 CHUNK_SIZE */
+function chunkSizeOf(meta: SessionMeta, index: number): number {
+  return index === meta.chunks - 1 ? meta.size - index * CHUNK_SIZE : CHUNK_SIZE;
+}
+
+/** 清理文件名中的路径与非法字符（与 multipart 的 filename 处理保持同一套规则） */
+function safeFileName(name: unknown): string {
+  const s = path.basename(String(name || 'file')).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim();
+  return s.slice(0, 120) || 'file';
+}
+
+function readSession(id: string): SessionMeta | null {
+  try {
+    const o = JSON.parse(fs.readFileSync(path.join(sessionDir(id), 'meta.json'), 'utf8')) as SessionMeta;
+    if (!o || typeof o.name !== 'string' || !Number.isInteger(o.size) || !Number.isInteger(o.chunks)) return null;
+    // 分片数必须与体积自洽，防止 meta 被篡改后越界读写
+    if (o.size <= 0 || o.size > MAX_UPLOAD || o.chunks < 1 || o.chunks > MAX_CHUNKS) return null;
+    if (o.chunks !== Math.ceil(o.size / CHUNK_SIZE)) return null;
+    return o;
+  } catch (e) {
+    return null; // 目录/文件不存在或 JSON 损坏
+  }
+}
+
+function writeSession(id: string, meta: SessionMeta): void {
+  fs.mkdirSync(sessionDir(id), { recursive: true });
+  fs.writeFileSync(path.join(sessionDir(id), 'meta.json'), JSON.stringify(meta));
+}
+
+function removeSession(id: string): void {
+  try { fs.rmSync(sessionDir(id), { recursive: true, force: true }); } catch (e) { /* 忽略 */ }
+}
+
+/** 已完整到达服务端的分片序号（大小不符的视为未完成） */
+function receivedChunks(meta: SessionMeta, dir: string): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < meta.chunks; i++) {
+    try {
+      const st = fs.statSync(partPath(dir, i));
+      if (st.isFile() && st.size === chunkSizeOf(meta, i)) out.push(i);
+    } catch (e) { /* 该片还没到 */ }
+  }
+  return out;
+}
+
+/** 把 src 追加到已打开的写入流（不结束流） */
+function appendToStream(src: string, ws: fs.WriteStream): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const rs = fs.createReadStream(src);
+    rs.on('error', reject);
+    rs.on('end', resolve);
+    rs.pipe(ws, { end: false });
+  });
+}
+
+/** 按序合并所有分片为最终文件（单片时直接 rename，避免多余拷贝） */
+async function materialize(meta: SessionMeta, dir: string, destPath: string): Promise<void> {
+  if (meta.chunks === 1) {
+    fs.renameSync(partPath(dir, 0), destPath);
+    return;
+  }
+  const ws = fs.createWriteStream(destPath);
+  try {
+    for (let i = 0; i < meta.chunks; i++) await appendToStream(partPath(dir, i), ws);
+    await new Promise<void>((resolve) => ws.end(resolve));
+  } catch (e) {
+    try { ws.destroy(); } catch (e2) { /* 忽略 */ }
+    try { fs.unlinkSync(destPath); } catch (e2) { /* 忽略 */ }
+    throw e;
+  }
+}
+
+/** 按序读取分片计算整文件 sha256（内存占用为流式，不整块读入） */
+async function shaOfParts(meta: SessionMeta, dir: string): Promise<string> {
+  const hash = crypto.createHash('sha256');
+  for (let i = 0; i < meta.chunks; i++) {
+    await new Promise<void>((resolve, reject) => {
+      const rs = fs.createReadStream(partPath(dir, i));
+      rs.on('data', (d: Buffer | string) => { hash.update(d); });
+      rs.on('error', reject);
+      rs.on('end', resolve);
+    });
+  }
+  return hash.digest('hex');
+}
+
+/** 读取第 0 片的前 16 字节，用于图片魔数嗅探 */
+function headOfFirstPart(dir: string): Buffer {
+  const b = Buffer.alloc(16);
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(partPath(dir, 0), 'r');
+    const n = fs.readSync(fd, b, 0, 16, 0);
+    return b.subarray(0, n);
+  } catch (e) {
+    return Buffer.alloc(0);
+  } finally {
+    if (fd !== null) { try { fs.closeSync(fd); } catch (e) { /* 忽略 */ } }
   }
 }
 
@@ -766,6 +922,71 @@ function handleWsText(client: any, text: string): void {
       }
     });
   }
+}
+
+// ---------- 落盘收尾（单次上传与分片上传共用同一套归类 / 去重 / 命名规则） ----------
+
+interface FinalizedUpload {
+  kind: 'image' | 'video' | 'audio' | 'file';
+  url: string;
+  name: string;
+  size: number;
+  deduped: boolean;
+}
+
+/** 改名落盘；跨设备或被占用时退回「拷贝 + 删源」 */
+function renameOrCopy(src: string, dest: string): void {
+  try {
+    fs.renameSync(src, dest);
+  } catch (e) {
+    fs.copyFileSync(src, dest);
+    try { fs.unlinkSync(src); } catch (e2) { /* 忽略 */ }
+  }
+}
+
+/**
+ * 上传收尾：按魔数/扩展名归类 → 按内容 sha256 去重 → 把内容落到 UPLOAD_DIR 的随机名。
+ * @param place 真正把内容写到 destPath 的动作（单次上传是 rename，分片上传是按序合并）
+ */
+async function finalizeUpload(
+  head: Buffer,
+  origName: string,
+  size: number,
+  sha: string,
+  place: (destPath: string) => void | Promise<void>
+): Promise<FinalizedUpload> {
+  const ext = path.extname(origName).toLowerCase();
+  // 不限文件类型，一律接收。
+  // 图片按文件内容（魔数）判断；视频/音频按扩展名归类（可内联播放、不可脚本执行，安全）。
+  const sniffed = sniffImage(head);
+  let kind: FinalizedUpload['kind'];
+  let saveExt: string;
+  if (sniffed) {
+    kind = 'image';
+    saveExt = '.' + sniffed; // 用嗅探出的真实格式，保证能被正确内联显示
+  } else {
+    const safeExt = /^\.[a-z0-9]{1,8}$/i.test(ext) ? ext.toLowerCase() : '.bin';
+    saveExt = IMAGE_EXTS.has(safeExt) ? '.bin' : safeExt; // 扩展名伪装成图片但内容不是 → 降级 .bin
+    kind = VIDEO_EXTS.has(saveExt) ? 'video' : (AUDIO_EXTS.has(saveExt) ? 'audio' : 'file');
+  }
+  // 内容去重：按 sha256 判断这份内容是否已经落过盘，是的话直接复用已有文件，
+  // 磁盘上同一份内容只会存一遍（多条消息可以指向同一个 /uploads/xxx）。
+  const hit = store.findUploadBySha(sha);
+  let saveName: string;
+  let deduped = false;
+  if (hit && UPLOAD_NAME_RE.test(hit) && fs.existsSync(path.join(UPLOAD_DIR, hit))) {
+    saveName = hit; // 命中且文件还在 → 不再写盘
+    deduped = true;
+  } else {
+    saveName = crypto.randomBytes(8).toString('hex') + saveExt;
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    await place(path.join(UPLOAD_DIR, saveName));
+    store.putUpload(sha, saveName, size);
+  }
+  // 复用已有文件时类型要按最终落盘名判定：扩展名可能和本次上传的原始扩展名不同
+  const finalExt = path.extname(saveName).toLowerCase();
+  if (!sniffed) kind = VIDEO_EXTS.has(finalExt) ? 'video' : (AUDIO_EXTS.has(finalExt) ? 'audio' : 'file');
+  return { kind, url: '/uploads/' + saveName, name: origName, size, deduped };
 }
 
 // ---------- HTTP 路由 ----------
@@ -2126,7 +2347,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
-  // POST /api/upload
+  // POST /api/upload —— 小文件单次上传（≤ CHUNK_SIZE）；大文件走下面的分片接口
   if (pathname === '/api/upload' && req.method === 'POST') {
     const ctype = req.headers['content-type'] || '';
     const bm = /boundary=([^;]+)/i.exec(ctype);
@@ -2139,72 +2360,173 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       try { req.destroy(); } catch (e) { /* 忽略 */ }
       return;
     }
-    streamUploadToDisk(req, bm[1].replace(/^"|"$/g, '')).then((file) => {
-      const origName = file.name;
-      const ext = path.extname(origName).toLowerCase();
-
-      // 不限文件类型，一律接收。
-      // 图片按文件内容（魔数）判断；视频/音频按扩展名归类（可内联播放、不可脚本执行，安全）。
-      const sniffed = sniffImage(file.head);
-      let kind: 'image' | 'video' | 'audio' | 'file';
-      let saveExt: string;
-      if (sniffed) {
-        kind = 'image';
-        saveExt = '.' + sniffed; // 用嗅探出的真实格式，保证能被正确内联显示
-      } else {
-        const safeExt = /^\.[a-z0-9]{1,8}$/i.test(ext) ? ext.toLowerCase() : '.bin';
-        saveExt = IMAGE_EXTS.has(safeExt) ? '.bin' : safeExt; // 扩展名伪装成图片但内容不是 → 降级 .bin
-        kind = VIDEO_EXTS.has(saveExt) ? 'video' : (AUDIO_EXTS.has(saveExt) ? 'audio' : 'file');
-      }
-      // 内容去重：按 sha256 判断这份内容是否已经落过盘，是的话直接复用已有文件，
-      // 磁盘上同一份内容只会存一遍（多条消息可以指向同一个 /uploads/xxx）。
-      const hit = store.findUploadBySha(file.sha);
-      let saveName: string;
-      let deduped = false;
-      if (hit && UPLOAD_NAME_RE.test(hit) && fs.existsSync(path.join(UPLOAD_DIR, hit))) {
-        saveName = hit; // 命中且文件还在 → 不再写盘
-        deduped = true;
-        try { fs.unlinkSync(file.tmpPath); } catch (e) { /* 忽略 */ }
-      } else {
-        saveName = crypto.randomBytes(8).toString('hex') + saveExt;
-        fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-        // 临时文件已经在 UPLOAD_DIR 的子目录里（同一文件系统），rename 是原子操作，不会出现半截文件
-        try {
-          fs.renameSync(file.tmpPath, path.join(UPLOAD_DIR, saveName));
-        } catch (e) {
-          // 极少数跨设备 / 被占用的情况退回拷贝
-          fs.copyFileSync(file.tmpPath, path.join(UPLOAD_DIR, saveName));
-          try { fs.unlinkSync(file.tmpPath); } catch (e2) { /* 忽略 */ }
-        }
-        store.putUpload(file.sha, saveName, file.size);
-      }
-      // 复用已有文件时类型要按最终落盘名判定：扩展名可能和本次上传的原始扩展名不同
-      const finalExt = path.extname(saveName).toLowerCase();
-      if (!sniffed) kind = VIDEO_EXTS.has(finalExt) ? 'video' : (AUDIO_EXTS.has(finalExt) ? 'audio' : 'file');
+    streamUploadToDisk(req, bm[1].replace(/^"|"$/g, '')).then(async (file) => {
+      const r = await finalizeUpload(file.head, file.name, file.size, file.sha,
+        (dest) => renameOrCopy(file.tmpPath, dest));
+      if (r.deduped) { try { fs.unlinkSync(file.tmpPath); } catch (e) { /* 忽略 */ } }
       audit.add({
         actor: me.username,
         action: 'upload',
-        detail: deduped
-          ? auditDetail('log.detail.upload.dedup', { name: origName, size: file.size })
-          : auditDetail(kind === 'image' ? 'log.detail.upload.image' : 'log.detail.upload.file',
-            { name: origName, size: file.size }),
+        detail: r.deduped
+          ? auditDetail('log.detail.upload.dedup', { name: r.name, size: r.size })
+          : auditDetail(r.kind === 'image' ? 'log.detail.upload.image' : 'log.detail.upload.file',
+            { name: r.name, size: r.size }),
         ip
       });
-      sendJSON(res, 200, {
-        ok: true,
-        kind,
-        url: '/uploads/' + saveName,
-        name: origName,
-        size: file.size,
-        deduped
-      });
+      sendJSON(res, 200, { ok: true, kind: r.kind, url: r.url, name: r.name, size: r.size, deduped: r.deduped });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
       const msg = e && e.message;
-      const status = msg === 'TOO_LARGE' ? 413 : (msg === 'NO_FILE' ? 400 : 400);
+      const status = msg === 'TOO_LARGE' ? 413 : 400;
       const error = msg === 'TOO_LARGE' ? 'api.upload.tooLarge' : (msg === 'NO_FILE' ? 'api.upload.noFile' : 'api.upload.failed');
       sendJSON(res, status, { ok: false, error });
       logger.write({ ip, method: req.method, url: pathname, status, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    });
+    return;
+  }
+
+  // POST /api/upload/init —— 开启（或续传）分片会话 {name, size, uploadId?}
+  // 续传：带上之前的 uploadId 且归属/体积一致时复用，返回已收到的分片序号，客户端只需补传缺失片。
+  if (pathname === '/api/upload/init' && req.method === 'POST') {
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const size = o && o.size != null ? Number(o.size) : NaN;
+      if (!Number.isInteger(size) || size <= 0 || size > MAX_UPLOAD) {
+        sendJSON(res, 413, { ok: false, error: 'api.upload.tooLarge' });
+        logger.write({ ip, method: req.method, url: pathname, status: 413, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      const name = safeFileName(o && o.name);
+      const chunks = Math.ceil(size / CHUNK_SIZE);
+
+      const resumeId = o && typeof o.uploadId === 'string' ? o.uploadId : '';
+      if (UPLOAD_ID_RE.test(resumeId)) {
+        const meta = readSession(resumeId);
+        if (meta && meta.owner === me.username && meta.size === size && meta.chunks === chunks) {
+          sendJSON(res, 200, {
+            ok: true, uploadId: resumeId, chunkSize: CHUNK_SIZE, chunks,
+            received: receivedChunks(meta, sessionDir(resumeId))
+          });
+          logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+      }
+      const id = crypto.randomBytes(12).toString('hex');
+      writeSession(id, { name, size, chunks, owner: me.username, ts: Date.now() });
+      sendJSON(res, 200, { ok: true, uploadId: id, chunkSize: CHUNK_SIZE, chunks, received: [] });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.upload.failed' });
+    });
+    return;
+  }
+
+  // POST /api/upload/chunk?uploadId=&index= —— 上传单片（multipart，字段名 file）
+  if (pathname === '/api/upload/chunk' && req.method === 'POST') {
+    const uploadId = (urlObj.searchParams.get('uploadId') || '').trim();
+    const index = parseInt(urlObj.searchParams.get('index') as string, 10);
+    const ctype = req.headers['content-type'] || '';
+    const bm = /boundary=([^;]+)/i.exec(ctype);
+    if (!bm) { sendJSON(res, 400, { ok: false, error: 'api.upload.notMultipart' }); return; }
+    // 会话必须存在且属于当前账号：否则让客户端重新 init（404 → sessionGone）
+    const meta = UPLOAD_ID_RE.test(uploadId) ? readSession(uploadId) : null;
+    if (!meta || meta.owner !== me.username) {
+      sendJSON(res, 404, { ok: false, error: 'api.upload.sessionGone' });
+      logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    if (!Number.isInteger(index) || index < 0 || index >= meta.chunks) {
+      sendJSON(res, 400, { ok: false, error: 'api.upload.badChunk' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const declared = parseInt(req.headers['content-length'] as string, 10);
+    if (Number.isFinite(declared) && declared > CHUNK_BODY_LIMIT) {
+      sendJSON(res, 413, { ok: false, error: 'api.upload.tooLarge' });
+      logger.write({ ip, method: req.method, url: pathname, status: 413, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      try { req.destroy(); } catch (e) { /* 忽略 */ }
+      return;
+    }
+    // 单片体积必须精确匹配（仅最后一片可短），否则拼接结果会损坏
+    const expect = chunkSizeOf(meta, index);
+    const dir = sessionDir(uploadId);
+    streamUploadToDisk(req, bm[1].replace(/^"|"$/g, ''), { maxBytes: expect, dir }).then((part) => {
+      if (part.size !== expect) {
+        try { fs.unlinkSync(part.tmpPath); } catch (e) { /* 忽略 */ }
+        sendJSON(res, 400, { ok: false, error: 'api.upload.badChunk' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      // 先写临时名、校验通过再改名成 <index>.part：避免半截分片被后续 complete 当成已收
+      renameOrCopy(part.tmpPath, partPath(dir, index));
+      sendJSON(res, 200, { ok: true, index });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      const msg = e && e.message;
+      const status = msg === 'TOO_LARGE' ? 413 : 400;
+      sendJSON(res, status, { ok: false, error: msg === 'TOO_LARGE' ? 'api.upload.tooLarge' : 'api.upload.badChunk' });
+      logger.write({ ip, method: req.method, url: pathname, status, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    });
+    return;
+  }
+
+  // POST /api/upload/complete —— 合并分片并落盘 {uploadId}
+  if (pathname === '/api/upload/complete' && req.method === 'POST') {
+    readBody(req, 4096).then(async (body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const uploadId = o && typeof o.uploadId === 'string' ? o.uploadId : '';
+      const meta = UPLOAD_ID_RE.test(uploadId) ? readSession(uploadId) : null;
+      if (!meta || meta.owner !== me.username) {
+        sendJSON(res, 404, { ok: false, error: 'api.upload.sessionGone' });
+        logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      const dir = sessionDir(uploadId);
+      const got = receivedChunks(meta, dir);
+      if (got.length !== meta.chunks) {
+        // 还缺片：把已收到的序号回给客户端，便于继续补传
+        sendJSON(res, 409, { ok: false, error: 'api.upload.incomplete', received: got });
+        logger.write({ ip, method: req.method, url: pathname, status: 409, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      const sha = await shaOfParts(meta, dir);
+      const head = headOfFirstPart(dir);
+      const r = await finalizeUpload(head, meta.name, meta.size, sha, (dest) => materialize(meta, dir, dest));
+      removeSession(uploadId); // 已落盘（或命中去重），分片目录不再需要
+      audit.add({
+        actor: me.username,
+        action: 'upload',
+        detail: r.deduped
+          ? auditDetail('log.detail.upload.dedup', { name: r.name, size: r.size })
+          : auditDetail(r.kind === 'image' ? 'log.detail.upload.image' : 'log.detail.upload.file',
+            { name: r.name, size: r.size }),
+        ip
+      });
+      sendJSON(res, 200, { ok: true, kind: r.kind, url: r.url, name: r.name, size: r.size, deduped: r.deduped });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      // 合并失败时**保留**会话与分片，客户端可直接重试 complete
+      sendJSON(res, e && e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.upload.failed' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    });
+    return;
+  }
+
+  // POST /api/upload/abort —— 放弃分片会话并清理已传分片 {uploadId}
+  if (pathname === '/api/upload/abort' && req.method === 'POST') {
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const uploadId = o && typeof o.uploadId === 'string' ? o.uploadId : '';
+      const meta = UPLOAD_ID_RE.test(uploadId) ? readSession(uploadId) : null;
+      // 只允许放弃自己的会话；不存在也返回 ok（幂等）
+      if (meta && meta.owner === me.username) removeSession(uploadId);
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.upload.failed' });
     });
     return;
   }

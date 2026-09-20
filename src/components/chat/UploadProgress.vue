@@ -24,8 +24,11 @@ function statusText(t: UploadTask): string {
   if (t.status === 'failed') return t.error || tr('chat.upload.failed');
   if (t.status === 'done') return tr('chat.upload.done');
   if (t.status === 'queued') return tr('chat.upload.queued');
-  // 上传中：百分比 + 实时速度 + 预计剩余时间
+  // 上传中：百分比 +（分片上传时）已传片数 + 实时速度 + 预计剩余时间
   const parts = [t.percent + '%'];
+  if (t.chunks && t.chunks > 1) {
+    parts.push(tr('chat.upload.parts', { done: t.chunkDone || 0, total: t.chunks }));
+  }
   if (t.speed > 0) parts.push(fmtSize(t.speed) + '/s');
   const eta = etaText(t);
   if (eta) parts.push(eta);

@@ -588,17 +588,39 @@ export interface UploadTask {
   speed: number;
   /** 图片缩略图（本地 object URL，仅用于上传面板预览；移除任务时需 revoke） */
   thumbUrl?: string;
+  /** 分片总数（仅分片上传的大文件有；用于面板显示「已传/总片数」） */
+  chunks?: number;
+  /** 已确认到达服务端的分片数 */
+  chunkDone?: number;
+}
+
+/** 分片上传会话：记录服务端 uploadId 与每片的进度，用于续传与聚合进度 */
+interface ChunkSession {
+  /** 服务端会话 id；首次上传前为空串 */
+  uploadId: string;
+  /** 分片总数 */
+  chunks: number;
+  /** 每片当前已传字节数（在途/已确认），用于聚合出 task.loaded */
+  loaded: number[];
+  /** 每片是否已被服务端确认 */
+  done: boolean[];
 }
 
 let uploadSeq = 0;
 /** 同时进行的上传数：全串行太慢、全并行又挤带宽，取 3 作折中 */
 const MAX_CONCURRENT_UPLOADS = 3;
+/** 分片大小（必须与服务端 server/lib/runtime.ts 的 CHUNK_SIZE 一致） */
+const CHUNK_SIZE = 5 * 1024 * 1024;
+/** 单个文件同时并发的分片数 */
+const MAX_CONCURRENT_CHUNKS = 10;
 /** 任务 id → 待上传文件；不放进响应式状态，避免 Vue 代理 DOM 对象 */
 const pendingFiles = new Map<number, File>();
 /** 任务 id → 速度采样（非响应式，避免每个进度事件都额外渲染一次） */
 const speedTrack = new Map<number, { loaded: number; ts: number; ema: number }>();
-/** 任务 id → 进行中的 XHR，供「取消上传」中断请求 */
-const uploadXhr = new Map<number, XMLHttpRequest>();
+/** 任务 id → 进行中的 XHR 集合（分片上传时一个任务会有多个并发请求） */
+const uploadXhr = new Map<number, Set<XMLHttpRequest>>();
+/** 任务 id → 分片会话（uploadId / 各片进度）；大文件才建，用于断点续传 */
+const sessions = new Map<number, ChunkSession>();
 /** 排队等待调度的任务 id（FIFO） */
 const waitQueue: number[] = [];
 /** 当前正在上传的任务数（受 MAX_CONCURRENT_UPLOADS 限制） */
@@ -645,46 +667,186 @@ function patchTask(id: number, patch: Partial<UploadTask>): void {
   if (t) Object.assign(t, patch);
 }
 
-/** POST /api/upload；用 XHR 而非 fetch：只有 XHR 能拿到上传进度事件，也只有它能被中断 */
-function postUpload(id: number, file: File, onProgress: (loaded: number, total: number) => void): Promise<ApiResult> {
+/** 把一个 XHR 登记到某任务下（分片上传时同一任务有多个并发请求）；返回注销函数 */
+function trackXhr(id: number, xhr: XMLHttpRequest): () => void {
+  let set = uploadXhr.get(id);
+  if (!set) {
+    set = new Set<XMLHttpRequest>();
+    uploadXhr.set(id, set);
+  }
+  set.add(xhr);
+  return (): void => {
+    const s = uploadXhr.get(id);
+    if (!s) return;
+    s.delete(xhr);
+    if (!s.size) uploadXhr.delete(id);
+  };
+}
+
+/** 超时按体积估算：固定值对大文件必然超时（看起来就像传到一半卡住）。下限 2 分钟，上限 30 分钟 */
+function uploadTimeout(bytes: number): number {
+  return Math.min(30 * 60 * 1000, Math.max(120000, Math.round((bytes / (50 * 1024)) * 1000)));
+}
+
+interface XhrResult {
+  status: number;
+  body: ApiResult;
+}
+
+/**
+ * 用 XHR 发一次 POST。
+ * 用 XHR 而非 fetch：只有 XHR 能拿到上传进度事件，也只有它能被中断（取消上传 / 分片失败时掐断其他在途片）。
+ */
+function postForm(
+  id: number,
+  url: string,
+  form: FormData,
+  onProgress?: (loaded: number, total: number) => void,
+  timeoutMs?: number
+): Promise<XhrResult> {
   return new Promise((resolve, reject) => {
-    const fd = new FormData();
-    fd.append('file', file);
     const xhr = new XMLHttpRequest();
-    uploadXhr.set(id, xhr);
-    const cleanup = (): void => {
-      if (uploadXhr.get(id) === xhr) uploadXhr.delete(id);
-    };
-    xhr.open('POST', api('/api/upload'), true);
+    const untrack = trackXhr(id, xhr);
+    xhr.open('POST', url, true);
     xhr.withCredentials = true;
-    // 超时按文件大小估算：固定 2 分钟对大文件必然超时（看起来就像传到一半卡住）。
-    // 下限 2 分钟，上限 30 分钟。
-    xhr.timeout = Math.min(30 * 60 * 1000, Math.max(120000, Math.round((file.size / (50 * 1024)) * 1000)));
-    xhr.upload.onprogress = (e: ProgressEvent): void => {
-      if (e.lengthComputable && e.total) onProgress(e.loaded, e.total);
-    };
+    if (timeoutMs) xhr.timeout = timeoutMs;
+    if (onProgress) {
+      xhr.upload.onprogress = (e: ProgressEvent): void => {
+        if (e.lengthComputable && e.total) onProgress(e.loaded, e.total);
+      };
+    }
     xhr.onload = (): void => {
-      cleanup();
+      untrack();
       let body: ApiResult = { ok: false };
       try {
         body = JSON.parse(xhr.responseText || '{}') as ApiResult;
       } catch {
         body = { ok: false };
       }
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new Error('http ' + xhr.status));
-        return;
-      }
-      resolve(body);
+      resolve({ status: xhr.status, body });
     };
-    xhr.onerror = (): void => { cleanup(); reject(new Error('network')); };
-    xhr.ontimeout = (): void => { cleanup(); reject(new Error('timeout')); };
-    xhr.onabort = (): void => { cleanup(); reject(new Error('abort')); };
-    xhr.send(fd);
+    xhr.onerror = (): void => { untrack(); reject(new Error('network')); };
+    xhr.ontimeout = (): void => { untrack(); reject(new Error('timeout')); };
+    xhr.onabort = (): void => { untrack(); reject(new Error('abort')); };
+    xhr.send(form);
   });
 }
 
+/** 速度采样：进度事件很密，按 ≥200ms 采样 + 指数平均平滑，避免数字乱跳 */
+function sampleSpeed(id: number, loaded: number): number {
+  const st = speedTrack.get(id);
+  if (!st) return 0;
+  const now = performance.now();
+  if (!st.ts) {
+    st.ts = now;
+    st.loaded = loaded;
+    return 0;
+  }
+  if (now - st.ts >= 200) {
+    const inst = (loaded - st.loaded) / ((now - st.ts) / 1000);
+    st.ema = st.ema > 0 ? st.ema * 0.6 + inst * 0.4 : inst;
+    st.loaded = loaded;
+    st.ts = now;
+  }
+  return Math.max(0, st.ema);
+}
+
+/** 小文件单次上传（≤ CHUNK_SIZE） */
+function postUpload(id: number, file: File, onProgress: (loaded: number, total: number) => void): Promise<ApiResult> {
+  const fd = new FormData();
+  fd.append('file', file);
+  return postForm(id, api('/api/upload'), fd, onProgress, uploadTimeout(file.size)).then((r) => {
+    if (r.status < 200 || r.status >= 300) throw new Error('http ' + r.status);
+    return r.body;
+  });
+}
+
+/** 上传单个分片；resolve 表示服务端已确认收到该片 */
+function uploadChunk(id: number, file: File, sess: ChunkSession, index: number): Promise<void> {
+  const start = index * CHUNK_SIZE;
+  const end = Math.min(file.size, start + CHUNK_SIZE);
+  const fd = new FormData();
+  fd.append('file', file.slice(start, end), 'chunk');
+  const url = api('/api/upload/chunk?uploadId=' + encodeURIComponent(sess.uploadId) + '&index=' + index);
+  return postForm(id, url, fd, (loaded) => {
+    sess.loaded[index] = loaded;
+    syncChunkProgress(id, sess);
+  }, uploadTimeout(end - start)).then((r) => {
+    if (r.status < 200 || r.status >= 300 || !r.body.ok) {
+      throw new Error('chunk ' + index + ' http ' + r.status);
+    }
+    sess.loaded[index] = end - start; // 以服务端确认的片大小为准，避免最后一片多算
+    sess.done[index] = true;
+    syncChunkProgress(id, sess);
+  });
+}
+
+/** 把各片进度聚合到任务上（已传字节 / 百分比 / 速度 / 已传片数） */
+function syncChunkProgress(id: number, sess: ChunkSession): void {
+  const t = taskById(id);
+  if (!t) return;
+  let sum = 0;
+  let done = 0;
+  for (let i = 0; i < sess.chunks; i++) {
+    sum += sess.loaded[i] || 0;
+    if (sess.done[i]) done++;
+  }
+  const loaded = Math.min(t.size, sum);
+  patchTask(id, {
+    loaded,
+    percent: t.size ? Math.min(99, Math.round((loaded / t.size) * 100)) : 0,
+    speed: sampleSpeed(id, loaded),
+    chunks: sess.chunks,
+    chunkDone: done
+  });
+}
+
+/** 并发池：最多 limit 个 worker 同时跑；任一片出错即停止派发新的片，等在途的收尾后统一抛出 */
+async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  let firstError: unknown = null;
+  const run = async (): Promise<void> => {
+    while (!firstError) {
+      const i = next++;
+      if (i >= items.length) return;
+      try {
+        await worker(items[i]);
+      } catch (e) {
+        if (!firstError) firstError = e;
+        return;
+      }
+    }
+  };
+  const runners: Promise<void>[] = [];
+  for (let i = 0; i < Math.min(limit, items.length); i++) runners.push(run());
+  await Promise.all(runners);
+  if (firstError) throw firstError;
+}
+
+/** 取（必要时创建）任务的分片会话 */
+function ensureSession(id: number, file: File): ChunkSession {
+  let s = sessions.get(id);
+  if (!s) {
+    const chunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+    s = {
+      uploadId: '',
+      chunks,
+      loaded: new Array<number>(chunks).fill(0),
+      done: new Array<boolean>(chunks).fill(false)
+    };
+    sessions.set(id, s);
+  }
+  return s;
+}
+
+/** 第 index 片应有的字节数（最后一片可能不足 CHUNK_SIZE） */
+function chunkSizeAt(size: number, index: number, chunks: number): number {
+  return index === chunks - 1 ? size - index * CHUNK_SIZE : CHUNK_SIZE;
+}
+
 function failUpload(id: number, error: string): void {
+  // 任务已被取消/移除时不要再弹提示、也不要把状态盖回去
+  if (!taskById(id)) return;
   notify(error);
   unsentIds.delete(id);
   readyResults.delete(id);
@@ -733,48 +895,109 @@ function pumpQueue(): void {
   }
 }
 
+/** 上传结果统一收口：私聊门禁复核 → 攒进 readyResults → 按序发送 */
+function acceptResult(id: number, r: { kind: string; url: string; name: string; size: number }): void {
+  if (!taskById(id)) return; // 上传途中被取消：丢弃结果，不再发消息
+  if (dmgating() && r.kind !== 'image') {
+    failUpload(id, 'chat.dm.gateToast');
+    return;
+  }
+  readyResults.set(id, r);
+  sessions.delete(id);
+  flushReady();
+}
+
+/** 小文件：单次 POST /api/upload */
+async function runUploadSingle(id: number, file: File): Promise<void> {
+  const body = await postUpload(id, file, (loaded, total) => {
+    // 留 1%：等服务器写盘并返回后才算完成
+    patchTask(id, {
+      percent: Math.min(99, Math.round((loaded / total) * 100)),
+      loaded,
+      speed: sampleSpeed(id, loaded)
+    });
+  });
+  if (!body.ok) {
+    failUpload(id, String(body.error || 'chat.upload.failed'));
+    return;
+  }
+  acceptResult(id, {
+    kind: String(body.kind),
+    url: String(body.url),
+    name: String(body.name),
+    size: Number(body.size)
+  });
+}
+
+/**
+ * 大文件：分片上传。
+ * init（带旧 uploadId 即可续传）→ 并发补传缺失分片 → complete 合并。
+ * 任一步失败都保留会话，重试时只补传缺失的分片。
+ */
+async function runUploadChunked(id: number, file: File, sess: ChunkSession): Promise<void> {
+  const task = taskById(id);
+  const init = await post('/api/upload/init', {
+    name: task ? task.name : file.name,
+    size: file.size,
+    uploadId: sess.uploadId
+  });
+  if (!taskById(id)) return; // init 期间被取消
+  if (!init.ok || !init.uploadId) {
+    failUpload(id, String(init.error || 'chat.upload.retry'));
+    return;
+  }
+  sess.uploadId = String(init.uploadId);
+  sess.chunks = Number(init.chunks) || sess.chunks;
+  if (sess.loaded.length !== sess.chunks) {
+    sess.loaded = new Array<number>(sess.chunks).fill(0);
+    sess.done = new Array<boolean>(sess.chunks).fill(false);
+  }
+  // 服务端已确认的分片直接算完成（断线/刷新后续传的关键）
+  const received = Array.isArray(init.received) ? (init.received as number[]) : [];
+  for (let i = 0; i < sess.chunks; i++) {
+    if (received.indexOf(i) !== -1) {
+      sess.done[i] = true;
+      sess.loaded[i] = chunkSizeAt(file.size, i, sess.chunks);
+    } else if (!sess.done[i]) {
+      sess.loaded[i] = 0;
+    }
+  }
+  syncChunkProgress(id, sess);
+
+  // 只补传缺失的分片，最多 MAX_CONCURRENT_CHUNKS 片同时在传
+  const todo: number[] = [];
+  for (let i = 0; i < sess.chunks; i++) if (!sess.done[i]) todo.push(i);
+  await runPool(todo, MAX_CONCURRENT_CHUNKS, (i) => {
+    // 期间被取消就不再派发新分片（抛 abort 让上层静默收口）
+    if (!taskById(id)) throw new Error('abort');
+    return uploadChunk(id, file, sess, i);
+  });
+
+  if (!taskById(id)) return; // 取消后不必再去 complete
+  const done = await post('/api/upload/complete', { uploadId: sess.uploadId });
+  if (!done.ok) {
+    // 会话在服务端已失效（过期/被清理）：清空 uploadId，下次重试会重新开一个会话
+    if (String(done.error) === 'api.upload.sessionGone') sess.uploadId = '';
+    failUpload(id, String(done.error || 'chat.upload.retry'));
+    return;
+  }
+  acceptResult(id, {
+    kind: String(done.kind),
+    url: String(done.url),
+    name: String(done.name),
+    size: Number(done.size)
+  });
+}
+
 async function runUpload(id: number): Promise<void> {
   const file = pendingFiles.get(id);
   if (!file || !taskById(id)) return;
   speedTrack.set(id, { loaded: 0, ts: 0, ema: 0 });
   patchTask(id, { status: 'uploading', percent: 0, loaded: 0, error: '', speed: 0 });
   try {
-    const body = await postUpload(id, file, (loaded, total) => {
-      // 速度：进度事件很密，按 ≥200ms 采样 + 指数平均平滑，避免数字乱跳
-      let speed = 0;
-      const st = speedTrack.get(id);
-      if (st) {
-        const now = performance.now();
-        if (!st.ts) {
-          st.ts = now;
-          st.loaded = loaded;
-        } else if (now - st.ts >= 200) {
-          const inst = (loaded - st.loaded) / ((now - st.ts) / 1000);
-          st.ema = st.ema > 0 ? st.ema * 0.6 + inst * 0.4 : inst;
-          st.loaded = loaded;
-          st.ts = now;
-        }
-        speed = Math.max(0, st.ema);
-      }
-      // 留 1%：等服务器写盘并返回后才算完成
-      patchTask(id, { percent: Math.min(99, Math.round((loaded / total) * 100)), loaded, speed });
-    });
-    if (!body.ok) {
-      failUpload(id, String(body.error || 'chat.upload.failed'));
-      return;
-    }
-    if (dmgating() && body.kind !== 'image') {
-      failUpload(id, 'chat.dm.gateToast');
-      return;
-    }
-    // 先攒结果，等更早的任务也就绪后按序发送
-    readyResults.set(id, {
-      kind: String(body.kind),
-      url: String(body.url),
-      name: String(body.name),
-      size: Number(body.size)
-    });
-    flushReady();
+    // 超过一片的文件走分片上传（可并发、可续传）；小文件走单次上传，省掉两次往返
+    if (file.size > CHUNK_SIZE) await runUploadChunked(id, file, ensureSession(id, file));
+    else await runUploadSingle(id, file);
   } catch (e) {
     // 用户主动取消：任务已移除，不当作失败（否则会弹一条"上传失败"）
     if (e instanceof Error && e.message === 'abort') return;
@@ -782,13 +1005,19 @@ async function runUpload(id: number): Promise<void> {
   }
 }
 
-/** 取消上传：中断进行中的请求并从队列移除（排队中的任务直接移除） */
+/** 取消上传：中断该任务所有在途请求（含并发的分片）并从队列移除 */
 export function cancelUpload(id: number): void {
-  const xhr = uploadXhr.get(id);
-  if (xhr) {
+  const set = uploadXhr.get(id);
+  if (set) {
     uploadXhr.delete(id);
-    try { xhr.abort(); } catch { /* 忽略 */ }
+    for (const xhr of Array.from(set)) {
+      try { xhr.abort(); } catch { /* 忽略 */ }
+    }
   }
+  // 分片会话：通知服务端清掉已上传的分片（失败也不影响本地移除）
+  const sess = sessions.get(id);
+  if (sess && sess.uploadId) void post('/api/upload/abort', { uploadId: sess.uploadId });
+  sessions.delete(id);
   dismissUpload(id);
 }
 
@@ -841,6 +1070,7 @@ export function dismissUpload(id: number): void {
   pendingFiles.delete(id);
   speedTrack.delete(id);
   uploadXhr.delete(id);
+  sessions.delete(id);
   unsentIds.delete(id);
   readyResults.delete(id);
   flushReady(); // 移除可能让后面已完成的任务不再被阻塞
