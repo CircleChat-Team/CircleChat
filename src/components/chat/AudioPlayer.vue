@@ -32,7 +32,7 @@ const pct = computed(() => {
 
 function onTime(): void {
   const a = audio.value;
-  if (!a || isFinite(a.currentTime)) current.value = a.currentTime;
+  if (a && isFinite(a.currentTime)) current.value = a.currentTime;
 }
 
 /** 把指针位置换算成时间并写入播放器 */
