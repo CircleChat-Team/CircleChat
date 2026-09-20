@@ -30,7 +30,6 @@ import ForwardPicker from './components/chat/ForwardPicker.vue';
 import MergeForwardViewer from './components/chat/MergeForwardViewer.vue';
 import ImageViewer from './components/chat/ImageViewer.vue';
 import VideoViewer from './components/chat/VideoViewer.vue';
-import Dialog from './components/common/Dialog.vue';
 import ForceChangePassword from './components/common/ForceChangePassword.vue';
 
 const title = computed(() => {
@@ -271,8 +270,6 @@ onMounted(refreshMailboxBadge);
     <MergeForwardViewer />
     <ImageViewer />
     <VideoViewer />
-    <!-- 通用确认/输入弹窗：聊天页此前漏挂，导致举报、退群等 prompt/confirm 全部静默失效 -->
-    <Dialog />
 
     <!-- 移动端设置面板：将顶栏散落的按钮统一收纳 -->
     <div class="settings-mask" :class="{ show: settingsOpen }" @click="settingsOpen = false"></div>
