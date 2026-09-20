@@ -1,31 +1,53 @@
 <script setup lang="ts">
 /* ============================================================
- * 个人资料（自编辑弹窗）：头像 / 名称 / 密码 / 两步验证
+ * 个人资料（自编辑弹窗）：弹窗外壳 —— 横向布局
+ * 左栏：紧凑身份块（头像/昵称/处罚状态）+ 纵向 Tab 导航
+ * 右栏：当前 Tab 内容（资料 / 安全 / 处罚）
+ * 各编辑块已拆为独立子组件（profile/ 目录），此处负责弹层、
+ * Tab 状态与处罚状态（供身份块与处罚列表共用）的统一拉取。
  * ============================================================ */
-import { onMounted, ref, computed, nextTick } from 'vue';
-import { get, post } from '../../core/api';
+import { ref, computed, onMounted } from 'vue';
+import { get } from '../../core/api';
 import { tr } from '../../core/i18n';
-import { fmtDate } from '../../core/format';
-import { encodeQr } from '../../lib/qrcode';
-import type { PenaltyItem } from '../../types';
-import {
-  chatState,
-  closeMyProfile,
-  avatarFor,
-  avatarColor,
-  updateProfileName,
-  updateAvatar,
-  clearAvatar,
-  twofaSetup,
-  twofaEnable,
-  twofaDisable,
-  copyToClipboard,
-  logout
-} from '../../core/chat';
+import { chatState, closeMyProfile } from '../../core/chat';
 import { useOverlay } from '../../core/useOverlay';
+import ProfileHeader from './profile/ProfileHeader.vue';
+import ProfileName from './profile/ProfileName.vue';
+import ProfilePassword from './profile/ProfilePassword.vue';
+import ProfileTwofa from './profile/ProfileTwofa.vue';
+import ProfilePenalty from './profile/ProfilePenalty.vue';
+import type { PenaltyItem } from '../../types';
 
-const initial = (n: string): string => (n || '?').slice(0, 1);
-const avatarSrc = computed(() => avatarFor(chatState.me));
+type TabKey = 'profile' | 'security' | 'penalty';
+interface TabItem { k: TabKey; key: string; icon: string }
+const ICON_PROFILE =
+  'M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z';
+const ICON_SHIELD =
+  'M12 2 4 5v6c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V5l-8-3zm-1.5 14.5-3-3 1.4-1.4 1.6 1.6 3.6-3.6 1.4 1.4-5 5z';
+const ICON_GAVEL =
+  'M12 3l7 2-1 5-6 4.5L6 10l-1-5 7-2zM6 13l1.5 5L12 22l.5-9-2 2.5L6 13zm12.5-3.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4z';
+const tabs: TabItem[] = [
+  { k: 'profile', key: 'profile.tab.profile', icon: ICON_PROFILE },
+  { k: 'security', key: 'profile.tab.security', icon: ICON_SHIELD },
+  { k: 'penalty', key: 'profile.tab.penalty', icon: ICON_GAVEL }
+];
+const activeTab = ref<TabKey>('profile');
+
+// 处罚状态（身份块徽标 + 处罚列表共用，统一在打开时拉取一次）
+const penalties = ref<PenaltyItem[]>([]);
+const penaltyLoading = ref(true);
+const penaltyStatus = ref<{ muted: boolean; banned: boolean; ipBanned: boolean } | null>(null);
+const penaltySummary = computed(() => {
+  const s = penaltyStatus.value;
+  if (!s) return '';
+  if (s.banned || s.ipBanned) return tr('mod.mine.banned');
+  if (s.muted) return tr('mod.mine.muted');
+  return tr('mod.mine.ok');
+});
+const penaltyBad = computed(() => {
+  const ok = tr('mod.mine.ok');
+  return penaltySummary.value !== '' && penaltySummary.value !== ok;
+});
 
 // Esc 关闭 + 打开时聚焦弹层 + 关闭后归还焦点
 const rootEl = ref<HTMLElement | null>(null);
@@ -35,225 +57,17 @@ useOverlay({
   container: () => rootEl.value
 });
 
-// ---- 2FA 状态（打开时从 /api/me 拉取） ----
-const totpEnabled = ref(false);
-const loadingStatus = ref(true);
-
-// ---- 我的处罚（从 /api/me/penalties 拉取） ----
-interface PenaltyStatus { muted: boolean; banned: boolean; ipBanned: boolean }
-const penalties = ref<PenaltyItem[]>([]);
-const curStatus = ref<PenaltyStatus | null>(null);
-const loadingPen = ref(true);
-// 当前是否有生效的禁言/封禁，决定右上角摘要文案
-const penaltySummary = computed(() => {
-  const s = curStatus.value;
-  if (!s) return '';
-  if (s.banned || s.ipBanned) return tr('mod.mine.banned');
-  if (s.muted) return tr('mod.mine.muted');
-  return tr('mod.mine.ok');
-});
-function typeText(t: string): string {
-  return tr('mod.type.' + t);
-}
-
-// ---- 头像 ----
-const avatarMsg = ref('');
-const uploading = ref(false);
-
-// ---- 名称 ----
-const newName = ref(chatState.me || '');
-const nameMsg = ref('');
-const saveNameBusy = ref(false);
-
-// ---- 密码 ----
-const curPass = ref('');
-const newPass = ref('');
-const confirmPass = ref('');
-const passMsg = ref('');
-/** true = 成功提示（绿色）；用文案内容判断是否成功在英文/日文下会误判 */
-const passOk = ref(false);
-const savePassBusy = ref(false);
-
-// ---- 2FA 流程 ----
-const secret = ref('');
-const otpauth = ref('');
-const code = ref('');
-const twofaMsg = ref('');
-const twofaBusy = ref(false);
-const setupStep = ref(false);
-const qrCanvas = ref<HTMLCanvasElement | null>(null);
-
-function renderQr(text: string): void {
-  const cv = qrCanvas.value;
-  if (!cv) return;
-  let qr;
-  try { qr = encodeQr(text, 'M'); } catch { return; }
-  const quiet = 4;
-  const scale = 6;
-  const px = (qr.size + quiet * 2) * scale;
-  cv.width = px;
-  cv.height = px;
-  const ctx = cv.getContext('2d');
-  if (!ctx) return;
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, px, px);
-  ctx.fillStyle = '#000';
-  for (let r = 0; r < qr.size; r++) {
-    for (let c = 0; c < qr.size; c++) {
-      if (qr.modules[r][c]) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
-    }
-  }
-}
-
 onMounted(() => {
-  get('/api/me').then((j) => {
-    if (j && j.ok) totpEnabled.value = !!j.totpEnabled;
-    loadingStatus.value = false;
-  }).catch(() => {
-    loadingStatus.value = false;
-  });
-  // 我的处罚：本人账号 + 当前 IP 的处罚记录与当前生效状态
   get('/api/me/penalties').then((j) => {
     if (j && j.ok) {
       penalties.value = (j.penalties as PenaltyItem[]) || [];
-      curStatus.value = (j.status as PenaltyStatus) || null;
+      penaltyStatus.value = (j.status as typeof penaltyStatus.value) || null;
     }
-    loadingPen.value = false;
+    penaltyLoading.value = false;
   }).catch(() => {
-    loadingPen.value = false;
+    penaltyLoading.value = false;
   });
 });
-
-function onPickAvatar(e: Event): void {
-  const file = (e.target as HTMLInputElement).files && (e.target as HTMLInputElement).files![0];
-  if (!file) return;
-  uploading.value = true;
-  avatarMsg.value = '';
-  updateAvatar(file).then((ok) => {
-    uploading.value = false;
-    avatarMsg.value = ok ? tr('profile.avatar.updated') : tr('common.opFailed');
-    (e.target as HTMLInputElement).value = '';
-  });
-}
-function onClearAvatar(): void {
-  avatarMsg.value = '';
-  clearAvatar().then((ok) => {
-    avatarMsg.value = ok ? tr('profile.avatar.updated') : tr('common.opFailed');
-  });
-}
-
-function saveName(): void {
-  const name = newName.value.trim();
-  if (!name || name === chatState.me) {
-    nameMsg.value = '';
-    return;
-  }
-  saveNameBusy.value = true;
-  nameMsg.value = '';
-  updateProfileName(name).then((j) => {
-    saveNameBusy.value = false;
-    if (j.ok) {
-      nameMsg.value = tr('profile.name.changed');
-      setTimeout(() => location.reload(), 1200);
-    } else {
-      nameMsg.value = tr(j.error || 'common.opFailed');
-    }
-  }).catch(() => {
-    saveNameBusy.value = false;
-    nameMsg.value = tr('common.opFailedRetry');
-  });
-}
-
-function savePassword(): void {
-  if (!curPass.value || !newPass.value) {
-    passMsg.value = tr('login.err.empty');
-    return;
-  }
-  if (newPass.value !== confirmPass.value) {
-    passMsg.value = tr('profile.password.mismatch');
-    return;
-  }
-  savePassBusy.value = true;
-  passMsg.value = '';
-  // 复用 /api/pass（与强制改密同一套：校验当前密码 + 强度）
-  post('/api/pass', { current: curPass.value, password: newPass.value })
-    .then((j) => {
-    savePassBusy.value = false;
-    if (j.ok) {
-      // 改密后服务端已销毁全部会话：提示后回登录页重新登录
-      passOk.value = true;
-      passMsg.value = tr('pass.changedRelogin');
-      curPass.value = '';
-      newPass.value = '';
-      confirmPass.value = '';
-      window.setTimeout(() => logout(), 1500);
-    } else {
-      passOk.value = false;
-      passMsg.value = tr(j.error || 'common.opFailed');
-    }
-  }).catch(() => {
-    savePassBusy.value = false;
-    passMsg.value = tr('common.opFailedRetry');
-  });
-}
-
-function startSetup(): void {
-  setupStep.value = true;
-  twofaMsg.value = '';
-  twofaSetup().then((j) => {
-    if (j.ok && j.secret) {
-      secret.value = j.secret;
-      otpauth.value = j.otpauth || '';
-      nextTick(() => renderQr(otpauth.value));
-    } else {
-      setupStep.value = false;
-      twofaMsg.value = tr(j.error || 'common.opFailed');
-    }
-  }).catch(() => {
-    setupStep.value = false;
-    twofaMsg.value = tr('common.opFailedRetry');
-  });
-}
-function verifyEnable(): void {
-  twofaMsg.value = '';
-  twofaBusy.value = true;
-  twofaEnable(code.value).then((j) => {
-    twofaBusy.value = false;
-    if (j.ok) {
-      totpEnabled.value = true;
-      setupStep.value = false;
-      code.value = '';
-      secret.value = '';
-      otpauth.value = '';
-      twofaMsg.value = tr('twofa.enabled');
-    } else {
-      twofaMsg.value = tr(j.error || 'twofa.badCode');
-    }
-  }).catch(() => {
-    twofaBusy.value = false;
-    twofaMsg.value = tr('common.opFailedRetry');
-  });
-}
-function doDisable(): void {
-  twofaMsg.value = '';
-  twofaBusy.value = true;
-  twofaDisable(code.value).then((j) => {
-    twofaBusy.value = false;
-    if (j.ok) {
-      totpEnabled.value = false;
-      code.value = '';
-      twofaMsg.value = tr('twofa.disabled');
-    } else {
-      twofaMsg.value = tr(j.error || 'twofa.badCode');
-    }
-  }).catch(() => {
-    twofaBusy.value = false;
-    twofaMsg.value = tr('common.opFailedRetry');
-  });
-}
-function copy(s: string): void {
-  copyToClipboard(s);
-}
 </script>
 
 <template>
@@ -263,182 +77,49 @@ function copy(s: string): void {
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     @click.self="closeMyProfile"
   >
-    <div class="myprofile relative w-[22rem] max-w-full overflow-hidden rounded-2xl bg-panel text-ink shadow-xl">
-      <div class="!py-4 border-b border-line px-5 text-center text-base font-semibold">
-        {{ tr('profile.title') }}
+    <div class="myprofile relative flex w-[38rem] max-h-[85vh] max-w-[95vw] overflow-hidden rounded-2xl bg-panel text-ink shadow-xl">
+
+      <!-- 左栏：身份块 + 纵向 Tab 导航 -->
+      <aside class="flex w-36 shrink-0 flex-col border-r border-line bg-fill/60 p-3">
+        <ProfileHeader :penalty-summary="penaltySummary" :penalty-bad="penaltyBad" />
+        <nav class="mt-4 flex flex-col gap-1">
+          <button
+            v-for="t in tabs"
+            :key="t.k"
+            type="button"
+            class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors"
+            :class="activeTab === t.k ? 'bg-primary/12 font-semibold text-primary' : 'text-muted hover:bg-fill'"
+            @click="activeTab = t.k"
+          >
+            <svg class="h-4.5 w-4.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path :d="t.icon" />
+            </svg>
+            <span>{{ tr(t.key) }}</span>
+          </button>
+        </nav>
+      </aside>
+
+      <!-- 右栏：标题 + 内容 -->
+      <div class="flex min-w-0 flex-1 flex-col">
+        <div class="flex items-center justify-between border-b border-line py-3 pl-5 pr-4">
+          <span class="text-sm font-semibold">{{ tr(tabs.find((t) => t.k === activeTab)!.key) }}</span>
+          <button
+            type="button"
+            class="text-2xl leading-none text-muted"
+            :title="tr('common.close')"
+            @click="closeMyProfile"
+          >×</button>
+        </div>
+
+        <div class="max-h-[65vh] flex-1 overflow-y-auto p-5">
+          <ProfileName v-if="activeTab === 'profile'" />
+          <div v-else-if="activeTab === 'security'" class="space-y-5">
+            <ProfilePassword />
+            <ProfileTwofa />
+          </div>
+          <ProfilePenalty v-else :penalties="penalties" :loading="penaltyLoading" />
+        </div>
       </div>
-
-      <div class="max-h-[70vh] overflow-y-auto px-5 py-4">
-        <!-- 头像 -->
-        <section>
-          <div class="mb-1.5 text-xs text-muted">{{ tr('profile.avatar.label') }}</div>
-          <div class="flex items-center gap-3">
-            <div class="h-16 w-16 shrink-0 overflow-hidden rounded-full">
-              <img v-if="avatarSrc" :src="avatarSrc!" :alt="chatState.me" class="h-full w-full object-cover" />
-              <div v-else class="flex h-full w-full items-center justify-center text-2xl font-semibold text-white" :style="{ background: avatarColor(chatState.me) }">
-                {{ initial(chatState.me) }}
-              </div>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <label class="btn-mini cursor-pointer">
-                <span>{{ uploading ? '…' : tr('profile.avatar.change') }}</span>
-                <input type="file" accept="image/*" class="hidden" @change="onPickAvatar" />
-              </label>
-              <button v-if="avatarSrc" type="button" class="btn-mini btn-ghost" @click="onClearAvatar">{{ tr('profile.avatar.clear') }}</button>
-            </div>
-          </div>
-          <p v-if="avatarMsg" class="mt-1 text-xs text-success">{{ avatarMsg }}</p>
-        </section>
-
-        <!-- 名称 -->
-        <section class="mt-5">
-          <div class="mb-1.5 text-xs text-muted">{{ tr('profile.name.label') }}</div>
-          <div class="flex gap-2">
-            <input
-              v-model="newName"
-              type="text"
-              maxlength="20"
-              autocomplete="username"
-              :aria-label="tr('profile.name.placeholder')"
-              class="h-9 flex-1 rounded-lg border border-line bg-fill px-2.5 text-sm outline-none focus:border-primary"
-              :placeholder="tr('profile.name.placeholder')"
-            >
-            <button type="button" class="btn-mini" :disabled="saveNameBusy" @click="saveName">{{ tr('profile.name.save') }}</button>
-          </div>
-          <p v-if="nameMsg" class="mt-1 text-xs text-danger">{{ nameMsg }}</p>
-        </section>
-
-        <!-- 修改密码 -->
-        <section class="mt-5">
-          <div class="mb-1.5 text-xs text-muted">{{ tr('profile.password.label') }}</div>
-          <input
-            v-model="curPass"
-            type="password"
-            autocomplete="current-password"
-            :aria-label="tr('profile.password.current')"
-            class="mb-2 h-9 w-full rounded-lg border border-line bg-fill px-2.5 text-sm outline-none focus:border-primary"
-            :placeholder="tr('profile.password.current')"
-          >
-          <input
-            v-model="newPass"
-            type="password"
-            autocomplete="new-password"
-            class="mb-2 h-9 w-full rounded-lg border border-line bg-fill px-2.5 text-sm outline-none focus:border-primary"
-            :placeholder="tr('profile.password.new')"
-          >
-          <input
-            v-model="confirmPass"
-            type="password"
-            autocomplete="new-password"
-            class="h-9 w-full rounded-lg border border-line bg-fill px-2.5 text-sm outline-none focus:border-primary"
-            :placeholder="tr('profile.password.confirm')"
-          >
-          <p v-if="passMsg" class="mt-1 text-xs" :class="passOk ? 'text-success' : 'text-danger'">{{ passMsg }}</p>
-          <button type="button" class="btn-mini mt-2" :disabled="savePassBusy" @click="savePassword">{{ tr('profile.password.save') }}</button>
-          <p class="mt-1 text-[11px] text-muted">{{ tr('profile.password.short') }}</p>
-        </section>
-
-        <!-- 两步验证 -->
-        <section class="mt-5">
-          <div class="flex items-center justify-between">
-            <span class="text-xs text-muted">{{ tr('twofa.label') }}</span>
-            <span v-if="!loadingStatus" class="text-xs font-medium" :class="totpEnabled ? 'text-success' : 'text-muted'">
-              {{ tr(totpEnabled ? 'twofa.on' : 'twofa.off') }}
-            </span>
-          </div>
-
-          <template v-if="!loadingStatus && !totpEnabled && !setupStep">
-            <button type="button" class="btn-mini mt-2" @click="startSetup">{{ tr('twofa.enable') }}</button>
-          </template>
-
-          <template v-else-if="!loadingStatus && totpEnabled">
-            <p class="mt-1.5 text-[11px] text-muted">{{ tr('twofa.disableHint') }}</p>
-            <div class="mt-2 flex gap-2">
-              <input
-                v-model="code"
-                inputmode="numeric"
-                maxlength="6"
-                class="h-9 w-32 rounded-lg border border-line bg-fill px-2.5 text-sm outline-none focus:border-primary"
-                :placeholder="tr('twofa.code.placeholder')"
-              >
-              <button type="button" class="btn-mini btn-danger" :disabled="twofaBusy" @click="doDisable">{{ tr('twofa.disable') }}</button>
-            </div>
-          </template>
-
-          <template v-if="setupStep">
-            <p class="mt-2 whitespace-pre-line text-[11px] text-muted">{{ tr('twofa.setupHint') }}</p>
-            <div v-if="otpauth" class="mt-2 flex justify-center rounded-lg border border-line bg-white p-2">
-              <canvas ref="qrCanvas" class="block" style="width: 160px; height: 160px;" />
-            </div>
-            <div class="mt-2 space-y-2">
-              <div>
-                <div class="flex items-center justify-between">
-                  <span class="text-[11px] text-muted">{{ tr('twofa.secret') }}</span>
-                  <button type="button" class="btn-mini btn-ghost !h-6 !px-2 text-[11px]" @click="copy(secret)">{{ tr('common.copy') }}</button>
-                </div>
-                <div class="mt-1 break-all rounded-lg border border-line bg-fill px-2.5 py-2 font-mono text-xs">{{ secret }}</div>
-              </div>
-              <div v-if="otpauth">
-                <div class="flex items-center justify-between">
-                  <span class="text-[11px] text-muted">{{ tr('twofa.otpauth') }}</span>
-                  <button type="button" class="btn-mini btn-ghost !h-6 !px-2 text-[11px]" @click="copy(otpauth)">{{ tr('common.copy') }}</button>
-                </div>
-                <a :href="otpauth" class="mt-1 block break-all text-xs text-primary underline">{{ otpauth }}</a>
-              </div>
-            </div>
-            <div class="mt-2 flex gap-2">
-              <input
-                v-model="code"
-                inputmode="numeric"
-                maxlength="6"
-                class="h-9 w-32 rounded-lg border border-line bg-fill px-2.5 text-sm outline-none focus:border-primary"
-                :placeholder="tr('twofa.code.placeholder')"
-              >
-              <button type="button" class="btn-mini" :disabled="twofaBusy" @click="verifyEnable">{{ tr('twofa.verify') }}</button>
-            </div>
-          </template>
-
-          <p v-if="twofaMsg" class="mt-1 text-xs text-danger">{{ twofaMsg }}</p>
-        </section>
-
-        <!-- 我的处罚 -->
-        <section class="mt-5">
-          <div class="mb-1.5 flex items-center justify-between">
-            <span class="text-xs text-muted">{{ tr('mod.mine.title') }}</span>
-            <span v-if="penaltySummary" class="text-xs font-medium" :class="penaltySummary === tr('mod.mine.ok') ? 'text-muted' : 'text-danger'">
-              {{ penaltySummary }}
-            </span>
-          </div>
-
-          <div v-if="loadingPen" class="py-2 text-center text-xs text-muted">…</div>
-          <div v-else-if="!penalties.length" class="py-2 text-center text-xs text-muted">{{ tr('mod.penalties.empty') }}</div>
-          <div v-else class="flex flex-col gap-1.5">
-            <div
-              v-for="p in penalties"
-              :key="p.id"
-              class="rounded-xl border border-line px-3 py-2 text-[13px]"
-            >
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="shrink-0 rounded px-1.5 py-0.5 text-[11px]" :class="p.active ? 'bg-primary/12 text-primary' : 'bg-fill text-muted'">
-                  {{ typeText(p.type) }}
-                </span>
-                <span v-if="p.permanent" class="shrink-0 text-[11px] text-danger">{{ tr('mod.permanent') }}</span>
-                <span v-else-if="p.expires" class="shrink-0 text-xs text-muted">{{ tr('mod.until', { date: fmtDate(p.expires) }) }}</span>
-                <span v-if="!p.active" class="shrink-0 text-[11px] text-muted">{{ tr('mod.inactive') }}</span>
-              </div>
-              <p v-if="p.reason" class="mt-1 text-xs text-muted">{{ tr('mod.reason') }} {{ p.reason }}</p>
-              <p class="mt-1 text-[11px] text-muted">{{ tr('mod.actor') }} {{ p.actor || '—' }} · {{ fmtDate(p.created) }}</p>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <button
-        type="button"
-        class="absolute right-3 top-2.5 text-2xl leading-none text-muted"
-        :title="tr('common.close')"
-        @click="closeMyProfile"
-      >×</button>
     </div>
   </div>
 </template>
