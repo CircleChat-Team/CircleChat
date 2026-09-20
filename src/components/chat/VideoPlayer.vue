@@ -1,19 +1,21 @@
 <script setup lang="ts">
 /* ============================================================
- * 视频消息：先显示首帧 + 播放按钮，点击才播放（不自动播放）。
- * 底部显示 文件名 / 格式 · 大小 · 时长。
- * 浏览器无法解码时（例如部分 .mkv / .avi）降级为「下载」提示，
- * 而不是给一个打不开的黑框。
+ * 视频消息（消息列表里只放预览）
+ * - 只在气泡内显示**首帧预览图** + 播放按钮 + 时长，不在这里播放：
+ *   气泡宽度有限，内嵌播放器又小又难点，容易和消息操作打架。
+ * - 点击预览图 → 打开 VideoViewer 模态播放器（尺寸合适，可全屏/小窗）。
+ * - 浏览器无法解码时（例如部分 .mkv / .avi）降级为「下载」提示，
+ *   而不是给一个打不开的黑框。
  * ============================================================ */
 import { computed, ref } from 'vue';
 import { tr } from '../../core/i18n';
 import { fmtSize } from '../../core/format';
 import { extOf, fmtDur } from '../../core/media';
+import { openVideoView } from '../../core/chat';
 
 const props = defineProps<{ src: string; name?: string | null; size?: number | null }>();
 
 const video = ref<HTMLVideoElement | null>(null);
-const started = ref(false);
 const failed = ref(false);
 const duration = ref(0);
 
@@ -22,53 +24,59 @@ const tag = computed(() => {
   const e = extOf(props.name);
   if (e) parts.push(e);
   if (props.size) parts.push(fmtSize(props.size));
-  const d = fmtDur(duration.value);
-  if (d) parts.push(d);
   return parts.join(' · ');
 });
 
-function play(): void {
-  const v = video.value;
-  if (!v) return;
-  started.value = true;
-  v.play().catch(() => {
-    failed.value = true;
-  });
-}
-
-function onStage(): void {
-  if (!started.value && !failed.value) play();
-}
+const durText = computed(() => fmtDur(duration.value));
 
 function onMeta(): void {
   const v = video.value;
-  if (v && isFinite(v.duration) && v.duration > 0) duration.value = v.duration;
+  if (!v) return;
+  if (isFinite(v.duration) && v.duration > 0) duration.value = v.duration;
+  // 部分浏览器（尤其 iOS Safari）在 preload=metadata 下只给黑帧，
+  // 轻微 seek 一下能强制把首帧渲染出来，作为「预览图」。
+  try {
+    if (v.currentTime === 0) v.currentTime = Math.min(0.1, (v.duration || 1) - 0.01);
+  } catch {
+    /* 忽略：个别浏览器此刻还不允许 seek */
+  }
+}
+
+function open(): void {
+  if (failed.value) return;
+  openVideoView(props.src, props.name);
 }
 </script>
 
 <template>
   <div class="video-msg">
-    <div class="video-stage" @click.stop="onStage">
+    <div
+      class="video-stage"
+      role="button"
+      tabindex="0"
+      :aria-label="tr('chat.media.play')"
+      :title="tr('chat.media.play')"
+      @click.stop="open"
+      @keydown.enter.stop.prevent="open"
+      @keydown.space.stop.prevent="open"
+    >
+      <!-- 只是首帧预览：无 controls、静音、不可操作，所有点击都交给舞台处理 -->
       <video
         ref="video"
         class="video-el"
         :src="src"
         preload="metadata"
+        muted
         playsinline
-        :controls="started && !failed"
+        :controls="false"
         @loadedmetadata="onMeta"
-        @play="started = true"
         @error="failed = true"
       ></video>
 
-      <button
-        v-if="!started && !failed"
-        type="button"
-        class="video-play"
-        :title="tr('chat.media.play')"
-        :aria-label="tr('chat.media.play')"
-        @click.stop="play"
-      >▶</button>
+      <template v-if="!failed">
+        <span class="video-play" aria-hidden="true">▶</span>
+        <span v-if="durText" class="video-dur">{{ durText }}</span>
+      </template>
 
       <div v-if="failed" class="video-fail">
         <span>{{ tr('chat.media.unsupported') }}</span>

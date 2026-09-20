@@ -93,6 +93,8 @@ export interface ChatState {
   forwardMode: 'single' | 'merge';
   mergeView: MergeData | null;
   imageView: string | null;
+  /** 视频模态播放器（消息里只显示预览图，点开才播放） */
+  videoView: { src: string; name: string } | null;
   reactTargetIdx: number | null;
   muted: boolean;
   mutedUntil: number | null;
@@ -146,6 +148,7 @@ const state = reactive<ChatState>({
   forwardMode: 'single',
   mergeView: null,
   imageView: null,
+  videoView: null,
   reactTargetIdx: null,
   muted: false,
   mutedUntil: null,
@@ -1165,6 +1168,14 @@ export function openImageView(src: string): void {
 }
 export function closeImageView(): void {
   state.imageView = null;
+}
+
+/** 打开视频模态播放器（消息里只放预览图，避免在气泡里挤一个小播放器） */
+export function openVideoView(src: string, name?: string | null): void {
+  if (src) state.videoView = { src, name: String(name || '') };
+}
+export function closeVideoView(): void {
+  state.videoView = null;
 }
 
 /** 复制图片到剪贴板（失败返回 false，调用方可回退为复制地址） */

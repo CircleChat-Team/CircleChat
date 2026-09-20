@@ -610,6 +610,8 @@ const dict: Record<string, string> = {
   "chat.media.pause": "Pause",
   "chat.media.unsupported": "Your browser cannot preview this format",
   "chat.media.download": "Download",
+  "chat.media.pipNote": "Playing in the browser mini player",
+  "chat.media.pipBack": "Bring back",
   "chat.settings.sendKey.enter": "Enter to send",
   "chat.settings.sendKey.ctrl": "Ctrl+Enter to send",
   "chat.friend.searchPlaceholder": "Search by username",

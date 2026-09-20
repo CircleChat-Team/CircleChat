@@ -578,9 +578,17 @@
   overflow: hidden;
   background: #000;
   border-radius: 10px;
-  cursor: pointer;
+  cursor: zoom-in; /* 只作预览，点开是模态播放器 */
 }
-.video-el { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+/* 预览用的 video 只负责画首帧：屏蔽一切指针事件，点击全部交给 .video-stage */
+.video-el {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  pointer-events: none;
+}
 .video-play {
   position: absolute;
   inset: 0;
@@ -596,10 +604,23 @@
   background: rgba(0, 0, 0, .45);
   border: 2px solid rgba(255, 255, 255, .85);
   border-radius: 50%;
-  cursor: pointer;
+  pointer-events: none; /* 只是视觉提示，点击穿透到舞台 */
   transition: background .15s var(--ease), transform .15s var(--ease);
 }
-.video-play:hover { background: rgba(0, 0, 0, .62); transform: scale(1.06); }
+.video-stage:hover .video-play { background: rgba(0, 0, 0, .62); transform: scale(1.06); }
+/* 时长角标：预览图上标一下，省得点开才知道多长 */
+.video-dur {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, .55);
+  border-radius: 6px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
 .video-fail {
   position: absolute;
   inset: 0;
@@ -621,6 +642,110 @@
   background: var(--primary);
   border-radius: 999px;
   text-decoration: none;
+}
+
+/* ---------- 视频模态播放器（点开预览图后在这里播） ---------- */
+.vv-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 125;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .82);
+}
+/* 进入浏览器小窗（画中画）后：遮罩变透明且不再拦截页面点击，只留一条提示；
+   模态本体只做透明处理、**不卸载**，否则浏览器会连带关掉小窗。 */
+.vv-mask.is-pip {
+  background: transparent;
+  pointer-events: none;
+}
+.vv-mask.is-pip .vv-card { opacity: 0; pointer-events: none; }
+.vv-pip-note {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 126;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--glass-strong);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow-pop);
+  pointer-events: auto;
+}
+.vv-card {
+  display: flex;
+  flex-direction: column;
+  width: min(1080px, 92vw);
+  max-height: 92vh;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-pop);
+  animation: pop .16s var(--ease) both;
+  transition: opacity .15s var(--ease);
+}
+.vv-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.vv-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 500;
+}
+.vv-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.vv-btn {
+  padding: 4px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--fill);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.vv-btn:hover { background: var(--fill-hover); }
+.vv-close { padding: 3px 10px; font-size: 16px; }
+.vv-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  background: #000;
+}
+/* 尺寸取「够看又不顶满屏」：最宽 1080px、最高 76vh；要更大的话用播放器自带全屏按钮 */
+.vv-video { display: block; max-width: 100%; max-height: 76vh; background: #000; }
+.vv-fail {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(0, 0, 0, .8);
 }
 
 /* ---------- 图片灯箱 ---------- */
@@ -1359,3 +1484,11 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 }
 .btn-primary:hover { filter: brightness(1.05); }
 .btn-primary:active { filter: brightness(.95); }
+
+/* ---------- 小屏：视频模态播放器的边距与高度收敛 ---------- */
+@media (max-width: 767px) {
+  .vv-mask { padding: 10px; }
+  .vv-card { width: 96vw; max-height: 88vh; }
+  .vv-video { max-height: 62vh; }
+  .vv-head { padding: 8px 10px; }
+}

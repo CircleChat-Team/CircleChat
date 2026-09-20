@@ -610,6 +610,8 @@ const dict: Record<string, string> = {
   "chat.media.pause": "暂停",
   "chat.media.unsupported": "浏览器无法预览该格式",
   "chat.media.download": "下载",
+  "chat.media.pipNote": "正在浏览器小窗播放",
+  "chat.media.pipBack": "收回小窗",
   "chat.settings.sendKey.enter": "Enter 发送",
   "chat.settings.sendKey.ctrl": "Ctrl+Enter 发送",
   "chat.friend.searchPlaceholder": "输入用户名搜索",

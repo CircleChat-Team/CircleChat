@@ -610,6 +610,8 @@ const dict: Record<string, string> = {
   "chat.media.pause": "一時停止",
   "chat.media.unsupported": "この形式はブラウザでプレビューできません",
   "chat.media.download": "ダウンロード",
+  "chat.media.pipNote": "ブラウザの小窓で再生中",
+  "chat.media.pipBack": "小窓を閉じる",
   "chat.settings.sendKey.enter": "Enterで送信",
   "chat.settings.sendKey.ctrl": "Ctrl+Enterで送信",
   "chat.friend.searchPlaceholder": "ユーザー名で検索",
