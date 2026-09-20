@@ -113,6 +113,7 @@ const dict: Record<string, string> = {
   "common.other": "对方",
   "common.listSep": "、",
   "common.logout": "退出登录",
+  "common.downloadClient": "下载桌面客户端",
   "common.close": "关闭",
   "common.ok": "确定",
   "common.cancel": "取消",

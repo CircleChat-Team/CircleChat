@@ -11,6 +11,7 @@ import ThemeToggle from './components/common/ThemeToggle.vue';
 import LoginForm from './components/login/LoginForm.vue';
 import RegisterForm from './components/login/RegisterForm.vue';
 import AppFooter from './components/common/AppFooter.vue';
+import DownloadClient from './components/common/DownloadClient.vue';
 
 type Mode = 'login' | 'register';
 
@@ -74,6 +75,9 @@ function onRegistered(name: string): void {
       >
         {{ tr(mode === 'login' ? 'reg.toggle' : 'reg.back') }}
       </button>
+
+      <!-- 桌面客户端里不显示（见组件内判断） -->
+      <DownloadClient />
 
       <p class="mt-5 text-center text-[11px] text-muted">{{ tr('login.footer', { url: displayBase() }) }}</p>
     </div>

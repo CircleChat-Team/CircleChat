@@ -113,6 +113,7 @@ const dict: Record<string, string> = {
   "common.other": "相手",
   "common.listSep": "、",
   "common.logout": "ログアウト",
+  "common.downloadClient": "デスクトップ版をダウンロード",
   "common.close": "閉じる",
   "common.ok": "OK",
   "common.cancel": "キャンセル",

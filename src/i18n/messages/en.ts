@@ -113,6 +113,7 @@ const dict: Record<string, string> = {
   "common.other": "The other user",
   "common.listSep": ", ",
   "common.logout": "Sign out",
+  "common.downloadClient": "Download desktop app",
   "common.close": "Close",
   "common.ok": "OK",
   "common.cancel": "Cancel",

@@ -13,6 +13,13 @@ interface ChatConfig {
   displayBase: string;
 }
 
+/* 桌面客户端注入的标记（类型与 src/utils/client.ts 的 DesktopClientInfo 对齐） */
+interface DesktopClientMarker {
+  version: string;
+  platform: 'linux' | 'macos' | 'windows';
+}
+
 interface Window {
   CHAT_CONFIG?: ChatConfig;
+  __CIRCLECHAT_CLIENT__?: DesktopClientMarker;
 }
