@@ -2,12 +2,12 @@
 /* ============================================================
  * 账号管理（新建 + 列表：改密 / 头像 / 删除）
  * ============================================================ */
-import { ref, inject, onMounted } from 'vue';
+import { ref, computed, inject, onMounted } from 'vue';
 import { get, post } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
-import { confirm, prompt } from '../../core/dialog';
 import { fmtDate } from '../../core/format';
 import { passwordOk } from '../../core/password';
+import UserManageDialog from './UserManageDialog.vue';
 import type { UserItem } from '../../types';
 
 const props = defineProps<{ me: string }>();
@@ -20,6 +20,10 @@ const failed = ref('');
 const newName = ref('');
 const newPass = ref('');
 const passEl = ref<HTMLInputElement | null>(null);
+
+/** 正在管理的账号名；用名字而不是对象引用，列表刷新后弹窗内容自动跟着更新 */
+const manageName = ref('');
+const manageUser = computed(() => items.value.find((u) => u.name === manageName.value) || null);
 
 function load(): void {
   get('/api/admin/users')
@@ -60,70 +64,9 @@ function focusPass(): void {
   passEl.value?.focus();
 }
 
-function changePass(u: UserItem): void {
-  prompt({
-    title: tr('admin.users.resetTitle'),
-    text: tr('admin.users.resetPrompt', { name: u.name }),
-    okText: tr('admin.users.resetOk'),
-    danger: false,
-    input: { type: 'password', placeholder: tr('admin.users.newPassPlaceholder'), maxLength: 64 }
-  }).then((p) => {
-    if (p == null) return;
-    if (!passwordOk(p)) {
-      toast(tr('reg.short'));
-      return;
-    }
-    post('/api/admin/user/pass', { name: u.name, password: p }).then((j) => {
-      toast(j.ok ? tr('admin.users.passResetLogout') : tr(j.error || 'common.opFailed'));
-    });
-  });
-}
-
-function rename(u: UserItem): void {
-  prompt({
-    title: tr('admin.users.renameTitle'),
-    text: tr('admin.users.renamePrompt', { name: u.name }),
-    okText: tr('admin.users.renameOk'),
-    input: { type: 'text', placeholder: u.name, maxLength: 20 }
-  }).then((v) => {
-    if (v == null) return;
-    const newName = v.trim();
-    if (!newName || newName === u.name) return;
-    post('/api/admin/user/rename', { name: u.name, newName }).then((j) => {
-      toast(j.ok ? tr('admin.users.renamed', { name: newName }) : tr(j.error || 'common.opFailed'));
-      if (j.ok) load();
-    });
-  });
-}
-
-function setAvatar(u: UserItem): void {
-  prompt({
-    title: tr('admin.users.avatarTitle'),
-    text: tr('admin.users.avatarPrompt', { name: u.name }),
-    placeholder: tr('admin.users.avatarPlaceholder'),
-    okText: tr('admin.users.avatarOk'),
-    input: { type: 'text', placeholder: tr('admin.users.avatarPlaceholder'), maxLength: 2048 }
-  }).then((v) => {
-    if (v == null) return;
-    post('/api/admin/user/image', { name: u.name, image: v.trim() }).then((j) => {
-      toast(j.ok ? tr('admin.users.avatarUpdated') : tr(j.error || 'common.opFailed'));
-      if (j.ok) load();
-    });
-  });
-}
-
-function remove(u: UserItem): void {
-  confirm({
-    title: tr('admin.users.delTitle'),
-    text: tr('admin.users.delConfirm', { name: u.name }),
-    okText: tr('admin.users.delBtn')
-  }).then((ok) => {
-    if (!ok) return;
-    post('/api/admin/user/del', { name: u.name }).then((j) => {
-      toast(j.ok ? tr('admin.users.deleted', { name: u.name }) : tr(j.error || 'common.opFailed'));
-      if (j.ok) load();
-    });
-  });
+/** 弹窗里改完（改名 / 头像 / 删除）后刷新列表 */
+function onManageChanged(): void {
+  load();
 }
 
 onMounted(load);
@@ -193,36 +136,22 @@ onMounted(load);
         </span>
         <span class="shrink-0 text-[11px] text-muted">{{ fmtDate(u.created) }}</span>
 
+        <!-- 操作收进弹窗：功能变多后平铺一排按钮会把行挤爆 -->
         <button
           type="button"
-          class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
-          @click="rename(u)"
+          class="shrink-0 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
+          @click="manageName = u.name"
         >
-          {{ tr('admin.users.changeName') }}
-        </button>
-        <button
-          type="button"
-          class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
-          @click="changePass(u)"
-        >
-          {{ tr('admin.users.changePass') }}
-        </button>
-        <button
-          type="button"
-          class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
-          @click="setAvatar(u)"
-        >
-          {{ u.image ? tr('admin.users.avatarChange') : tr('admin.users.avatarSet') }}
-        </button>
-        <button
-          v-if="u.name !== me"
-          type="button"
-          class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-danger hover:text-danger"
-          @click="remove(u)"
-        >
-          {{ tr('admin.users.delBtn') }}
+          {{ tr('admin.users.manage') }}
         </button>
       </div>
     </div>
   </section>
+
+  <UserManageDialog
+    :user="manageUser"
+    :me="me"
+    @close="manageName = ''"
+    @changed="onManageChanged"
+  />
 </template>

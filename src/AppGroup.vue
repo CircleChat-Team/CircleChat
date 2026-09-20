@@ -3,7 +3,7 @@
  * 群管理页根组件
  * 群主本人或系统管理员可用；管理员可管理任意群。
  * ============================================================ */
-import { ref, provide, watchEffect, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, provide, watchEffect, onMounted, onBeforeUnmount } from 'vue';
 import { get, post } from './core/api';
 import { tr } from './core/i18n';
 import { config } from './core/config';
@@ -12,6 +12,7 @@ import GroupInfoCard from './components/group/GroupInfoCard.vue';
 import JoinRequestsCard from './components/group/JoinRequestsCard.vue';
 import MembersCard from './components/group/MembersCard.vue';
 import GroupFilesCard from './components/group/GroupFilesCard.vue';
+import GroupLogsCard from './components/group/GroupLogsCard.vue';
 import Dialog from './components/common/Dialog.vue';
 import type { GroupItem, GroupDetail, GroupMember, JoinRequest, GroupFile } from './types';
 
@@ -38,6 +39,19 @@ const groups = ref<GroupItem[]>([]);
 const gid = ref('');
 const detail = ref<GroupDetail | null>(null);
 const err = ref('');
+
+// 页签：与管理面板保持同一套结构，省得所有卡片一路往下堆
+const tabs = [
+  { id: 'info', label: 'group.tab.info' },
+  { id: 'members', label: 'group.tab.members' },
+  { id: 'requests', label: 'group.tab.requests' },
+  { id: 'files', label: 'group.tab.files' },
+  { id: 'logs', label: 'group.tab.logs' }
+];
+const tab = ref('info');
+
+/** 待审核条数：在页签上直接显示，免得还要点进去才发现有人申请 */
+const pendingCount = computed(() => (detail.value ? detail.value.requests.length : 0));
 
 // 在线列表：初始取 /api/me 快照，随后由 WebSocket presence 实时更新
 const online = ref<string[]>(props.online || []);
@@ -264,20 +278,54 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <main class="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 py-5 pb-10">
+    <nav
+      v-if="detail"
+      class="sticky top-14 z-4 flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line bg-panel/80 px-3 backdrop-blur-xl"
+    >
+      <button
+        v-for="t in tabs"
+        :key="t.id"
+        type="button"
+        class="relative -mb-px flex shrink-0 items-center gap-1 border-b-2 px-3 py-2.5 text-[13px] transition-colors"
+        :class="tab === t.id ? 'border-primary font-medium text-ink' : 'border-transparent text-muted hover:text-ink'"
+        @click="tab = t.id"
+      >
+        {{ tr(t.label) }}
+        <span
+          v-if="t.id === 'requests' && pendingCount"
+          class="rounded-full bg-danger/15 px-1.5 text-[10px] text-danger tabular-nums"
+        >{{ pendingCount }}</span>
+      </button>
+    </nav>
+
+    <!-- 宽度与管理面板对齐：窄屏单列满宽，桌面端放宽，不再挤在 720px 里 -->
+    <main class="mx-auto flex w-full max-w-190 flex-col gap-4 px-4 py-5 pb-10 lg:max-w-[1120px] xl:max-w-[1400px]">
       <p v-if="err" class="rounded-xl bg-fill px-3 py-2 text-center text-xs text-danger">{{ tr(err) }}</p>
 
       <template v-if="detail">
         <GroupInfoCard
+          v-if="tab === 'info'"
           :gid="gid"
           :group="detail.group"
           :is-owner="detail.isOwner"
           @refreshed="refresh"
           @deleted="onDeleted"
         />
-        <JoinRequestsCard :gid="gid" :requests="detail.requests" @refreshed="refresh" />
-        <MembersCard :gid="gid" :members="detail.members" :online="online" @refreshed="refresh" />
-        <GroupFilesCard :gid="gid" :files="detail.files" @refreshed="refresh" />
+        <MembersCard
+          v-else-if="tab === 'members'"
+          :gid="gid"
+          :members="detail.members"
+          :online="online"
+          @refreshed="refresh"
+        />
+        <JoinRequestsCard
+          v-else-if="tab === 'requests'"
+          :gid="gid"
+          :requests="detail.requests"
+          @refreshed="refresh"
+        />
+        <GroupFilesCard v-else-if="tab === 'files'" :gid="gid" :files="detail.files" @refreshed="refresh" />
+        <GroupLogsCard v-else :gid="gid" />
       </template>
       <p v-else-if="!err" class="py-10 text-center text-xs text-muted">{{ tr('common.loadFailed') }}</p>
     </main>

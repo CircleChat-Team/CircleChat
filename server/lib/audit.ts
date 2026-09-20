@@ -90,6 +90,12 @@ export interface ListOpt {
   offset?: number;
   actor?: string;
   action?: string;
+  /** 精确匹配 target（群日志按 gid 过滤用） */
+  target?: string;
+  /** action 前缀匹配（如 'group.' 只看群相关动作） */
+  actionPrefix?: string;
+  /** 排除的 action（群日志要挡掉 group.msg / group.recall，否则会被每条消息刷屏） */
+  excludeActions?: string[];
 }
 
 /**
@@ -109,6 +115,19 @@ export function list(opt: ListOpt): { total: number; logs: AuditRow[] } {
   if (o.action) {
     where.push('action = ?');
     args.push(String(o.action).slice(0, 40));
+  }
+  if (o.target) {
+    where.push('target = ?');
+    args.push(String(o.target).slice(0, 64));
+  }
+  if (o.actionPrefix) {
+    where.push('action LIKE ?');
+    args.push(String(o.actionPrefix).slice(0, 40) + '%');
+  }
+  if (o.excludeActions && o.excludeActions.length) {
+    const list = o.excludeActions.slice(0, 20).map((a) => String(a).slice(0, 40));
+    where.push('action NOT IN (' + list.map(() => '?').join(',') + ')');
+    args.push(...list);
   }
   const whereSql = where.length ? ' WHERE ' + where.join(' AND ') : '';
 

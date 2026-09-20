@@ -2247,6 +2247,26 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
+  // GET /api/groups/logs?gid=&limit=&offset= —— 群内操作日志（群主 / 系统管理员）
+  // 与全局审计日志同源，但只取 target=gid 的「群管理类」动作：
+  // group.msg / group.recall 也把 target 记成 gid，必须排除，否则会被每条消息刷屏。
+  if (pathname === '/api/groups/logs' && req.method === 'GET') {
+    const gid = (urlObj.searchParams.get('gid') || '').trim() || '';
+    if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
+    const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
+    if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权查看该群日志' }); return; }
+    const page = audit.list({
+      limit: urlObj.searchParams.get('limit'),
+      offset: urlObj.searchParams.get('offset'),
+      target: gid,
+      actionPrefix: 'group.',
+      excludeActions: ['group.msg', 'group.recall']
+    });
+    sendJSON(res, 200, { ok: true, total: page.total, logs: page.logs });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
   // POST /api/groups/request/approve —— 通过某人的入群申请 {gid, name}
   if (pathname === '/api/groups/request/approve' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
