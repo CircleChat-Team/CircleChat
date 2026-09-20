@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import * as mailbox from './mailbox';
 
 // 路径锚定到运行根目录（package.json 启动目录 = 项目根）
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -137,6 +138,15 @@ export function addPenalty(params: { type: string; target: string; reason?: stri
     'INSERT INTO penalties (type, target, reason, actor, created, duration_ms, expires, revoked) ' +
     'VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
   ).run(type, target, String(params.reason || '').slice(0, 200), String(params.actor), now, durationMs, expires);
+  // 对账号类处罚（非 ipban）给被罚用户写一条站内通知；IP 封禁无明确账号，不通知
+  if (type !== 'ipban') {
+    mailbox.notify({
+      target,
+      kind: 'penalty',
+      title: 'mod.notify.penalty',
+      body: String(params.reason || '')
+    });
+  }
   return { ok: true, id: Number(res.lastInsertRowid) };
 }
 
@@ -154,6 +164,23 @@ export function revokePenalty(id: number, by: string): boolean {
 export function listPenalties(): Record<string, unknown>[] {
   const now = Date.now();
   const rows = open().prepare('SELECT * FROM penalties ORDER BY created DESC').all() as Record<string, unknown>[];
+  return rows.map((r) => {
+    const active = !r.revoked && (r.expires == null || Number(r.expires) > now);
+    return {
+      id: r.id, type: r.type, target: r.target, reason: r.reason, actor: r.actor,
+      created: r.created, duration_ms: r.duration_ms, expires: r.expires,
+      revoked: !!r.revoked, revoked_by: r.revoked_by, revoked_at: r.revoked_at,
+      active, permanent: r.expires == null && !r.revoked
+    };
+  });
+}
+
+/** 某用户本人的处罚（新→旧）：含账号目标 + 当前 IP 的 IP 封禁，附加 active 是否仍生效。 */
+export function listPenaltiesFor(user: string, ip: string | null): Record<string, unknown>[] {
+  const now = Date.now();
+  const rows = open().prepare(
+    "SELECT * FROM penalties WHERE target = ? OR (type = 'ipban' AND target = ?) ORDER BY created DESC"
+  ).all(String(user), String(ip || '')) as Record<string, unknown>[];
   return rows.map((r) => {
     const active = !r.revoked && (r.expires == null || Number(r.expires) > now);
     return {
