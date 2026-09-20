@@ -19,7 +19,21 @@ interface DesktopClientMarker {
   platform: 'linux' | 'macos' | 'windows';
 }
 
+/* 桌面客户端提供的系统通知能力（见 src/utils/notify.ts） */
+interface CircleChatNotifyOptions {
+  title?: string;
+  body?: string;
+}
+
+interface CircleChatNotifyResult {
+  ok: boolean;
+  error: string | null;
+}
+
 interface Window {
   CHAT_CONFIG?: ChatConfig;
   __CIRCLECHAT_CLIENT__?: DesktopClientMarker;
+  __CIRCLECHAT__?: {
+    notify(options: CircleChatNotifyOptions | string): Promise<CircleChatNotifyResult>;
+  };
 }

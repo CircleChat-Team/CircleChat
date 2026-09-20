@@ -10,6 +10,7 @@ import { config } from './config';
 import { tr } from './i18n';
 import { fmtSize } from './format';
 import { DEFAULT_NOTIFY_SOUND, isNotifySound, playIncoming, playOutgoing, setNotifySound as soundSetNotify } from './sound';
+import { canSystemNotify, systemNotify } from '../utils/notify';
 import type {
   ApiResult,
   ChatMessage,
@@ -1527,22 +1528,12 @@ export function setSoundOut(on: boolean): void {
 }
 
 /**
- * 开启/关闭通知。开启时必须在"用户手势"内请求权限（浏览器要求），
- * 尤其 Windows/Edge 下否则不会弹权限框。权限被拒则保持关闭。
+ * 开启/关闭系统通知。
+ * 通知只由桌面客户端提供（页面 → window.__CIRCLECHAT__.notify → 客户端 IPC），
+ * 网页端没有这个能力，开启会直接保持关闭。UI 上对应开关也是禁用的。
  */
 export async function setNotify(enabled: boolean): Promise<boolean> {
-  const on = await (async () => {
-    if (!enabled) return false;
-    if (typeof Notification === 'undefined') return false; // 环境不支持
-    if (Notification.permission === 'granted') return true;
-    if (Notification.permission === 'denied') return false;
-    try {
-      // 在用户手势(点击/切换)内同步发起请求，Edge/Chrome 才会唤醒权限弹窗
-      return (await Notification.requestPermission()) === 'granted';
-    } catch {
-      return false;
-    }
-  })();
+  const on = enabled && canSystemNotify();
   state.notifyOn = on;
   void post('/api/settings', { notify: on }).catch(() => {
     /* 忽略 */
@@ -1550,10 +1541,10 @@ export async function setNotify(enabled: boolean): Promise<boolean> {
   return on;
 }
 
-/** 新消息到达：不在当前会话 或 页面隐藏 时弹出系统通知 */
+/** 新消息到达：不在当前会话 或 页面隐藏 时，通过桌面客户端弹系统通知 */
 export function maybeNotify(m: ChatMessage): void {
-  if (!state.notifyOn || typeof Notification === 'undefined') return;
-  if (Notification.permission !== 'granted') return;
+  if (!state.notifyOn) return;
+  if (!canSystemNotify()) return; // 网页端没有系统通知能力
   if (msgInActiveRoom(m) && !document.hidden) return; // 正在看的会话不打扰
   let room = '';
   let title = m.from || '';
@@ -1572,19 +1563,9 @@ export function maybeNotify(m: ChatMessage): void {
     : m.type === 'file' ? tr('chat.notify.body.file')
     : m.type === 'merge' ? tr('chat.notify.body.merge')
     : String(m.content || '');
-  try {
-    const n = new Notification(title, { body: body.slice(0, 200), tag: 'cc-' + (m.id || Date.now()) });
-    n.onclick = () => {
-      window.focus();
-      try {
-        n.close();
-      } catch {
-        /* 忽略 */
-      }
-    };
-  } catch {
-    /* 忽略 */
-  }
+  // 交给客户端弹系统通知；失败（系统通知服务不可用 / 权限被拒 / 超时）时静默跳过，
+  // 不额外打扰用户——提示音与未读红点已经足够。
+  void systemNotify(title, body.slice(0, 200));
 }
 
 export function initChat(): void {

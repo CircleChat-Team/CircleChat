@@ -131,6 +131,7 @@ const dict: Record<string, string> = {
   "chat.members": "Members",
   "chat.adminPanel": "Admin panel",
   "chat.notify.label": "Notifications",
+  "chat.notify.desktopOnly": "Notifications are only available in the desktop app",
   "chat.sidebar.toggle": "Menu",
   "chat.settings.title": "Settings",
   "chat.logoutShort": "Exit",

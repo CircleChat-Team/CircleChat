@@ -340,6 +340,8 @@
   padding: 11px 6px;
   font-size: 14px;
 }
+/* 设置项下方的说明文字（例：系统通知仅桌面客户端支持） */
+.settings-hint { padding: 0 6px 8px; font-size: 11px; line-height: 1.5; color: var(--muted); }
 .settings-accent { display: flex; align-items: center; gap: 8px; }
 .accent-input {
   width: 30px;

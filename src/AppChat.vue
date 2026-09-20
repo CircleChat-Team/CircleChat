@@ -15,6 +15,7 @@ import {
 import { NOTIFY_SOUNDS, playNotifyPreview, playOutgoingPreview } from './core/sound';
 import { tr } from './core/i18n';
 import { accent, setAccent } from './core/theme';
+import { canSystemNotify } from './utils/notify';
 import Sidebar from './components/chat/Sidebar.vue';
 import MessageList from './components/chat/MessageList.vue';
 import InputBar from './components/chat/InputBar.vue';
@@ -58,6 +59,9 @@ const activeAnnouncement = computed(() => {
 // 移动端：侧边栏抽屉 + 设置面板开关
 const sidebarOpen = ref(false);
 const settingsOpen = ref(false);
+
+/** 系统通知只由桌面客户端提供，网页端把开关置灰 */
+const notifyAvailable = canSystemNotify();
 
 function onNotify(e: Event): void {
   const v = (e.target as HTMLInputElement).checked;
@@ -282,10 +286,12 @@ onMounted(refreshMailboxBadge);
         <div class="settings-row">
           <span>{{ tr('chat.notify.label') }}</span>
           <label class="switch">
-            <input type="checkbox" :checked="chatState.notifyOn" @change="onNotify" />
+            <input type="checkbox" :checked="chatState.notifyOn" :disabled="!notifyAvailable" @change="onNotify" />
             <span class="slider"></span>
           </label>
         </div>
+        <!-- 网页端没有系统通知能力（通知由客户端通过 IPC 弹出），说明一下开关为什么点不动 -->
+        <div v-if="!notifyAvailable" class="settings-hint">{{ tr('chat.notify.desktopOnly') }}</div>
         <div class="settings-row">
           <span>{{ tr('chat.settings.soundIn') }}</span>
           <label class="switch">

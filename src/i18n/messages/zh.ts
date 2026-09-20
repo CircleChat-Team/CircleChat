@@ -131,6 +131,7 @@ const dict: Record<string, string> = {
   "chat.members": "群成员",
   "chat.adminPanel": "管理面板",
   "chat.notify.label": "系统通知",
+  "chat.notify.desktopOnly": "系统通知仅桌面客户端支持",
   "chat.sidebar.toggle": "菜单",
   "chat.settings.title": "设置",
   "chat.logoutShort": "退出",

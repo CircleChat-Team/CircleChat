@@ -131,6 +131,7 @@ const dict: Record<string, string> = {
   "chat.members": "メンバー",
   "chat.adminPanel": "管理パネル",
   "chat.notify.label": "通知",
+  "chat.notify.desktopOnly": "通知はデスクトップ版のみ対応しています",
   "chat.sidebar.toggle": "メニュー",
   "chat.settings.title": "設定",
   "chat.logoutShort": "終了",
