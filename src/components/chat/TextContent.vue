@@ -237,27 +237,41 @@ function renderMd(src: string): string {
       continue;
     }
 
-    // 无序 / 有序列表（连续收集）
+    // 列表（连续收集）：无序 / 有序 / 任务清单 - [ ] / - [x]
     const ulItem = /^\s*[-+*]\s+(.*)$/.exec(line);
     const olItem = /^\s*\d+\.\s+(.*)$/.exec(line);
     if (ulItem || olItem) {
       flush();
       const ordered: boolean = !!olItem;
+      // 直接存完整的 <li>，因为任务项要输出带 class 的 li，不能再统一包一层
       const items: string[] = [];
       while (i < lines.length) {
         const l = lines[i];
+        const task = /^\s*[-+*]\s+\[([ xX])\]\s*(.*)$/.exec(l);
+        if (!ordered && task) {
+          const checked = task[1].toLowerCase() === 'x';
+          items.push(
+            '<li class="md-task' + (checked ? ' done' : '') + '">' +
+            '<span class="md-check' + (checked ? ' on' : '') + '" aria-hidden="true">' + (checked ? '✓' : '') + '</span>' +
+            '<span class="md-task-text">' + mdInline(task[2]) + '</span></li>'
+          );
+          i++;
+          continue;
+        }
         const u = /^\s*[-+*]\s+(.*)$/.exec(l);
         const o = /^\s*\d+\.\s+(.*)$/.exec(l);
         if (ordered) {
           if (!o) break;
-          items.push(mdInline(o[1]));
+          items.push('<li>' + mdInline(o[1]) + '</li>');
         } else {
           if (!u) break;
-          items.push(mdInline(u[1]));
+          items.push('<li>' + mdInline(u[1]) + '</li>');
         }
         i++;
       }
-      html.push('<ul class="md-list">' + items.map((it) => '<li>' + it + '</li>').join('') + '</ul>');
+      // 原来无论有序无序都输出 <ul>，有序列表的编号被吃掉、全变成圆点
+      const tag = ordered ? 'ol' : 'ul';
+      html.push('<' + tag + ' class="md-list">' + items.join('') + '</' + tag + '>');
       continue;
     }
 

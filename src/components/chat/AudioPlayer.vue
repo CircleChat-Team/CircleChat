@@ -107,7 +107,16 @@ let analyser: AnalyserNode | null = null;
 let raf = 0;
 let freq: Uint8Array<ArrayBuffer> | null = null;
 
-function accent(): string {
+/**
+ * 频谱条颜色：优先读 canvas 上的 --bars（CSS 会在自己发的消息里覆盖成浅色）。
+ * 原来的实现固定取 --primary，而自己发的气泡背景也是主题色，导致条与底同色看不见。
+ */
+function barColor(): string {
+  const c = canvas.value;
+  if (c) {
+    const v = getComputedStyle(c).getPropertyValue('--bars').trim();
+    if (v) return v;
+  }
   const v = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
   return v || '#07c160';
 }
@@ -120,7 +129,7 @@ function draw(): void {
   const h = c.height;
   g.clearRect(0, 0, w, h);
   const bw = w / BARS;
-  g.fillStyle = accent();
+  g.fillStyle = barColor();
   const live = playing.value && analyser !== null && freq !== null;
   if (live && analyser && freq) analyser.getByteFrequencyData(freq);
   for (let i = 0; i < BARS; i++) {

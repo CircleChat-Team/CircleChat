@@ -10,6 +10,7 @@ import LangMenu from './components/common/LangMenu.vue';
 import ThemeToggle from './components/common/ThemeToggle.vue';
 import LoginForm from './components/login/LoginForm.vue';
 import RegisterForm from './components/login/RegisterForm.vue';
+import AppFooter from './components/common/AppFooter.vue';
 
 type Mode = 'login' | 'register';
 
@@ -41,7 +42,7 @@ function onRegistered(name: string): void {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-bg px-4 py-8">
+  <div class="relative flex min-h-screen items-center justify-center bg-bg px-4 py-8">
     <!-- 登录页无顶栏，主题与语言切换独立悬浮 -->
     <div class="fixed right-4 top-4 flex items-center gap-1">
       <ThemeToggle />
@@ -74,5 +75,8 @@ function onRegistered(name: string): void {
 
       <p class="mt-5 text-center text-[11px] text-muted">{{ tr('login.footer', { url: displayBase() }) }}</p>
     </div>
+
+    <!-- 页面底部版权与项目地址 -->
+    <AppFooter class="absolute bottom-0 left-0 right-0" />
   </div>
 </template>
