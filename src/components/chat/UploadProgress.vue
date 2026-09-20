@@ -69,6 +69,11 @@ function barState(t: UploadTask): string {
   if (t.status === 'done') return 'done';
   return '';
 }
+
+/** 是否渲染 IDM 式分段进度条：分片上传且已拿到每片进度 */
+function isChunked(t: UploadTask): boolean {
+  return !!(t.chunks && t.chunks > 1 && t.chunkProgress && t.chunkProgress.length === t.chunks);
+}
 </script>
 
 <template>
@@ -81,10 +86,6 @@ function barState(t: UploadTask): string {
       <button v-if="hasRetryable" type="button" class="upload-act" @click="retryAllFailed">
         {{ tr('chat.upload.retryAll') }}
       </button>
-    </div>
-
-    <div v-if="busy" class="upload-bar overall">
-      <i :style="{ width: overallPct + '%' }"></i>
     </div>
 
     <div v-for="t in tasks" :key="t.id" class="upload-item" :class="t.status">
@@ -125,7 +126,17 @@ function barState(t: UploadTask): string {
         >×</button>
       </div>
 
-      <div class="upload-bar"><i :class="barState(t)" :style="{ width: barWidth(t) }"></i></div>
+      <!-- IDM 式分段进度条：分片上传时每片一格，实时展示各片传输进度 -->
+      <div v-if="isChunked(t)" class="upload-bar segs" :class="barState(t)">
+        <span
+          v-for="(p, i) in t.chunkProgress"
+          :key="i"
+          class="seg"
+          :class="{ done: p >= 100, active: p > 0 && p < 100 }"
+          :title="tr('chat.upload.partPct', { n: i + 1, p: p })"
+        ><span class="seg-fill" :style="{ width: p + '%' }"></span></span>
+      </div>
+      <div v-else class="upload-bar"><i :class="barState(t)" :style="{ width: barWidth(t) }"></i></div>
     </div>
   </div>
 </template>

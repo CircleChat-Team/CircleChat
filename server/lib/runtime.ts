@@ -237,36 +237,50 @@ function serveStatic(req: any, res: any, pathname: string): void {
     const cache = isVendor
       ? 'public, max-age=604800'
       : (/\.(png|jpg|jpeg|gif|webp|ico|svg)$/.test(ext) ? 'public, max-age=86400' : 'no-cache');
+    // 媒体（视频/音频）走流式 + Range 响应：
+    // 之前整文件 fs.readFile 读入内存再切片，大文件开播前要等整个文件读完，导致“等待开始慢 / 音频卡顿”。
+    // 改成分段 createReadStream，按需只读需要的字节，开始播放与拖动进度都立即响应。
+    if (!attachment && /^(video|audio)\//.test(type)) {
+      const total = st.size;
+      const h: Record<string, string> = {
+        'Content-Type': type,
+        'Cache-Control': cache,
+        'X-Content-Type-Options': 'nosniff',
+        'Accept-Ranges': 'bytes'
+      };
+      const range = req.headers['range'];
+      const rm = range && /^bytes=(\d*)-(\d*)$/.exec(range);
+      if (rm) {
+        let start = rm[1] ? parseInt(rm[1], 10) : 0;
+        let end = rm[2] ? parseInt(rm[2], 10) : total - 1;
+        if (!Number.isFinite(start) || start < 0) start = 0;
+        if (!Number.isFinite(end) || end >= total) end = total - 1;
+        if (start > end) { res.writeHead(416, { 'Content-Range': 'bytes */' + total }); res.end(); return; }
+        h['Content-Range'] = 'bytes ' + start + '-' + end + '/' + total;
+        h['Content-Length'] = String(end - start + 1);
+        res.writeHead(206, h);
+        const rs = fs.createReadStream(filePath, { start, end });
+        rs.on('error', () => { try { res.destroy(); } catch { /* 忽略 */ } });
+        rs.pipe(res);
+        return;
+      }
+      h['Content-Length'] = String(total);
+      res.writeHead(200, h);
+      const rs = fs.createReadStream(filePath);
+      rs.on('error', () => { try { res.destroy(); } catch { /* 忽略 */ } });
+      rs.pipe(res);
+      return;
+    }
     fs.readFile(filePath, (e2: any, data: Buffer) => {
       if (e2) { res.writeHead(500); res.end(); return; }
       const acceptGzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
-      const big = !attachment && data.length > 512 && /\.(html|css|js|json|svg|txt|md)$/.test(ext);
+      const big = data.length > 512 && /\.(html|css|js|json|svg|txt|md)$/.test(ext);
       const headers: Record<string, string> = {
         'Content-Type': type,
         'Cache-Control': cache,
         'X-Content-Type-Options': 'nosniff'
       };
       if (attachment) headers['Content-Disposition'] = 'attachment';
-      // 视频/音频：支持 Range 请求（播放器拖动进度需要）
-      if (!attachment && /^(video|audio)\//.test(type)) {
-        headers['Accept-Ranges'] = 'bytes';
-        const range = req.headers['range'];
-        const rm = range && /^bytes=(\d*)-(\d*)$/.exec(range);
-        if (rm) {
-          const total = data.length;
-          let start = rm[1] ? parseInt(rm[1], 10) : 0;
-          let end = rm[2] ? parseInt(rm[2], 10) : total - 1;
-          if (!Number.isFinite(start) || start < 0) start = 0;
-          if (!Number.isFinite(end) || end >= total) end = total - 1;
-          if (start > end) { res.writeHead(416, { 'Content-Range': 'bytes */' + total }); res.end(); return; }
-          const chunk = data.slice(start, end + 1);
-          headers['Content-Range'] = 'bytes ' + start + '-' + end + '/' + total;
-          headers['Content-Length'] = String(chunk.length);
-          res.writeHead(206, headers);
-          res.end(chunk);
-          return;
-        }
-      }
       // 先压缩再发头，避免 writeHead 后 setHeader 报错
       if (acceptGzip && big) {
         try {

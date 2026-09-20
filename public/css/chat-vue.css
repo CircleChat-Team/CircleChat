@@ -524,6 +524,7 @@
 
 /* ---------- 音频消息：点击才播放 ---------- */
 .audio-msg {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -549,6 +550,88 @@
 .msg.self .audio-btn { background: rgba(255, 255, 255, .3); }
 .audio-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .audio-bars { display: block; width: 100%; height: 30px; }
+
+/* 音频播放进度条：可点击/拖拽 seek */
+.audio-progress {
+  position: relative;
+  width: 100%;
+  height: 18px;
+  margin-top: 2px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;   /* 移动端把横向拖动留给 seek，不做页面滚动 */
+}
+.audio-progress:active { cursor: grabbing; }
+.audio-seek-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 4px;
+  transform: translateY(-50%);
+  background: var(--fill);
+  border-radius: 2px;
+}
+.audio-seek-fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 4px;
+  max-width: 100%;
+  transform: translateY(-50%);
+  background: var(--primary);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.audio-seek-thumb {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 2px solid var(--primary);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+  pointer-events: none;
+}
+.msg.self .audio-seek-thumb { border-color: var(--primary); }
+.audio-time {
+  position: absolute;
+  top: 0;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+  pointer-events: none;
+}
+.audio-time-cur { left: 0; }
+.audio-time-dur { right: 0; }
+
+/* 媒体卡片上的下载图标（音频 / 视频预览） */
+.media-dl {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--muted);
+  background: var(--glass-strong);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
+}
+.media-dl .icon { width: 14px; height: 14px; }
+.audio-msg:hover .media-dl, .media-dl:focus-visible { opacity: 1; }
+.media-dl:hover { color: #fff; background: var(--primary); }
+.msg.self .media-dl { color: rgba(255, 255, 255, .85); background: rgba(0, 0, 0, .25); border-color: rgba(255, 255, 255, .2); }
+.video-dl { background: rgba(0, 0, 0, .35); border-color: rgba(255, 255, 255, .15); color: #fff; opacity: 1; }
+.video-dl:hover { color: #fff; background: var(--primary); }
 
 /* ---------- 视频消息：首帧 + 点击播放 ---------- */
 .video-msg {
@@ -821,6 +904,32 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 .upload-panel.shifted { bottom: calc(100% + 44px); }
 .upload-panel::-webkit-scrollbar { width: 6px; }
 .upload-panel::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, .35); border-radius: 6px; }
+
+/* ---------- 占位层：正在输入 / 引用 / 上传进度 ----------
+   这些组件改为在消息区与输入栏之间参与普通流式布局，出现时把上方消息往上顶、
+   不再悬浮盖住消息区底部的最新消息；高度随内容变化，消失后自动归零恢复。
+   注意：必须放在未分层的本文件里（style.css 被 tailwind 编入 @layer base，
+   CSS 分层规则优先级恒低于未分层，放在那边会被 .upload-panel 的 absolute 压过）。 */
+.chat-extra {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 16px 4px;
+  background: var(--bg);
+}
+.chat-extra .typing-bar,
+.chat-extra .reply-bar,
+.chat-extra .upload-panel {
+  position: static;   /* 从绝对悬浮改回普通流式，参与布局 */
+  left: auto;
+  right: auto;
+  bottom: auto;
+  z-index: auto;
+  margin: 0;
+}
+.chat-extra .typing-bar { align-self: flex-start; max-width: 100%; }
+.chat-extra .upload-panel { margin: 0; max-height: none; }
 .upload-head {
   display: flex;
   align-items: center;
@@ -895,6 +1004,35 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
   transition: width .15s linear;
 }
 .upload-bar > i.failed { background: var(--danger, #f76260); }
+
+/* IDM 式分段进度条：分片上传时每片一格，实时展示各片传输进度 */
+.upload-bar.segs {
+  display: flex;
+  gap: 2px;
+  height: 5px;
+  overflow: visible;
+  background: transparent;
+  border-radius: 2px;
+  align-items: stretch;
+}
+.upload-bar.segs .seg {
+  flex: 1 1 0;
+  min-width: 2px;
+  height: 100%;
+  overflow: hidden;
+  background: var(--fill);
+  border-radius: 2px;
+}
+.upload-bar.segs .seg-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width .15s linear;
+}
+.upload-bar.segs.failed .seg-fill,
+.upload-bar.segs > i.failed { background: var(--danger, #f76260); }
 
 /* ---------- 移动端（≤767px）：隐藏顶部散落按钮，改用设置面板 ---------- */
 @media (max-width: 767px) {

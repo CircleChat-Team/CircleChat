@@ -246,6 +246,7 @@ const dict: Record<string, string> = {
   "chat.upload.unitMin": "{n}m {s}s",
   "chat.upload.retryAll": "Retry all",
   "chat.upload.parts": "{done}/{total} parts",
+  "chat.upload.partPct": "Part {n}: {p}%",
   "chat.emoji.recent": "Frequent",
   "chat.emoji.people": "People",
   "chat.emoji.gestures": "Gestures",

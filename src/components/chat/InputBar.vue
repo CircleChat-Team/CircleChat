@@ -209,7 +209,10 @@ function cancelReply(): void {
 </script>
 
 <template>
-  <footer class="chat-inputbar">
+  <!-- 占位层：正在输入 / 引用 / 上传进度 参与普通流式布局（在消息区与输入栏之间）。
+       出现时把上方消息往上顶、最新消息始终可见不被盖住；消失时高度归零自动恢复。
+       （原先是绝对定位浮在输入栏上方、会盖住消息区底部的最新消息） -->
+  <div class="chat-extra">
     <div v-if="typing" class="typing-bar">{{ tr('chat.typing', { name: typing }) }}</div>
 
     <div v-if="reply" class="reply-bar">
@@ -223,6 +226,10 @@ function cancelReply(): void {
       <span class="reply-text">{{ mutedText }}</span>
     </div>
 
+    <UploadProgress />
+  </div>
+
+  <footer class="chat-inputbar">
     <div v-if="mention" class="mention-panel">
       <button
         v-for="n in mention.list"
@@ -236,8 +243,6 @@ function cancelReply(): void {
     <div v-if="showEmoji" class="emoji-wrap">
       <EmojiPanel @pick="pickEmoji" />
     </div>
-
-    <UploadProgress :class="{ shifted: !!(reply || mutedText) }" />
 
     <div class="input-row">
       <button type="button" class="tool-btn" :title="tr('chat.emoji.title')" @click="showEmoji = !showEmoji">😊</button>

@@ -246,6 +246,7 @@ const dict: Record<string, string> = {
   "chat.upload.unitMin": "{n} 分 {s} 秒",
   "chat.upload.retryAll": "全部重试",
   "chat.upload.parts": "{done}/{total} 片",
+  "chat.upload.partPct": "第 {n} 片：{p}%",
   "chat.emoji.recent": "常用",
   "chat.emoji.people": "表情",
   "chat.emoji.gestures": "手势",
