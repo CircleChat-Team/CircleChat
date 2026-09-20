@@ -22,6 +22,7 @@ import * as groups from './groups';
 import * as friends from './friends';
 import * as audit from './audit';
 import * as moderate from './moderate';
+import * as mailbox from './mailbox';
 import { fileKindOf } from './filetypes';
 import * as wsproto from './ws';
 import * as logger from './log';
@@ -1230,6 +1231,37 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
+  // GET /api/me/penalties —— 我的处罚（本人账号 + 当前 IP；供个人资料页展示）
+  if (pathname === '/api/me/penalties' && req.method === 'GET') {
+    const penalties = moderate.listPenaltiesFor(me.username, ip);
+    const status = moderate.statusOf(me.username, ip);
+    sendJSON(res, 200, { ok: true, penalties, status });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/announcements —— 系统公告（全局，登录可见）
+  if (pathname === '/api/announcements' && req.method === 'GET') {
+    sendJSON(res, 200, { ok: true, announcements: mailbox.listAnnouncements() });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/me/notifications —— 我的通知
+  if (pathname === '/api/me/notifications' && req.method === 'GET') {
+    sendJSON(res, 200, { ok: true, notifications: mailbox.listNotificationsFor(me.username) });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/me/notifications/read —— 全部标记已读
+  if (pathname === '/api/me/notifications/read' && req.method === 'POST') {
+    const n = mailbox.markNotificationsRead(me.username);
+    sendJSON(res, 200, { ok: true, marked: n });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
   // POST /api/pass（本人修改密码，需校验当前密码；用于首次登录强制改密与日常自助改密）
   if (pathname === '/api/pass' && req.method === 'POST') {
     readBody(req, 8192).then((body) => {
@@ -1693,6 +1725,39 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         if (!Number.isInteger(id) || id <= 0) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
         if (!moderate.revokePenalty(id, me.username)) { sendJSON(res, 404, { ok: false, error: 'mod.penaltyGone' }); return; }
         audit.add({ actor: me.username, action: 'mod.revoke', target: id, detail: '', ip });
+        sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
+    // POST /api/admin/announcements —— 发布系统公告 {title,content}
+    if (pathname === '/api/admin/announcements' && req.method === 'POST') {
+      readBody(req, 8192).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const res2 = mailbox.createAnnouncement({
+          title: (o && o.title) || '', content: (o && o.content) || '', actor: me.username
+        });
+        if (!res2.ok) { sendJSON(res, 400, { ok: false, error: res2.code }); return; }
+        sendJSON(res, 200, { ok: true, id: res2.id });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
+    // DELETE /api/admin/announcements —— 删除公告 {id}
+    if (pathname === '/api/admin/announcements' && req.method === 'DELETE') {
+      readBody(req, 2048).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const id = Number(o && o.id);
+        if (!Number.isInteger(id) || id <= 0) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
+        if (!mailbox.deleteAnnouncement(id)) { sendJSON(res, 404, { ok: false, error: 'announce.gone' }); return; }
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {

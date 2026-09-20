@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted } from 'vue';
+import { get } from './core/api';
 import {
   chatState,
   toggleSelectMode,
@@ -23,6 +24,8 @@ import StyleDialog from './components/chat/StyleDialog.vue';
 import FriendSearch from './components/chat/FriendSearch.vue';
 import GroupDialog from './components/chat/GroupDialog.vue';
 import ContextMenu from './components/chat/ContextMenu.vue';
+import Dialog from './components/common/Dialog.vue';
+import MailboxPanel from './components/chat/MailboxPanel.vue';
 import ForwardPicker from './components/chat/ForwardPicker.vue';
 import MergeForwardViewer from './components/chat/MergeForwardViewer.vue';
 import ImageViewer from './components/chat/ImageViewer.vue';
@@ -127,6 +130,34 @@ function onDrop(e: DragEvent): void {
     uploadFiles(e.dataTransfer.files);
   }
 }
+
+// ---- 右上角站内信（系统公告 / 通知 / 我的处罚） ----
+const mailboxOpen = ref(false);
+const mailboxUnread = ref(0);
+
+function refreshMailboxBadge(): void {
+  get('/api/me/notifications').then((j) => {
+    if (j && j.ok) {
+      const list = (j.notifications || []) as { read?: boolean }[];
+      mailboxUnread.value = list.filter((x) => !x.read).length;
+    }
+  }).catch(() => { /* 静默：失败时不改红点 */ });
+}
+
+function openMailbox(): void {
+  mailboxOpen.value = true;
+}
+
+function onMailboxRead(): void {
+  mailboxUnread.value = 0;
+}
+
+function onMailboxClose(): void {
+  mailboxOpen.value = false;
+  refreshMailboxBadge();
+}
+
+onMounted(refreshMailboxBadge);
 </script>
 
 <template>
@@ -189,6 +220,21 @@ function onDrop(e: DragEvent): void {
             :title="tr('chat.ctx.multi')"
             @click="toggleSelectMode"
           >{{ tr('chat.ctx.multi') }}</button>
+          <button
+            type="button"
+            class="header-btn"
+            :title="tr('mailbox.title')"
+            @click="openMailbox"
+          >
+            <span class="relative inline-block">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4a1.5 1.5 0 0 0-3 0v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" />
+              </svg>
+              <span v-if="mailboxUnread" class="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white">
+                {{ mailboxUnread > 99 ? '99+' : mailboxUnread }}
+              </span>
+            </span>
+          </button>
         </div>
 
         <button
@@ -215,6 +261,8 @@ function onDrop(e: DragEvent): void {
 
     <ProfileCard />
     <MyProfile />
+    <Dialog />
+    <MailboxPanel v-if="mailboxOpen" @close="onMailboxClose" @read="onMailboxRead" />
     <StyleDialog />
     <FriendSearch />
     <GroupDialog />

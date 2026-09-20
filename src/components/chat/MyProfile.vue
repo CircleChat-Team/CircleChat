@@ -5,7 +5,9 @@
 import { onMounted, ref, computed, nextTick } from 'vue';
 import { get, post } from '../../core/api';
 import { tr } from '../../core/i18n';
+import { fmtDate } from '../../core/format';
 import { encodeQr } from '../../lib/qrcode';
+import type { PenaltyItem } from '../../types';
 import {
   chatState,
   closeMyProfile,
@@ -36,6 +38,23 @@ useOverlay({
 // ---- 2FA 状态（打开时从 /api/me 拉取） ----
 const totpEnabled = ref(false);
 const loadingStatus = ref(true);
+
+// ---- 我的处罚（从 /api/me/penalties 拉取） ----
+interface PenaltyStatus { muted: boolean; banned: boolean; ipBanned: boolean }
+const penalties = ref<PenaltyItem[]>([]);
+const curStatus = ref<PenaltyStatus | null>(null);
+const loadingPen = ref(true);
+// 当前是否有生效的禁言/封禁，决定右上角摘要文案
+const penaltySummary = computed(() => {
+  const s = curStatus.value;
+  if (!s) return '';
+  if (s.banned || s.ipBanned) return tr('mod.mine.banned');
+  if (s.muted) return tr('mod.mine.muted');
+  return tr('mod.mine.ok');
+});
+function typeText(t: string): string {
+  return tr('mod.type.' + t);
+}
 
 // ---- 头像 ----
 const avatarMsg = ref('');
@@ -92,6 +111,16 @@ onMounted(() => {
     loadingStatus.value = false;
   }).catch(() => {
     loadingStatus.value = false;
+  });
+  // 我的处罚：本人账号 + 当前 IP 的处罚记录与当前生效状态
+  get('/api/me/penalties').then((j) => {
+    if (j && j.ok) {
+      penalties.value = (j.penalties as PenaltyItem[]) || [];
+      curStatus.value = (j.status as PenaltyStatus) || null;
+    }
+    loadingPen.value = false;
+  }).catch(() => {
+    loadingPen.value = false;
   });
 });
 
@@ -370,6 +399,37 @@ function copy(s: string): void {
           </template>
 
           <p v-if="twofaMsg" class="mt-1 text-xs text-danger">{{ twofaMsg }}</p>
+        </section>
+
+        <!-- 我的处罚 -->
+        <section class="mt-5">
+          <div class="mb-1.5 flex items-center justify-between">
+            <span class="text-xs text-muted">{{ tr('mod.mine.title') }}</span>
+            <span v-if="penaltySummary" class="text-xs font-medium" :class="penaltySummary === tr('mod.mine.ok') ? 'text-muted' : 'text-danger'">
+              {{ penaltySummary }}
+            </span>
+          </div>
+
+          <div v-if="loadingPen" class="py-2 text-center text-xs text-muted">…</div>
+          <div v-else-if="!penalties.length" class="py-2 text-center text-xs text-muted">{{ tr('mod.penalties.empty') }}</div>
+          <div v-else class="flex flex-col gap-1.5">
+            <div
+              v-for="p in penalties"
+              :key="p.id"
+              class="rounded-xl border border-line px-3 py-2 text-[13px]"
+            >
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="shrink-0 rounded px-1.5 py-0.5 text-[11px]" :class="p.active ? 'bg-primary/12 text-primary' : 'bg-fill text-muted'">
+                  {{ typeText(p.type) }}
+                </span>
+                <span v-if="p.permanent" class="shrink-0 text-[11px] text-danger">{{ tr('mod.permanent') }}</span>
+                <span v-else-if="p.expires" class="shrink-0 text-xs text-muted">{{ tr('mod.until', { date: fmtDate(p.expires) }) }}</span>
+                <span v-if="!p.active" class="shrink-0 text-[11px] text-muted">{{ tr('mod.inactive') }}</span>
+              </div>
+              <p v-if="p.reason" class="mt-1 text-xs text-muted">{{ tr('mod.reason') }} {{ p.reason }}</p>
+              <p class="mt-1 text-[11px] text-muted">{{ tr('mod.actor') }} {{ p.actor || '—' }} · {{ fmtDate(p.created) }}</p>
+            </div>
+          </div>
         </section>
       </div>
 
