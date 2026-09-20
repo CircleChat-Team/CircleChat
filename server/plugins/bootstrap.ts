@@ -1,3 +1,8 @@
+// defineNitroPlugin 通常由 Nitro 自动导入，但自动导入依赖构建期生成的
+// .nitro/types（未提交、编辑器/独立 tsc 下拿不到），因此这里显式导入。
+// 路径与 Nitro 自动导入所用的一致（见 nitropack 的 auto-import 预设），
+// 保证打包结果与自动导入完全相同。
+import { defineNitroPlugin } from 'nitropack/runtime/internal/plugin';
 import fs from 'node:fs';
 import { run } from '../lib/migrate';
 import * as auth from '../lib/auth';
