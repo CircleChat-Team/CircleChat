@@ -45,6 +45,12 @@ function open(): DatabaseSync {
       PRIMARY KEY (msg_idx, emoji, actor)
     );
     CREATE INDEX IF NOT EXISTS idx_reactions_msg ON reactions(msg_idx);
+    CREATE TABLE IF NOT EXISTS uploads (
+      sha  TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      ts   INTEGER NOT NULL
+    );
   `);
   return db;
 }
@@ -115,6 +121,7 @@ function cleanupFiles(removedRows: { type: string; content: string | null }[]): 
       if (keep.has(base)) continue;
       const fp = path.join(UPLOAD_DIR, base);
       try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch { /* 忽略 */ }
+      dropUpload(base); // 物理文件已删，去重记录一并清掉，避免残留指向空文件
     }
   }
 }
@@ -441,6 +448,7 @@ export function cleanupExpired(ttlDays: number): number {
     if (!base || keep.has(base)) continue;
     const fp = path.join(UPLOAD_DIR, base);
     try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch { /* 忽略 */ }
+    dropUpload(base);
   }
   return rows.length;
 }
@@ -523,6 +531,28 @@ export function expireByFile(base: string): number {
     " AND content LIKE ?"
   ).run('%/' + String(base));
   return info && info.changes ? Number(info.changes) : 0;
+}
+
+// ---------- 上传文件去重（同一份内容只落盘一次） ----------
+
+/**
+ * 按内容 hash 查已落盘的文件名；没有返回 null。
+ * 调用方仍需确认文件确实存在（可能被管理员删除或已过期清理）。
+ */
+export function findUploadBySha(sha: string): string | null {
+  const row = open().prepare('SELECT name FROM uploads WHERE sha = ?').get(String(sha)) as { name: string } | undefined;
+  return row ? String(row.name) : null;
+}
+
+/** 记录一次落盘，供后续上传去重命中 */
+export function putUpload(sha: string, name: string, size: number): void {
+  open().prepare('INSERT OR REPLACE INTO uploads (sha, name, size, ts) VALUES (?, ?, ?, ?)')
+    .run(String(sha), String(name), Number(size) || 0, Date.now());
+}
+
+/** 物理文件被删除后移除去重记录（按落盘名） */
+export function dropUpload(name: string): void {
+  open().prepare('DELETE FROM uploads WHERE name = ?').run(String(name));
 }
 
 export { MAX_MESSAGES, DB_FILE, DB_FILE as MSGS_FILE };

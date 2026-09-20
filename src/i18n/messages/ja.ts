@@ -482,6 +482,7 @@ const dict: Record<string, string> = {
   "log.detail.group.rename": "グループ名変更：{name}",
   "log.detail.upload.image": "画像をアップロード：{name}（{size} バイト）",
   "log.detail.upload.file": "ファイルをアップロード：{name}（{size} バイト）",
+  "log.detail.upload.dedup": "アップロード（同一内容のため既存ファイルを再利用）：{name}（{size} バイト）",
   "admin.action.groupMsg": "グループメッセージ",
   "admin.action.groupCreate": "グループ作成",
   "admin.action.groupDissolve": "グループ解散",

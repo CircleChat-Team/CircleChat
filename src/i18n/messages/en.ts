@@ -482,6 +482,7 @@ const dict: Record<string, string> = {
   "log.detail.group.rename": "Renamed group: {name}",
   "log.detail.upload.image": "Uploaded image: {name} ({size} bytes)",
   "log.detail.upload.file": "Uploaded file: {name} ({size} bytes)",
+  "log.detail.upload.dedup": "Uploaded (identical content, reused existing file): {name} ({size} bytes)",
   "admin.action.groupMsg": "Group message",
   "admin.action.groupCreate": "Create group",
   "admin.action.groupDissolve": "Dissolve group",

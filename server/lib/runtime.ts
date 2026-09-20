@@ -1576,6 +1576,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
           logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
           return;
         }
+        store.dropUpload(name); // 去重记录同步移除，之后再传相同内容会重新落盘
         // 仍被消息引用的，标记为已过期：聊天记录显示「图片/文件已过期」，而不是留下打不开的坏链
         const expired = store.expireByFile(name);
         audit.add({ actor: me.username, action: 'admin.file.del', target: name, detail: auditDetail('log.detail.file.del', { name }), ip });
@@ -2010,15 +2011,32 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         saveExt = IMAGE_EXTS.has(safeExt) ? '.bin' : safeExt; // 扩展名伪装成图片但内容不是 → 降级 .bin
         kind = VIDEO_EXTS.has(saveExt) ? 'video' : (AUDIO_EXTS.has(saveExt) ? 'audio' : 'file');
       }
-      const saveName = crypto.randomBytes(8).toString('hex') + saveExt;
-      const savePath = path.join(UPLOAD_DIR, saveName);
-      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-      fs.writeFileSync(savePath, buf);
+      // 内容去重：按 sha256 判断这份内容是否已经落过盘，是的话直接复用已有文件，
+      // 磁盘上同一份内容只会存一遍（多条消息可以指向同一个 /uploads/xxx）。
+      const sha = crypto.createHash('sha256').update(buf).digest('hex');
+      const hit = store.findUploadBySha(sha);
+      let saveName: string;
+      let deduped = false;
+      if (hit && UPLOAD_NAME_RE.test(hit) && fs.existsSync(path.join(UPLOAD_DIR, hit))) {
+        saveName = hit; // 命中且文件还在 → 不再写盘
+        deduped = true;
+      } else {
+        saveName = crypto.randomBytes(8).toString('hex') + saveExt;
+        const savePath = path.join(UPLOAD_DIR, saveName);
+        fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+        fs.writeFileSync(savePath, buf);
+        store.putUpload(sha, saveName, buf.length);
+      }
+      // 复用已有文件时类型要按最终落盘名判定：扩展名可能和本次上传的原始扩展名不同
+      const finalExt = path.extname(saveName).toLowerCase();
+      if (!sniffed) kind = VIDEO_EXTS.has(finalExt) ? 'video' : (AUDIO_EXTS.has(finalExt) ? 'audio' : 'file');
       audit.add({
         actor: me.username,
         action: 'upload',
-        detail: auditDetail(kind === 'image' ? 'log.detail.upload.image' : 'log.detail.upload.file',
-          { name: origName, size: buf.length }),
+        detail: deduped
+          ? auditDetail('log.detail.upload.dedup', { name: origName, size: buf.length })
+          : auditDetail(kind === 'image' ? 'log.detail.upload.image' : 'log.detail.upload.file',
+            { name: origName, size: buf.length }),
         ip
       });
       sendJSON(res, 200, {
@@ -2026,7 +2044,8 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         kind,
         url: '/uploads/' + saveName,
         name: origName,
-        size: buf.length
+        size: buf.length,
+        deduped
       });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {

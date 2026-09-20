@@ -482,6 +482,7 @@ const dict: Record<string, string> = {
   "log.detail.group.rename": "群改名：{name}",
   "log.detail.upload.image": "上传图片：{name}（{size} 字节）",
   "log.detail.upload.file": "上传文件：{name}（{size} 字节）",
+  "log.detail.upload.dedup": "上传（内容相同，复用已有文件）：{name}（{size} 字节）",
   "admin.action.groupMsg": "群消息",
   "admin.action.groupCreate": "创建群",
   "admin.action.groupDissolve": "解散群",
