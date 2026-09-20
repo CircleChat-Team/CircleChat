@@ -82,6 +82,19 @@ function open(): void {
         <span>{{ tr('chat.media.unsupported') }}</span>
         <a class="video-save" :href="src" :download="name || ''" @click.stop>{{ tr('chat.media.download') }}</a>
       </div>
+
+      <!-- 正常预览时右上角的下载图标 -->
+      <a
+        v-else
+        class="media-dl video-dl"
+        :href="src"
+        :download="name || ''"
+        :title="tr('chat.media.download')"
+        :aria-label="tr('chat.media.download')"
+        @click.stop
+      >
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55l3.6-3.6 1.42 1.42-6 6-6-6 1.42-1.42L11 13.55V3h1zm-7 16h14v2H5v-2z"/></svg>
+      </a>
     </div>
 
     <div class="media-line">

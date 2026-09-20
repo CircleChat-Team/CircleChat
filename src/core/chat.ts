@@ -655,6 +655,9 @@ export interface UploadTask {
   chunks?: number;
   /** 已确认到达服务端的分片数 */
   chunkDone?: number;
+  /** 每片进度（0-100；仅分片上传时用于渲染 IDM 式分段进度条）。
+   *  每个分片进度事件都会写入，保证分段标记实时刷新。 */
+  chunkProgress?: number[];
 }
 
 /** 分片上传会话：记录服务端 uploadId 与每片的进度，用于续传与聚合进度 */
@@ -884,12 +887,22 @@ function syncChunkProgress(id: number, sess: ChunkSession): void {
     if (sess.done[i]) done++;
   }
   const loaded = Math.min(t.size, sum);
+  // 每片进度：已确认的记为 100，在途的按该片实际字节折算（0-99），供 IDM 式分段条渲染
+  const cp: number[] = [];
+  for (let i = 0; i < sess.chunks; i++) {
+    if (sess.done[i]) cp.push(100);
+    else {
+      const cs = chunkSizeAt(t.size, i, sess.chunks);
+      cp.push(cs ? Math.min(99, Math.round(((sess.loaded[i] || 0) / cs) * 100)) : 0);
+    }
+  }
   patchTask(id, {
     loaded,
     percent: t.size ? Math.min(99, Math.round((loaded / t.size) * 100)) : 0,
     speed: sampleSpeed(id, loaded),
     chunks: sess.chunks,
-    chunkDone: done
+    chunkDone: done,
+    chunkProgress: cp
   });
 }
 

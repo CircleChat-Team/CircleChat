@@ -115,7 +115,7 @@ onBeforeUnmount(() => {
           :src="src"
           controls
           playsinline
-          preload="metadata"
+          preload="auto"
           @error="failed = true"
           @enterpictureinpicture="onEnterPip"
           @leavepictureinpicture="onLeavePip"
