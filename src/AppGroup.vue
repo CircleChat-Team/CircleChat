@@ -15,11 +15,13 @@ import GroupFilesCard from './components/group/GroupFilesCard.vue';
 import GroupLogsCard from './components/group/GroupLogsCard.vue';
 import Dialog from './components/common/Dialog.vue';
 import type { GroupItem, GroupDetail, GroupMember, JoinRequest, GroupFile } from './types';
+import type { PresencePlatforms } from './core/presence';
 
 const props = defineProps<{
   me: string;
   isAdmin: boolean;
   online: string[];
+  platforms: PresencePlatforms;
 }>();
 
 type ToastFn = (msg: string, ms?: number) => void;
@@ -55,6 +57,8 @@ const pendingCount = computed(() => (detail.value ? detail.value.requests.length
 
 // 在线列表：初始取 /api/me 快照，随后由 WebSocket presence 实时更新
 const online = ref<string[]>(props.online || []);
+// 在线用户的连接来源（网页端 / 桌面客户端），与 online 同步更新
+const platforms = ref<PresencePlatforms>(props.platforms || {});
 
 // ---------------- 在线状态（WebSocket presence 实时同步） ----------------
 let ws: WebSocket | null = null;
@@ -85,11 +89,13 @@ function connectPresence(): void {
     reconnectDelay = 1000;
     // 重新连上后同步一次最新在线名单
     get('/api/me').then((j) => {
-      if (j.ok) online.value = (j.online as string[]) || [];
+      if (!j.ok) return;
+      online.value = (j.online as string[]) || [];
+      platforms.value = (j.platforms as PresencePlatforms) || {};
     });
   };
   sock.onmessage = (ev: MessageEvent) => {
-    let obj: { type?: string; users?: string[] } | null = null;
+    let obj: { type?: string; users?: string[]; platforms?: PresencePlatforms } | null = null;
     try {
       obj = JSON.parse(ev.data as string);
     } catch {
@@ -97,6 +103,7 @@ function connectPresence(): void {
     }
     if (obj && obj.type === 'presence' && Array.isArray(obj.users)) {
       online.value = obj.users;
+      platforms.value = obj.platforms || {};
     }
   };
   sock.onclose = () => {
@@ -316,6 +323,7 @@ onBeforeUnmount(() => {
           :gid="gid"
           :members="detail.members"
           :online="online"
+          :platforms="platforms"
           @refreshed="refresh"
         />
         <JoinRequestsCard

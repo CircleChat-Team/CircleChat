@@ -8,11 +8,13 @@ import { tr, trn } from '../../core/i18n';
 import { confirm } from '../../core/dialog';
 import { fmtDate } from '../../core/format';
 import type { GroupMember } from '../../types';
+import { presenceStatusKey, type PresencePlatforms } from '../../core/presence';
 
 const props = defineProps<{
   gid: string;
   members: GroupMember[];
   online: string[];
+  platforms: PresencePlatforms;
 }>();
 
 const emit = defineEmits<{ refreshed: [] }>();
@@ -22,6 +24,11 @@ const toast = inject<ToastFn>('toast', () => {});
 
 function isOnline(name: string): boolean {
   return props.online.indexOf(name) !== -1;
+}
+
+/** 在线状态文案 key：与聊天页共用同一套判定（网页端 / 客户端 / 两端同时在线） */
+function statusKey(name: string): string {
+  return presenceStatusKey(isOnline(name), false, props.platforms[name]);
 }
 
 function remove(m: GroupMember): void {
@@ -57,7 +64,7 @@ function remove(m: GroupMember): void {
         <span class="min-w-0 flex-1 truncate font-medium">{{ m.name }}</span>
         <span v-if="m.owner" class="shrink-0 text-[11px] text-primary">{{ tr('group.ownerTag') }}</span>
         <span class="shrink-0 text-[11px]" :class="isOnline(m.name) ? 'text-primary' : 'text-muted'">
-          {{ isOnline(m.name) ? tr('common.online') : tr('common.offline') }}
+          {{ tr('common.' + statusKey(m.name)) }}
         </span>
         <span class="shrink-0 text-[11px] text-muted">{{ fmtDate(m.joined) }}</span>
         <button

@@ -709,13 +709,50 @@ function broadcastRoom(gid: string | null, dm: string | null, obj: any): void {
 
 function broadcastPresence(): void {
   const present = [...new Set(currentPresent())].sort();
-  const away = [...new Set([...clients].filter((c) => !c.invisible && c.away).map(clientId))].sort();
-  broadcast({ type: 'presence', users: present, away });
+  broadcast({ type: 'presence', users: present, away: currentAway(), platforms: currentPlatforms() });
 }
 
 // 隐身用户对他人显示为离线：凡用于对外展示「在线」的集合都排除 invisible
 function currentPresent(): string[] {
   return [...clients].filter((c) => !c.invisible).map(clientId);
+}
+
+/**
+ * 各在线用户的连接来源：网页端 / 桌面客户端（同一用户可能两端都在）。
+ * 前端据此区分「网页在线 / 客户端在线 / 两端同时在线」。
+ */
+function currentPlatforms(): Record<string, { web: boolean; client: boolean }> {
+  const out: Record<string, { web: boolean; client: boolean }> = {};
+  for (const c of clients) {
+    if (c.invisible) continue; // 隐身者对外等于离线，不暴露来源
+    const n = clientId(c);
+    const p = out[n] || (out[n] = { web: false, client: false });
+    if (c.platform === 'client') p.client = true;
+    else p.web = true;
+  }
+  return out;
+}
+
+/**
+ * 离开名单：该用户**所有**可见连接都不在前台才算离开。
+ * 原来只要有一条连接 away 就把整人标成离开，多端登录时会出现
+ * 「桌面端一直在用、网页端标签页在后台」→ 仍显示离开的误判。
+ */
+function currentAway(): string[] {
+  const all = new Set<string>();
+  const active = new Set<string>();
+  for (const c of clients) {
+    if (c.invisible) continue;
+    const n = clientId(c);
+    all.add(n);
+    if (!c.away) active.add(n);
+  }
+  return [...all].filter((n) => !active.has(n)).sort();
+}
+
+/** 连接来源判定：桌面客户端会在 UA 里带 CircleChatDesktop/x.y.z（见前端 src/utils/client.ts） */
+function platformOf(ua: unknown): 'client' | 'web' {
+  return /CircleChatDesktop\//i.test(String(ua || '')) ? 'client' : 'web';
 }
 
 /**
@@ -769,6 +806,7 @@ export function handleWsUpgrade(req: any, socket: any, head: Buffer): void {
     alive: true,
     invisible: false, // 隐身：对他人显示为离线
     away: false,      // 离开：在线但页面不在前台
+    platform: platformOf(req.headers['user-agent']), // 连接来源：桌面客户端 / 网页端
     close: () => { /* 见下 */ }
   };
 
@@ -1298,8 +1336,16 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   // GET /api/me
   if (pathname === '/api/me' && req.method === 'GET') {
     const online = currentPresent();
-    const away = [...clients].filter((c) => !c.invisible && c.away).map(clientId);
-    sendJSON(res, 200, { ok: true, username: me.username, role: auth.getRole(me.username), online, away, mustChange: auth.mustChange(me.username), totpEnabled: auth.getTotp(me.username).enabled });
+    sendJSON(res, 200, {
+      ok: true,
+      username: me.username,
+      role: auth.getRole(me.username),
+      online,
+      away: currentAway(),
+      platforms: currentPlatforms(), // 在线用户的连接来源（网页端 / 桌面客户端）
+      mustChange: auth.mustChange(me.username),
+      totpEnabled: auth.getTotp(me.username).enabled
+    });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -1843,13 +1889,15 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/users' && req.method === 'GET') {
       const raw = auth.loadUsers() || {};
       const online = new Set(currentPresent());
+      const platforms = currentPlatforms();
       const users = Object.keys(raw).sort().map((name) => ({
         name,
         role: raw[name].role === 'admin' ? 'admin' : 'user',
         status: raw[name].status || auth.STATUS.ACTIVE,
         created: raw[name].created || null,
         image: raw[name].image || null,
-        online: online.has(name)
+        online: online.has(name),
+        platform: platforms[name] || null // 连接来源：网页端 / 桌面客户端 / 两端（离线为 null）
       }));
       sendJSON(res, 200, { ok: true, users });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });

@@ -11,6 +11,7 @@ import { tr } from './i18n';
 import { fmtSize } from './format';
 import { DEFAULT_NOTIFY_SOUND, isNotifySound, playIncoming, playOutgoing, setNotifySound as soundSetNotify } from './sound';
 import { canSystemNotify, systemNotify } from '../utils/notify';
+import { presenceStatusKey, type PresencePlatforms, type StatusKey } from './presence';
 import type {
   ApiResult,
   ChatMessage,
@@ -54,6 +55,8 @@ export interface ChatState {
   mustChange: boolean;
   online: string[];
   away: string[];
+  /** 在线用户的连接来源：网页端 / 桌面客户端（可能两端都在） */
+  platforms: PresencePlatforms;
   allUsers: ChatUser[];
   userImages: Record<string, string | null>;
   myGroups: ChatGroup[];
@@ -116,6 +119,7 @@ const state = reactive<ChatState>({
   mustChange: false,
   online: [],
   away: [],
+  platforms: {},
   allUsers: [],
   userImages: {},
   myGroups: [],
@@ -257,7 +261,7 @@ function connectWs(): void {
   };
 
   sock.onmessage = (ev: MessageEvent) => {
-    let obj: { type?: string; data?: any; from?: string; users?: string[]; away?: string[]; by?: string; owner?: string; admin?: boolean; username?: string } | null = null;
+    let obj: { type?: string; data?: any; from?: string; users?: string[]; away?: string[]; platforms?: PresencePlatforms; by?: string; owner?: string; admin?: boolean; username?: string } | null = null;
     try {
       obj = JSON.parse(ev.data as string);
     } catch {
@@ -290,6 +294,7 @@ function connectWs(): void {
       case 'presence':
         state.online = obj.users || [];
         state.away = obj.away || [];
+        state.platforms = (obj.platforms as PresencePlatforms) || {};
         break;
       case 'groups.changed':
         loadGroups();
@@ -562,6 +567,7 @@ function loadMe(): Promise<boolean> {
     state.mustChange = !!j.mustChange;
     state.online = (j.online as string[]) || [];
     state.away = (j.away as string[]) || [];
+    state.platforms = (j.platforms as PresencePlatforms) || {};
     return true;
   });
 }
@@ -1633,10 +1639,9 @@ export function isAway(name: string): boolean {
   return name !== state.me && state.away.indexOf(name) !== -1;
 }
 
-/** 侧栏 / 资料页状态文案：离开 > 在线 > 离线 */
-export function statusKey(name: string): 'away' | 'online' | 'offline' {
-  if (isAway(name)) return 'away';
-  return isOnline(name) ? 'online' : 'offline';
+/** 侧栏 / 资料页状态文案 key（用法：tr('common.' + statusKey(name))） */
+export function statusKey(name: string): StatusKey {
+  return presenceStatusKey(isOnline(name), isAway(name), state.platforms[name]);
 }
 
 // ================= 自己的隐身 / 离开状态 =================

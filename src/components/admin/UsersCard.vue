@@ -9,11 +9,17 @@ import { fmtDate } from '../../core/format';
 import { passwordOk } from '../../core/password';
 import UserManageDialog from './UserManageDialog.vue';
 import type { UserItem } from '../../types';
+import { presenceStatusKey } from '../../core/presence';
 
 const props = defineProps<{ me: string }>();
 
 type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
+
+/** 在线状态文案 key（网页端 / 客户端 / 两端同时在线） */
+function statusKey(u: UserItem): string {
+  return presenceStatusKey(!!u.online, false, u.platform);
+}
 
 const items = ref<UserItem[]>([]);
 const failed = ref('');
@@ -132,7 +138,7 @@ onMounted(load);
         </span>
         <span v-if="u.role === 'admin'" class="shrink-0 text-[11px] text-primary">{{ tr('common.admin') }}</span>
         <span class="shrink-0 text-[11px]" :class="u.online ? 'text-primary' : 'text-muted'">
-          {{ u.online ? tr('common.online') : tr('common.offline') }}
+          {{ tr('common.' + statusKey(u)) }}
         </span>
         <span class="shrink-0 text-[11px] text-muted">{{ fmtDate(u.created) }}</span>
 

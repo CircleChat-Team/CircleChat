@@ -11,11 +11,17 @@ import { post } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { confirm, prompt } from '../../core/dialog';
 import { fmtDate } from '../../core/format';
+import { presenceStatusKey } from '../../core/presence';
 import { passwordOk } from '../../core/password';
 import { useOverlay } from '../../core/useOverlay';
 import type { UserItem } from '../../types';
 
 const props = defineProps<{ user: UserItem | null; me: string }>();
+
+/** 在线状态文案 key（网页端 / 客户端 / 两端同时在线） */
+function statusKey(u: UserItem | null): string {
+  return presenceStatusKey(!!(u && u.online), false, u ? u.platform : null);
+}
 const emit = defineEmits<{ close: []; changed: [] }>();
 
 type ToastFn = (msg: string, ms?: number) => void;
@@ -162,7 +168,7 @@ const actions = computed(() => {
             </div>
             <div class="mt-0.5 flex items-center gap-2 text-[11px]">
               <span :class="user.online ? 'text-primary' : 'text-muted'">
-                {{ user.online ? tr('common.online') : tr('common.offline') }}
+                {{ tr('common.' + statusKey(user)) }}
               </span>
               <span v-if="created" class="text-muted">{{ created }}</span>
             </div>
