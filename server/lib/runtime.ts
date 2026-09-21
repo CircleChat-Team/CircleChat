@@ -23,6 +23,7 @@ import * as friends from './friends';
 import * as audit from './audit';
 import * as moderate from './moderate';
 import * as mailbox from './mailbox';
+import * as appconfig from './appconfig';
 import { fileKindOf } from './filetypes';
 import * as wsproto from './ws';
 import * as logger from './log';
@@ -1179,6 +1180,49 @@ const APP_MANIFEST_CORS: Record<string, string> = {
   'Access-Control-Max-Age': '86400'
 };
 
+// ---------- 第三方登录：GitHub OAuth ----------
+
+// client_id / client_secret 由管理员在管理面板里填，存在 app_config 表里；
+// **不在代码里写死**，secret 也永远不会下发给任何前端。
+const GH_CFG_ID = 'oauth.github.clientId';
+const GH_CFG_SECRET = 'oauth.github.clientSecret';
+// 端点允许用环境变量改指到本地桩服务，便于端到端自测（默认是真实 GitHub）
+const GH_BASE = process.env.GITHUB_BASE || 'https://github.com';
+const GH_AUTHORIZE = GH_BASE + '/login/oauth/authorize';
+const GH_TOKEN = GH_BASE + '/login/oauth/access_token';
+const GH_USER = (process.env.GITHUB_API_BASE || 'https://api.github.com') + '/user';
+const OAUTH_STATE_TTL = 10 * 60 * 1000;
+
+/** 授权请求的 state → { 模式, 发起的本地账号, 过期时间 }；一次性、10 分钟有效 */
+const oauthStates = new Map<string, { mode: 'login' | 'bind'; username: string; expires: number }>();
+
+function githubConfig(): { clientId: string; secret: string } {
+  return { clientId: appconfig.get(GH_CFG_ID), secret: appconfig.get(GH_CFG_SECRET) };
+}
+
+/** 配置是否完整（只有 id + secret 都有，入口才可用） */
+function githubEnabled(): boolean {
+  const c = githubConfig();
+  return !!(c.clientId && c.secret);
+}
+
+/**
+ * OAuth 回调地址。GitHub 应用里填的 Callback URL 必须与此**完全一致**，
+ * 管理面板会把它显示出来供管理员复制，避免填错。
+ */
+function oauthRedirectUri(req: any): string {
+  const host = String(req.headers['host'] || 'localhost');
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
+    || (/^(?:localhost|127\.0\.0\.1|\[::1\])(?::|$)/.test(host) ? 'http' : 'https');
+  return proto + '://' + host + '/api/oauth/github/callback';
+}
+
+/** 302 跳转，可带一个结果码（前端按码显示提示） */
+function redirectTo(res: any, page: string, code?: string): void {
+  res.writeHead(302, { Location: code ? page + '?oauth=' + encodeURIComponent(code) : page });
+  res.end();
+}
+
 function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string): void {
   const t0 = Date.now();
 
@@ -1389,6 +1433,115 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
+  // GET /api/oauth/providers —— 公开：登录页据此决定要不要显示「用 GitHub 登录」
+  if (pathname === '/api/oauth/providers' && req.method === 'GET') {
+    sendJSON(res, 200, { ok: true, github: { enabled: githubEnabled() } });
+    return;
+  }
+
+  // GET /api/oauth/github/start?mode=login|bind —— 跳到 GitHub 授权页
+  if (pathname === '/api/oauth/github/start' && req.method === 'GET') {
+    const gh = githubConfig();
+    if (!gh.clientId || !gh.secret) { redirectTo(res, '/login.html', 'notconfigured'); return; }
+    const mode = urlObj.searchParams.get('mode') === 'bind' ? 'bind' : 'login';
+    const who = auth.authByCookie(req.headers.cookie);
+    if (mode === 'bind' && !who) { redirectTo(res, '/login.html'); return; } // 绑定必须已登录
+    // 顺手清掉过期 state，避免 Map 越积越大
+    const now = Date.now();
+    for (const [k, v] of oauthStates) if (v.expires < now) oauthStates.delete(k);
+    const state = crypto.randomBytes(24).toString('hex');
+    oauthStates.set(state, { mode, username: who ? who.username : '', expires: now + OAUTH_STATE_TTL });
+    const u = new URL(GH_AUTHORIZE);
+    u.searchParams.set('client_id', gh.clientId);
+    u.searchParams.set('redirect_uri', oauthRedirectUri(req));
+    u.searchParams.set('scope', 'read:user');
+    u.searchParams.set('state', state);
+    res.writeHead(302, { Location: u.toString() });
+    res.end();
+    logger.write({ ip, method: req.method, url: pathname, status: 302, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/oauth/github/callback?code=&state= —— GitHub 授权后的回调
+  if (pathname === '/api/oauth/github/callback' && req.method === 'GET') {
+    void (async () => {
+      const gh = githubConfig();
+      const state = String(urlObj.searchParams.get('state') || '');
+      const st = oauthStates.get(state);
+      oauthStates.delete(state); // 一次性：无论成败都作废，防重放
+      const page = st && st.mode === 'bind' ? '/chat.html' : '/login.html';
+      const fail = (why: string): void => {
+        redirectTo(res, page, why);
+        logger.write({ ip, method: req.method, url: pathname, status: 302, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      };
+      if (!gh.clientId || !gh.secret) { fail('notconfigured'); return; }
+      // state 校验：同时挡住 CSRF 与过期请求
+      if (!st || st.expires < Date.now()) { fail('state'); return; }
+      if (urlObj.searchParams.get('error')) { fail('denied'); return; } // 用户在 GitHub 上点了取消
+      const code = String(urlObj.searchParams.get('code') || '');
+      if (!code) { fail('failed'); return; }
+      try {
+        const tokRes = await fetch(GH_TOKEN, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            client_id: gh.clientId,
+            client_secret: gh.secret,
+            code,
+            redirect_uri: oauthRedirectUri(req)
+          })
+        });
+        const tok = (await tokRes.json()) as { access_token?: string };
+        if (!tok || !tok.access_token) { fail('failed'); return; }
+        const uRes = await fetch(GH_USER, {
+          headers: {
+            Authorization: 'Bearer ' + tok.access_token,
+            Accept: 'application/vnd.github+json',
+            'User-Agent': 'CircleChat'
+          }
+        });
+        const gu = (await uRes.json()) as { id?: number; login?: string };
+        const ghId = gu && gu.id ? String(gu.id) : '';
+        if (!ghId) { fail('failed'); return; }
+        const ghLogin = String(gu.login || '');
+        // access_token 只用来拿身份，不落地存储（最小权限）
+        if (st.mode === 'bind') {
+          const owner = auth.findByGithubId(ghId);
+          if (owner && owner !== st.username) { fail('taken'); return; } // 已被别的账号绑走
+          auth.setGithubLink(st.username, ghId, ghLogin);
+          audit.add({ actor: st.username, action: 'oauth.bind', detail: auditDetail('log.detail.oauth.bind', { login: ghLogin }), ip });
+          redirectTo(res, '/chat.html', 'bound');
+          logger.write({ ip, method: req.method, url: pathname, status: 302, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        // 登录模式：GitHub 账号必须已绑定到某个本地账号
+        const name = auth.findByGithubId(ghId);
+        if (!name) { fail('nobind'); return; }
+        const u = auth.loadUsers()[name];
+        // status 为 NULL 视为正常（内置 admin 就是这种老记录），与 auth.login() 保持一致
+        const st2 = u && u.status != null ? u.status : auth.STATUS.ACTIVE;
+        if (!u || st2 !== auth.STATUS.ACTIVE) { fail('blocked'); return; }
+        if (moderate.blockFor(name, ip).banned) { fail('banned'); return; }
+        // 开了两步验证的账号不允许走第三方登录：否则等于绕过了第二因子
+        if (auth.getTotp(name).enabled) { fail('2fa'); return; }
+        const token = auth.createSession(name, ip);
+        audit.add({ actor: name, action: 'oauth.login', detail: auditDetail('log.detail.oauth.login', { login: ghLogin }), ip });
+        res.writeHead(302, {
+          Location: '/chat.html',
+          'Set-Cookie': 'circlechat_token=' + encodeURIComponent(token) +
+            '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + (7 * 24 * 3600)
+        });
+        res.end();
+        logger.write({ ip, method: req.method, url: pathname, status: 302, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      } catch (e) {
+        // 网络异常 / GitHub 返回非 JSON 等：一律按失败处理，不把内部错误抛给用户
+        console.error('[oauth] GitHub 授权流程失败：', e);
+        fail('failed');
+      }
+    })();
+    return;
+  }
+
   // 以下接口均需登录
   const me = auth.authByCookie(req.headers.cookie);
   if (!me) {
@@ -1410,6 +1563,24 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       mustChange: auth.mustChange(me.username),
       totpEnabled: auth.getTotp(me.username).enabled
     });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/oauth/me —— 当前账号的第三方登录状态（个人资料页用；不含任何密钥）
+  if (pathname === '/api/oauth/me' && req.method === 'GET') {
+    sendJSON(res, 200, {
+      ok: true,
+      github: { enabled: githubEnabled(), login: auth.getGithubLogin(me.username) }
+    });
+    return;
+  }
+
+  // POST /api/oauth/github/unbind —— 解除 GitHub 绑定（解绑后仍可用账号密码登录）
+  if (pathname === '/api/oauth/github/unbind' && req.method === 'POST') {
+    auth.setGithubLink(me.username, null, null);
+    audit.add({ actor: me.username, action: 'oauth.unbind', detail: auditDetail('log.detail.oauth.unbind'), ip });
+    sendJSON(res, 200, { ok: true });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -1825,6 +1996,52 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (!auth.isAdmin(me.username)) {
       sendJSON(res, 403, { ok: false, error: 'api.admin.forbidden' });
       logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // GET /api/admin/oauth —— 第三方登录配置（secret 只回报「是否已设置」，永不下发）
+    if (pathname === '/api/admin/oauth' && req.method === 'GET') {
+      const gh = githubConfig();
+      sendJSON(res, 200, {
+        ok: true,
+        github: { clientId: gh.clientId, hasSecret: !!gh.secret, redirectUri: oauthRedirectUri(req) }
+      });
+      return;
+    }
+
+    // POST /api/admin/oauth —— 保存 GitHub OAuth 配置 {clientId, secret?, clear?}
+    // secret 留空表示「不修改」，免得每次保存都要重填；clear:true 清空全部配置。
+    if (pathname === '/api/admin/oauth' && req.method === 'POST') {
+      readBody(req, 4096).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 走下面校验 */ }
+        if (!o || typeof o !== 'object') {
+          sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+          return;
+        }
+        if (o.clear) {
+          appconfig.set(GH_CFG_ID, '');
+          appconfig.set(GH_CFG_SECRET, '');
+        } else {
+          const id = typeof o.clientId === 'string' ? o.clientId.trim().slice(0, 64) : '';
+          const secret = typeof o.secret === 'string' ? o.secret.trim().slice(0, 128) : '';
+          if (!/^[A-Za-z0-9_.-]{4,64}$/.test(id)) {
+            sendJSON(res, 400, { ok: false, error: 'admin.oauth.badId' });
+            return;
+          }
+          if (secret && !/^[A-Za-z0-9_.-]{8,128}$/.test(secret)) {
+            sendJSON(res, 400, { ok: false, error: 'admin.oauth.badSecret' });
+            return;
+          }
+          appconfig.set(GH_CFG_ID, id);
+          if (secret) appconfig.set(GH_CFG_SECRET, secret);
+        }
+        audit.add({ actor: me.username, action: 'oauth.config', detail: auditDetail('log.detail.oauth.config'), ip });
+        sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
       return;
     }
 

@@ -50,7 +50,11 @@ export const ACTION_KEYS: Record<string, string> = {
   'mod.revoke': 'admin.action.modRevoke',
   'twofa.setup': 'admin.action.twofaSetup',
   'twofa.enable': 'admin.action.twofaEnable',
-  'twofa.disable': 'admin.action.twofaDisable'
+  'twofa.disable': 'admin.action.twofaDisable',
+  'oauth.login': 'admin.action.oauthLogin',
+  'oauth.bind': 'admin.action.oauthBind',
+  'oauth.unbind': 'admin.action.oauthUnbind',
+  'oauth.config': 'admin.action.oauthConfig'
 };
 
 /** 审计详情：新格式为 JSON {k: i18n 键, v: 变量}；旧版写死的中文原样显示 */

@@ -2,8 +2,8 @@
 /* ============================================================
  * 登录表单
  * ============================================================ */
-import { ref } from 'vue';
-import { post } from '../../core/api';
+import { ref, onMounted } from 'vue';
+import { get, post } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { redirectAfterLogin } from '../../core/nav';
 import ForceChangePassword from '../common/ForceChangePassword.vue';
@@ -15,6 +15,26 @@ const pass = ref('');
 const showPass = ref(false);
 const loading = ref(false);
 const err = ref('');
+
+// ---------- 第三方登录（GitHub） ----------
+// 是否显示入口取决于管理员是否在管理面板里配好了 OAuth 应用
+const githubOn = ref(false);
+
+onMounted(() => {
+  get('/api/oauth/providers')
+    .then((j) => {
+      const g = (j.github || {}) as { enabled?: boolean };
+      githubOn.value = !!(j.ok && g.enabled);
+    })
+    .catch(() => { githubOn.value = false; });
+  // 从 /api/oauth/github/callback 跳回来时带的结果码（?oauth=xxx）
+  const KNOWN = ['notconfigured', 'state', 'denied', 'failed', 'nobind', 'taken', 'blocked', 'banned', '2fa'];
+  const code = new URLSearchParams(location.search).get('oauth');
+  if (code && code !== 'bound') {
+    err.value = tr('oauth.err.' + (KNOWN.indexOf(code) !== -1 ? code : 'failed'));
+  }
+  if (code) history.replaceState(null, '', location.pathname); // 免得刷新后重复提示
+});
 const pendingForce = ref(false);
 const need2fa = ref(false);
 const challenge = ref('');
@@ -152,6 +172,24 @@ function backToLogin(): void {
     </button>
 
     <p v-if="err" class="text-center text-xs text-danger">{{ err }}</p>
+
+    <!-- 第三方登录：仅管理员在管理面板配好 GitHub OAuth 后才显示 -->
+    <template v-if="githubOn">
+      <div class="flex items-center gap-3 text-[11px] text-muted">
+        <span class="h-px flex-1 bg-line"></span>
+        <span>{{ tr('login.oauth.or') }}</span>
+        <span class="h-px flex-1 bg-line"></span>
+      </div>
+      <a
+        href="/api/oauth/github/start?mode=login"
+        class="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-line bg-panel text-[15px] font-medium text-ink transition-colors hover:bg-fill"
+      >
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.69 5.41-5.25 5.69.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.68.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5z" />
+        </svg>
+        <span>{{ tr('login.oauth.github') }}</span>
+      </a>
+    </template>
   </form>
 
   <!-- 两步验证：账号密码正确后输入动态验证码 -->

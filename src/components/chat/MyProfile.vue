@@ -15,6 +15,7 @@ import ProfileHeader from './profile/ProfileHeader.vue';
 import ProfileName from './profile/ProfileName.vue';
 import ProfilePassword from './profile/ProfilePassword.vue';
 import ProfileTwofa from './profile/ProfileTwofa.vue';
+import ProfileOauth from './profile/ProfileOauth.vue';
 import ProfilePenalty from './profile/ProfilePenalty.vue';
 import type { PenaltyItem } from '../../types';
 
@@ -116,6 +117,7 @@ onMounted(() => {
           <div v-else-if="activeTab === 'security'" class="space-y-5">
             <ProfilePassword />
             <ProfileTwofa />
+            <ProfileOauth />
           </div>
           <ProfilePenalty v-else :penalties="penalties" :loading="penaltyLoading" />
         </div>

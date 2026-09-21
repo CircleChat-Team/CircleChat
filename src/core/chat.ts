@@ -1618,7 +1618,35 @@ export function maybeNotify(m: ChatMessage): void {
   void shakeWindow();
 }
 
+/** 第三方登录相关的结果码（?oauth=xxx）；未知码一律按「失败」提示 */
+const OAUTH_ERR_CODES = ['notconfigured', 'state', 'denied', 'failed', 'nobind', 'taken', 'blocked', 'banned', '2fa'];
+
+/**
+ * 从 GitHub 授权跳回来时，地址栏上会带 ?oauth=<结果码>：
+ * 这里提示一下然后把参数清掉（否则刷新会重复提示）。
+ */
+function handleOauthResult(): void {
+  let code = '';
+  try {
+    code = new URLSearchParams(location.search).get('oauth') || '';
+  } catch (e) {
+    return;
+  }
+  if (!code) return;
+  if (code === 'bound') {
+    notify('oauth.bound', true);
+  } else {
+    notify('oauth.err.' + (OAUTH_ERR_CODES.indexOf(code) !== -1 ? code : 'failed'));
+  }
+  try {
+    history.replaceState(null, '', location.pathname);
+  } catch (e) {
+    /* 忽略 */
+  }
+}
+
 export function initChat(): void {
+  handleOauthResult();
   loadMe().then((ok) => {
     if (!ok) return;
     Promise.all([loadUsers(), loadFriends(), loadGroups()]).then(() => {

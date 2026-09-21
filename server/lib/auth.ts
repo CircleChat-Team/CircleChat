@@ -52,7 +52,9 @@ function open(): DatabaseSync {
       updated INTEGER,
       status  TEXT,
       totp_secret TEXT,
-      totp_enabled INTEGER
+      totp_enabled INTEGER,
+      github_id    TEXT,
+      github_login TEXT
     );
   `);
   return db;
@@ -277,6 +279,29 @@ export function setImage(name: string, image: string | null): boolean {
   open().prepare('UPDATE users SET image = ?, updated = ? WHERE name = ?')
     .run(image == null || image === '' ? null : String(image), Date.now(), name);
   return true;
+}
+
+// ---------- 第三方登录绑定（GitHub） ----------
+
+/**
+ * 设置/清除某账号的 GitHub 绑定：id 传 null 表示解绑。
+ * 「一个 GitHub 账号只能绑一个本地账号」由调用方先用 findByGithubId 检查。
+ */
+export function setGithubLink(name: string, id: string | null, login: string | null): void {
+  open().prepare('UPDATE users SET github_id = ?, github_login = ?, updated = ? WHERE name = ?')
+    .run(id ? String(id) : null, id ? String(login || '') : null, Date.now(), name);
+}
+
+/** 按 GitHub 用户 id 反查本地账号名；未绑定返回 null */
+export function findByGithubId(id: string): string | null {
+  const r = open().prepare('SELECT name FROM users WHERE github_id = ? LIMIT 1').get(String(id)) as { name: string } | undefined;
+  return r && r.name ? String(r.name) : null;
+}
+
+/** 取某账号绑定的 GitHub 登录名；未绑定返回 null */
+export function getGithubLogin(name: string): string | null {
+  const r = open().prepare('SELECT github_login FROM users WHERE name = ?').get(String(name)) as { github_login: string | null } | undefined;
+  return r && r.github_login ? String(r.github_login) : null;
 }
 
 // ---------- 两步验证（TOTP，RFC6238 / HMAC-SHA1） ----------
