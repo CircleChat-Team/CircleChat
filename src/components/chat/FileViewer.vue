@@ -8,10 +8,14 @@
  * - 超过 2MB 不给看，只提供下载（两种视图同样限制）
  * - 顶部有「自动换行」开关：文本默认开，Hex 默认关（换行会打乱列对齐）
  * - 单行超过 5000 字符、或文件超过 512KB 时不做高亮（高亮器会阻塞界面）
+ *
+ * 刻意不依赖聊天页的状态：`v-model` 传进来要看的文件即可，
+ * 聊天页、群管理页、管理面板都能挂（那两页是独立的 Vue 应用，状态层不通）。
  * ============================================================ */
-import { computed, ref, watch } from 'vue';
-import hljs from 'highlight.js/lib/common';
-import { chatState, closeFileView, asset, fmtSize, tr } from '../../core/chat';
+import { computed, ref, shallowRef, watch } from 'vue';
+import { asset } from '../../core/api';
+import { fmtSize } from '../../core/format';
+import { tr } from '../../core/i18n';
 import { useOverlay } from '../../core/useOverlay';
 import {
   MAX_VIEW_BYTES,
@@ -20,12 +24,14 @@ import {
   detectLanguage,
   hexDump,
   shouldHighlight,
-  sniffKind
+  sniffKind,
+  type FileViewTarget
 } from '../../core/fileview';
 
 type Phase = 'loading' | 'text' | 'hex' | 'too-large' | 'error';
 
-const view = computed(() => chatState.fileView);
+/** 要查看的文件；为 null 即关闭 */
+const view = defineModel<FileViewTarget | null>({ default: null });
 const box = ref<HTMLElement | null>(null);
 const phase = ref<Phase>('loading');
 const text = ref('');
@@ -36,6 +42,10 @@ const wrap = ref(true);
 
 const url = computed(() => (view.value ? asset(view.value.url) : ''));
 
+function close(): void {
+  view.value = null;
+}
+
 function escapeHtml(s: string): string {
   return String(s || '')
     .replace(/&/g, '&amp;')
@@ -45,13 +55,35 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/** 高亮器：按需动态加载（hljs 一百多 KB，群页/管理页不该为了打开一次文件就全量下载） */
+interface HljsLike {
+  getLanguage: (name: string) => unknown;
+  highlight: (code: string, opts: { language: string; ignoreIllegals?: boolean }) => { value: string };
+}
+const hljs = shallowRef<HljsLike | null>(null); // shallowRef：别让 Vue 深度代理 hljs 那一大坨对象
+let hljsPromise: Promise<HljsLike | null> | null = null;
+
+function ensureHljs(): Promise<HljsLike | null> {
+  if (hljs.value) return Promise.resolve(hljs.value);
+  if (!hljsPromise) {
+    hljsPromise = import('highlight.js/lib/common')
+      .then((m) => (m.default as unknown as HljsLike))
+      .catch(() => null);
+  }
+  return hljsPromise.then((h) => {
+    if (h) hljs.value = h;
+    return h;
+  });
+}
+
 /** 高亮后的 HTML；不高亮时退回转义纯文本（v-html 的内容始终是安全的） */
 const codeHtml = computed(() => {
   const t = text.value;
   const l = lang.value;
-  if (!l || !hljs.getLanguage(l)) return escapeHtml(t);
+  const h = hljs.value;
+  if (!l || !h || !h.getLanguage(l)) return escapeHtml(t);
   try {
-    return hljs.highlight(t, { language: l, ignoreIllegals: true }).value;
+    return h.highlight(t, { language: l, ignoreIllegals: true }).value;
   } catch (e) {
     return escapeHtml(t);
   }
@@ -106,10 +138,14 @@ async function load(): Promise<void> {
     }
     text.value = decodeBytes(buf);
     const l = detectLanguage(text.value);
-    // 推断出的语言还得是 hljs 真认识的那种（common 打包只含常用语言），否则按纯文本显示
-    highlighted.value = !!l && !!hljs.getLanguage(l) && shouldHighlight(text.value, buf.length);
     lang.value = l;
-    phase.value = 'text';
+    phase.value = 'text'; // 先按纯文本显示，高亮器到位后自动升级，不用一直等
+    // 高亮条件：认得出语言 + 语言在 hljs 的 common 打包里 + 体积/单行长度没过闸
+    if (l && shouldHighlight(text.value, buf.length)) {
+      const h = await ensureHljs();
+      if (view.value !== v) return; // 等待期间用户关了或换了文件，别覆盖新内容
+      if (h && h.getLanguage(l)) highlighted.value = true;
+    }
   } catch (e) {
     phase.value = 'error';
   }
@@ -121,16 +157,16 @@ watch(view, (v) => {
 
 useOverlay({
   isOpen: () => !!view.value,
-  onClose: () => closeFileView(),
+  onClose: () => close(),
   container: () => box.value
 });
 </script>
 
 <template>
-  <div v-if="view" class="fileview-mask" @click.self="closeFileView()">
+  <div v-if="view" class="fileview-mask" @click.self="close()">
     <div ref="box" class="fileview" role="dialog" tabindex="-1">
       <header class="fileview-head">
-        <span class="fileview-name" :title="view.name">{{ view.name }}</span>
+        <span class="fileview-name" :title="view.name || ''">{{ view.name }}</span>
         <span v-if="phase === 'text' || phase === 'hex'" class="fileview-tag">{{ tag }}</span>
         <span class="fileview-size">{{ fmtSize(view.size) }}</span>
         <div class="fileview-actions">
@@ -141,8 +177,8 @@ useOverlay({
             :class="{ on: wrap }"
             @click="wrap = !wrap"
           >{{ tr('fileview.wrap') }}</button>
-          <a class="fv-btn" :href="url" :download="view.name">{{ tr('fileview.download') }}</a>
-          <button type="button" class="fv-btn" @click="closeFileView()">{{ tr('common.close') }}</button>
+          <a class="fv-btn" :href="url" :download="view.name || ''">{{ tr('fileview.download') }}</a>
+          <button type="button" class="fv-btn" @click="close()">{{ tr('common.close') }}</button>
         </div>
       </header>
 
@@ -151,7 +187,7 @@ useOverlay({
 
         <div v-else-if="phase === 'too-large'" class="fileview-msg">
           <p>{{ tr('fileview.tooLarge', { size: fmtSize(MAX_VIEW_BYTES) }) }}</p>
-          <a class="fv-btn fv-btn-primary" :href="url" :download="view.name">{{ tr('fileview.download') }}</a>
+          <a class="fv-btn fv-btn-primary" :href="url" :download="view.name || ''">{{ tr('fileview.download') }}</a>
         </div>
 
         <p v-else-if="phase === 'error'" class="fileview-msg">{{ tr('common.loadFailed') }}</p>

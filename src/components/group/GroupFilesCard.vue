@@ -2,11 +2,13 @@
 /* ============================================================
  * 群内图片 / 文件管理
  * ============================================================ */
-import { inject } from 'vue';
+import { inject, ref } from 'vue';
 import { post } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
 import { confirm } from '../../core/dialog';
 import { fmtSize, fmtDate } from '../../core/format';
+import FileViewer from '../chat/FileViewer.vue';
+import type { FileViewTarget } from '../../core/fileview';
 import type { GroupFile } from '../../types';
 
 const props = defineProps<{
@@ -18,6 +20,13 @@ const emit = defineEmits<{ refreshed: [] }>();
 
 type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
+
+/** 在线查看（文本 / Hex）；图片不在这里看——没有图片灯箱，Hex 看图片也没意义 */
+const fileView = ref<FileViewTarget | null>(null);
+
+function viewFile(f: GroupFile): void {
+  fileView.value = { url: f.content || '', name: f.name || '', size: f.size };
+}
 
 function remove(f: GroupFile): void {
   confirm({
@@ -59,6 +68,14 @@ function remove(f: GroupFile): void {
           <span class="ml-2 text-muted">{{ fmtDate(f.ts) }}</span>
         </span>
         <button
+          v-if="f.type !== 'image' && f.content"
+          type="button"
+          class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
+          @click="viewFile(f)"
+        >
+          {{ tr('chat.file.view') }}
+        </button>
+        <button
           type="button"
           class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-danger hover:text-danger"
           @click="remove(f)"
@@ -67,5 +84,7 @@ function remove(f: GroupFile): void {
         </button>
       </div>
     </div>
+
+    <FileViewer v-model="fileView" />
   </section>
 </template>

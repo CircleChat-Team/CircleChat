@@ -5,11 +5,12 @@
  * ============================================================ */
 
 import { reactive, ref } from 'vue';
-import { get, post, url } from './api';
+import { asset, get, post, url } from './api';
 import { config } from './config';
 import { tr } from './i18n';
 import { fmtSize } from './format';
 import { DEFAULT_NOTIFY_SOUND, isNotifySound, playIncoming, playOutgoing, setNotifySound as soundSetNotify } from './sound';
+import type { FileViewTarget } from './fileview';
 import { canSystemNotify, systemNotify, shakeWindow } from '../utils/notify';
 import { presenceStatusKey, presenceText, type PresencePlatforms, type StatusKey } from './presence';
 import type {
@@ -36,12 +37,6 @@ function clock(ts?: number | null): string {
   const d = new Date(Number(ts) || Date.now());
   const p = (n: number) => (n < 10 ? '0' + n : String(n));
   return p(d.getHours()) + ':' + p(d.getMinutes());
-}
-
-/** 把 /uploads/xxx 转成可访问的完整地址（兼容跨域 apiBase） */
-function asset(u: string): string {
-  if (/^[a-z]+:/i.test(u)) return u; // 已是绝对地址
-  return url(u);
 }
 
 function api(path: string): string {
@@ -104,7 +99,7 @@ export interface ChatState {
   mergeView: MergeData | null;
   imageView: string | null;
   /** 文件查看器：文本 / Hex（见 components/chat/FileViewer.vue） */
-  fileView: { url: string; name: string; size: number } | null;
+  fileView: FileViewTarget | null;
   /** 视频模态播放器（消息里只显示预览图，点开才播放） */
   videoView: { src: string; name: string } | null;
   reactTargetIdx: number | null;

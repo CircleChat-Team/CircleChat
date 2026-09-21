@@ -7,10 +7,19 @@ import { get, post, url } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
 import { confirm } from '../../core/dialog';
 import { fmtSize, fmtDateTime } from '../../core/format';
+import FileViewer from '../chat/FileViewer.vue';
+import type { FileViewTarget } from '../../core/fileview';
 import type { FileItem } from '../../types';
 
 type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
+
+/** 在线查看（文本 / Hex）；图片不在这里看——列表里已经有缩略图了 */
+const fileView = ref<FileViewTarget | null>(null);
+
+function viewFile(f: FileItem): void {
+  fileView.value = { url: fileUrl(f.name), name: f.origin || f.name, size: f.size };
+}
 
 const items = ref<FileItem[]>([]);
 const total = ref(0);
@@ -130,6 +139,14 @@ onMounted(load);
           {{ f.used ? trn('admin.files.used', f.used) : tr('admin.files.orphan') }}
         </span>
 
+        <button
+          v-if="f.kind !== 'image'"
+          type="button"
+          class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
+          @click="viewFile(f)"
+        >
+          {{ tr('chat.file.view') }}
+        </button>
         <a
           class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs no-underline transition-colors hover:border-primary hover:text-primary"
           :href="fileUrl(f.name)"
@@ -144,5 +161,7 @@ onMounted(load);
         </button>
       </div>
     </div>
+
+    <FileViewer v-model="fileView" />
   </section>
 </template>

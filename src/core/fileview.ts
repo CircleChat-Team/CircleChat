@@ -15,6 +15,13 @@
 /** 可查看的体积上限（两种查看器共用）：超过就只提供下载 */
 export const MAX_VIEW_BYTES = 2 * 1024 * 1024;
 
+/** 查看器要看的文件（聊天页 / 群管理页 / 管理面板共用）。url 可以是 /uploads/xxx 或绝对地址 */
+export interface FileViewTarget {
+  url: string;
+  name?: string;
+  size?: number | null;
+}
+
 /** 超过这个体积不做语法高亮（hljs 在大文件上会阻塞界面好几秒） */
 export const MAX_HIGHLIGHT_BYTES = 512 * 1024;
 

@@ -294,7 +294,7 @@ onMounted(refreshMailboxBadge);
     <MergeForwardViewer />
     <ImageViewer />
     <VideoViewer />
-    <FileViewer />
+    <FileViewer v-model="chatState.fileView" />
 
     <!-- 移动端设置面板：将顶栏散落的按钮统一收纳 -->
     <div class="settings-mask" :class="{ show: settingsOpen }" @click="settingsOpen = false"></div>

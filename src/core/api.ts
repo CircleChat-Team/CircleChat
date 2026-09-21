@@ -13,6 +13,15 @@ export function url(path: string): string {
   return BASE + path;
 }
 
+/**
+ * 把 /uploads/xxx 转成可访问的完整地址（兼容跨域 apiBase）。
+ * 放在这里而不是各页面各写一份：聊天页、群管理页、管理面板都要用。
+ */
+export function asset(u: string): string {
+  if (/^[a-z]+:/i.test(u)) return u; // 已是绝对地址
+  return url(u);
+}
+
 /** 展示用的服务器地址（未配置时取当前页面 origin） */
 export function displayBase(): string {
   return config.displayBase || location.origin;
