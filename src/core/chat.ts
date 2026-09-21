@@ -271,6 +271,8 @@ function connectWs(): void {
     switch (obj.type) {
       case 'msg':
         if (obj.data) {
+          // 窗口抖动不走普通通知门禁：它就是用来打断「正在看的会话不打扰」的
+          if (obj.data.type === 'shake') handleShake(obj.data);
           bumpRoom(obj.data);
           maybeNotify(obj.data);
           const inRoom = msgInActiveRoom(obj.data);
@@ -636,6 +638,44 @@ export function sendText(text: string, md?: boolean): void {
   if (!send({ type: 'msg', data })) return;
   playSent();
   state.replyTo = null;
+}
+
+/** 「窗口抖动」本地冷却：服务端另有一道更短的防线（见 runtime.ts 的 SHAKE_COOLDOWN_MS） */
+const SHAKE_COOLDOWN_MS = 10 * 1000;
+let lastShakeAt = 0;
+
+/** 当前是否可以抖动：私聊 + 对方有桌面客户端在线 */
+export function canShake(): boolean {
+  const peer = state.activeDmPeer;
+  return !!peer && isClientOnline(peer);
+}
+
+/**
+ * 给当前私聊对象发一个「窗口抖动」。
+ * 抖动是客户端能力，对方只在网页端时没有效果，所以先判客户端在线；
+ * 群里不做（一次会惊动所有人）。真正让窗口抖动的是收到消息的那一端。
+ */
+export function sendShake(): void {
+  const peer = state.activeDmPeer;
+  if (!peer) return;
+  if (!isClientOnline(peer)) {
+    notify('chat.shake.notClient');
+    return;
+  }
+  const now = Date.now();
+  if (now - lastShakeAt < SHAKE_COOLDOWN_MS) {
+    notify('chat.shake.tooOften');
+    return;
+  }
+  if (!send({ type: 'msg', data: { type: 'shake', content: '', pm: peer } })) return;
+  lastShakeAt = now;
+  playSent();
+}
+
+/** 收到「窗口抖动」：抖一下——这是提醒手段，不受「正在看的会话」门禁限制 */
+function handleShake(m: ChatMessage): void {
+  if (m.from === state.me) return; // 自己那条会被服务端广播回来，别重复抖
+  void shakeWindow();
 }
 
 /** 单个上传任务（输入栏上方的上传指示器读取） */
@@ -1549,6 +1589,7 @@ export async function setNotify(enabled: boolean): Promise<boolean> {
 
 /** 新消息到达：不在当前会话 或 页面隐藏 时，通过桌面客户端弹系统通知 */
 export function maybeNotify(m: ChatMessage): void {
+  if (m.type === 'shake') return; // 抖动本身就是提醒，再发条空正文的系统通知没意义
   if (!state.notifyOn) return;
   if (!canSystemNotify()) return; // 网页端没有系统通知能力
   if (msgInActiveRoom(m) && !document.hidden) return; // 正在看的会话不打扰
@@ -1640,6 +1681,15 @@ export function isOnline(name: string): boolean {
 /** 该用户是否「离开」（在线但后台）——自己永远不算离开 */
 export function isAway(name: string): boolean {
   return name !== state.me && state.away.indexOf(name) !== -1;
+}
+
+/**
+ * 该用户是否有桌面客户端在线。
+ * 窗口抖动是客户端能力，对方只在网页端时抖了也没效果，所以按钮据此禁用。
+ */
+export function isClientOnline(name: string): boolean {
+  const p = state.platforms[name];
+  return !!(p && p.client);
 }
 
 /** 侧栏 / 资料页状态文案 key（用法：tr('common.' + statusKey(name))） */

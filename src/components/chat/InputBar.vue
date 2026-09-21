@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue';
-import { chatState, sendText, uploadFiles, notifyTyping, dmgating } from '../../core/chat';
+import { chatState, sendText, uploadFiles, notifyTyping, dmgating, sendShake, canShake } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import EmojiPanel from './EmojiPanel.vue';
 import UploadProgress from './UploadProgress.vue';
@@ -206,6 +206,14 @@ function onFile(e: Event): void {
 function cancelReply(): void {
   chatState.replyTo = null;
 }
+
+// 窗口抖动：只在私聊出现；对方不在桌面客户端时禁用（抖了也没效果）
+const shakeVisible = computed(() => !!chatState.activeDmPeer);
+const canShakeNow = computed(() => canShake());
+const shakeTitle = computed(() => canShakeNow.value ? tr('chat.shake.title') : tr('chat.shake.notClient'));
+function onShake(): void {
+  sendShake();
+}
 </script>
 
 <template>
@@ -260,6 +268,19 @@ function cancelReply(): void {
       >
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M16.5 6v11.5a4 4 0 1 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a4 4 0 0 0 8 0V5a5.5 5.5 0 0 0-11 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z" />
+        </svg>
+      </button>
+      <!-- 窗口抖动：只在私聊出现（群里会一次惊动所有人）；对方不在客户端时禁用 -->
+      <button
+        v-if="shakeVisible"
+        type="button"
+        class="tool-btn"
+        :title="shakeTitle"
+        :disabled="!canShakeNow || !!mutedText"
+        @click="onShake"
+      >
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-5v-5a7 7 0 0 0-5-6.71V4a2 2 0 1 0-4 0v1.29A7 7 0 0 0 5 12v5l-2 2v1h18v-1l-2-2z" />
         </svg>
       </button>
       <textarea

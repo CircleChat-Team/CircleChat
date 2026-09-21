@@ -1080,6 +1080,10 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 
 /* ---------- 输入栏底排（补齐自创命名：包裹按钮 + 文本框 + 发送） ---------- */
 .input-row { flex: 1; display: flex; align-items: flex-end; gap: 8px; }
+/* 工具按钮的禁用态：原来 style.css 里没有这条，禁用的按钮看起来和能点的一样
+   （窗口抖动按钮在「对方不在客户端」时就靠它体现） */
+.tool-btn:disabled { opacity: .4; cursor: not-allowed; }
+.tool-btn:disabled .icon { color: var(--muted); }
 
 /* ---------- 侧栏标题行（与 + 按钮并排） ---------- */
 .sidebar-title-row { display: flex; align-items: center; justify-content: space-between; padding-bottom: 2px; }

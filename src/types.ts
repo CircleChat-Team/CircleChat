@@ -140,7 +140,7 @@ export interface PenaltyItem {
 /** 聊天消息（GET /api/messages、WS 下发 msg） */
 export interface ChatMessage {
   idx?: number;
-  type: 'text' | 'image' | 'file' | 'video' | 'audio' | 'merge';
+  type: 'text' | 'image' | 'file' | 'video' | 'audio' | 'merge' | 'shake';
   from: string;
   to?: string;
   gid?: string | null;

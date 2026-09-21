@@ -668,6 +668,10 @@ function sniffImage(buf: Buffer): string | null {
 
 const clients = new Set<any>(); // 所有在线 WS 连接
 const typingLast = new Map<string, number>(); // 用户名 -> 上次转发「正在输入」的时间（节流用）
+const shakeLast = new Map<string, number>(); // 用户名 -> 上次「窗口抖动」时间（服务端限频）
+// 抖动最短间隔。前端自己也限一次（更长），这里更短是为了不误伤正常点击，
+// 但必须有——恶意连接可以直接发原始帧刷屏，只靠客户端限不住。
+const SHAKE_COOLDOWN_MS = 5 * 1000;
 const twofaChallenges = new Map<string, { username: string; expires: number }>(); // token -> { username, expires }（登录第二步 2FA）
 
 function clientId(c: any): string {
@@ -880,7 +884,7 @@ function handleWsText(client: any, text: string): void {
   }
   if (msg.type === 'msg') {
     const d = msg.data || {};
-    const type = d.type === 'image' || d.type === 'file' || d.type === 'video' || d.type === 'audio' || d.type === 'merge' ? d.type : 'text';
+    const type = d.type === 'image' || d.type === 'file' || d.type === 'video' || d.type === 'audio' || d.type === 'merge' || d.type === 'shake' ? d.type : 'text';
     let content = String(d.content || '').slice(0, type === 'merge' ? 8000 : (type === 'text' ? MAX_TEXT_LEN : 300));
     const from = client.user.username;
     // 处罚拦截：禁言 / 封禁 / IP 封禁的用户不能继续发消息
@@ -913,7 +917,14 @@ function handleWsText(client: any, text: string): void {
     }
     // 防注入：image/file 的 content 必须是本服务器上传目录的合法文件（防 javascript: 等伪造链接）
     // merge（合并转发）的 content 是结构化 JSON：仅做格式与大小校验
-    if (type === 'text') {
+    if (type === 'shake') {
+      // 「窗口抖动」：只允许私聊（群里抖一次会惊动所有人），并且服务端限频
+      if (dm === null) return;
+      content = ''; // 抖动没有正文
+      const last = shakeLast.get(from) || 0;
+      if (Date.now() - last < SHAKE_COOLDOWN_MS) return;
+      shakeLast.set(from, Date.now());
+    } else if (type === 'text') {
       if (!content.trim()) return;
     } else if (type === 'merge') {
       let parsed: any = null;
@@ -953,7 +964,8 @@ function handleWsText(client: any, text: string): void {
       action: dm != null ? 'dm.msg' : (gid == null ? 'msg' : 'group.msg'),
       target: dm != null ? record.idx : (gid == null ? record.idx : gid),
       detail: auditDetail(type === 'image' ? 'log.detail.msg.image'
-        : (type === 'file' ? 'log.detail.msg.file' : 'log.detail.msg.text'),
+        : (type === 'file' ? 'log.detail.msg.file'
+          : (type === 'shake' ? 'log.detail.msg.shake' : 'log.detail.msg.text')),
         type === 'text' ? { text: content.slice(0, 40) } : { name: String(d.name || '未命名') }),
       ip: client.user.ip
     });

@@ -45,6 +45,11 @@ const recallTip = computed(() => {
   return by === chatState.me ? tr('chat.recall.bySelf') : tr('chat.recall.byOther', { who: by || tr('common.other') });
 });
 
+// 窗口抖动提示行（自己发的和别人发的文案不同）
+const shakeTip = computed(() =>
+  tr(self.value ? 'chat.shake.lineSelf' : 'chat.shake.lineOther', { name: props.msg.from })
+);
+
 const quoteText = computed(() => {
   const r = props.msg.reply;
   if (!r) return '';
@@ -150,6 +155,8 @@ watch(
 
 <template>
   <div v-if="recalled" class="sys-msg">{{ recallTip }}</div>
+  <!-- 窗口抖动：跟撤回一样按系统提示行显示，不做成气泡 -->
+  <div v-else-if="msg.type === 'shake'" class="sys-msg">{{ shakeTip }}</div>
   <div
     v-else
     ref="rootEl"
