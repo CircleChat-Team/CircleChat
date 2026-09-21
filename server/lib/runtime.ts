@@ -1058,7 +1058,10 @@ function readAppInfo(): { id: string; version: string } {
   } catch (e) {
     // 工作目录里没有 package.json（容器启动时 cwd 未必是项目根）：用兜底值
   }
-  return { id: process.env.APP_ID || id, version: process.env.APP_VERSION || version };
+  return {
+    id: process.env.CIRCLECHAT_APP_ID || process.env.APP_ID || id,
+    version: process.env.APP_VERSION || version
+  };
 }
 const APP_INFO = readAppInfo();
 
