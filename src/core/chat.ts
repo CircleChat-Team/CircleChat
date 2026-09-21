@@ -10,7 +10,7 @@ import { config } from './config';
 import { tr } from './i18n';
 import { fmtSize } from './format';
 import { DEFAULT_NOTIFY_SOUND, isNotifySound, playIncoming, playOutgoing, setNotifySound as soundSetNotify } from './sound';
-import { canSystemNotify, systemNotify } from '../utils/notify';
+import { canSystemNotify, systemNotify, shakeWindow } from '../utils/notify';
 import { presenceStatusKey, type PresencePlatforms, type StatusKey } from './presence';
 import type {
   ApiResult,
@@ -1572,6 +1572,9 @@ export function maybeNotify(m: ChatMessage): void {
   // 交给客户端弹系统通知；失败（系统通知服务不可用 / 权限被拒 / 超时）时静默跳过，
   // 不额外打扰用户——提示音与未读红点已经足够。
   void systemNotify(title, body.slice(0, 200));
+  // 同时让客户端窗口抖一下：通知可能被系统免打扰吃掉，窗口抖动更能吸引注意。
+  // 纯浏览器 / 老客户端没有这个能力，会返回 { done: false }，不影响上面逻辑。
+  void shakeWindow();
 }
 
 export function initChat(): void {

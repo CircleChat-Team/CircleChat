@@ -19,7 +19,7 @@ interface DesktopClientMarker {
   platform: 'linux' | 'macos' | 'windows';
 }
 
-/* 桌面客户端提供的系统通知能力（见 src/utils/notify.ts） */
+/* 桌面客户端提供的能力（见 src/utils/notify.ts） */
 interface CircleChatNotifyOptions {
   title?: string;
   body?: string;
@@ -30,10 +30,18 @@ interface CircleChatNotifyResult {
   error: string | null;
 }
 
+/** 窗口抖动结果：不在客户端里 / 客户端未实现该能力时为 { done: false } */
+interface CircleChatShakeResult {
+  done: boolean;
+  error?: string | null;
+}
+
 interface Window {
   CHAT_CONFIG?: ChatConfig;
   __CIRCLECHAT_CLIENT__?: DesktopClientMarker;
   __CIRCLECHAT__?: {
     notify(options: CircleChatNotifyOptions | string): Promise<CircleChatNotifyResult>;
+    /** 让客户端窗口抖一下抢注意力；老版本客户端可能没有这个方法，调用前要判存在 */
+    shakeWindow?(): Promise<CircleChatShakeResult>;
   };
 }
