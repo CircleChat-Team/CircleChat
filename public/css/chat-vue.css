@@ -1558,6 +1558,23 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
   color: var(--muted);
 }
 .chat-md .md-root hr { border: none; border-top: 1px solid var(--border); }
+/* 表格（GFM）：外层做横向滚动，宽表不会把消息气泡撑破；窄表按内容宽度显示 */
+.chat-md .md-root .md-table-wrap { margin: .5em 0; max-width: 100%; overflow-x: auto; }
+.chat-md .md-root table.md-table {
+  border-collapse: collapse;
+  width: auto;
+  max-width: 100%;
+  font-size: .95em;
+  line-height: 1.5;
+}
+.chat-md .md-root table.md-table th,
+.chat-md .md-root table.md-table td {
+  padding: .35em .7em;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+.chat-md .md-root table.md-table th { background: var(--fill); font-weight: 600; }
+.chat-md .md-root table.md-table tbody tr:nth-child(even) td { background: rgba(128, 128, 128, .07); }
 .chat-md .md-root strong { font-weight: 600; }
 .chat-md .md-root .code-block { margin: .5em 0; }
 

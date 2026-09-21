@@ -98,7 +98,7 @@ const blocks = computed<Block[]>(() => {
  * Markdown 渲染（自研安全子集）
  * 流程：先把用户内容整体 HTML 转义，再仅在转义后的文本上套用自带的
  * 结构标签（用占位符保护内联代码避免被穿套），因此不可能注入脚本。
- * 覆盖：标题 / 段落 / ul/ol 列表 / 引用 / 分隔线 / 围栏代码块 /
+ * 覆盖：标题 / 段落 / ul/ol 列表 / 表格 / 引用 / 分隔线 / 围栏代码块 /
  * 加粗 / 斜体 / 删除线 / 行内代码 / 链接（仅 http(s)/mailto）。
  * ============================================================ */
 
@@ -174,6 +174,33 @@ function extractMath(src: string, store: { html: string; display: boolean }[]): 
     .replace(/\$([^$\n]+?)\$/g, (m: string, t: string) => (/[A-Za-z\\^_{}]/.test(t) ? put(t, false) : m));
 }
 
+/* ---------- 表格（GFM） ---------- */
+
+/** 拆一行表格：去掉首尾的 | 再按 | 切分；\| 是转义的竖线，先占位免得被当分隔符 */
+function splitRow(line: string): string[] {
+  const s = line.trim().replace(/^\|/, '').replace(/\|$/, '').replace(/\\\|/g, '\u0003');
+  return s.split('|').map((c) => c.replace(/\u0003/g, '|').trim());
+}
+
+/** 分隔行判定：| --- | :--: | 这种（每个单元格只能是 - 和可选的冒号） */
+function isTableDelim(line: string): boolean {
+  if (!line || line.indexOf('-') === -1) return false;
+  const cells = splitRow(line);
+  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c));
+}
+
+/** 由分隔行得出每列对齐方式（返回 style 值，空串表示默认） */
+function tableAligns(line: string): string[] {
+  return splitRow(line).map((c) => {
+    const left = c.startsWith(':');
+    const right = c.endsWith(':');
+    if (left && right) return 'center';
+    if (right) return 'right';
+    if (left) return 'left';
+    return '';
+  });
+}
+
 /** 整段 Markdown 块级渲染为安全 HTML */
 function renderMd(src: string): string {
   const math: { html: string; display: boolean }[] = [];
@@ -234,6 +261,37 @@ function renderMd(src: string): string {
       flush();
       html.push('<hr>');
       i++;
+      continue;
+    }
+
+    // 表格（GFM）：本行含 | 且下一行是分隔行 | --- | --- | 才算，
+    // 所以普通文本里出现竖线不会被误判成表格。
+    if (line.indexOf('|') !== -1 && i + 1 < lines.length && isTableDelim(lines[i + 1])) {
+      flush();
+      const head = splitRow(line);
+      const aligns = tableAligns(lines[i + 1]);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim() !== '' && lines[i].indexOf('|') !== -1 && !isTableDelim(lines[i])) {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      // 列数以表头 / 分隔行 / 正文里最多的为准，缺格的补空，多出来的也显示
+      const cols = Math.max(head.length, aligns.length, ...rows.map((r) => r.length));
+      const cell = (tag: 'th' | 'td', text: string, c: number): string => {
+        const al = aligns[c];
+        return '<' + tag + (al ? ' style="text-align:' + al + '"' : '') + '>' + (text ? mdInline(text) : '') + '</' + tag + '>';
+      };
+      let table = '<div class="md-table-wrap"><table class="md-table"><thead><tr>';
+      for (let c = 0; c < cols; c++) table += cell('th', head[c] || '', c);
+      table += '</tr></thead><tbody>';
+      for (const row of rows) {
+        table += '<tr>';
+        for (let c = 0; c < cols; c++) table += cell('td', row[c] || '', c);
+        table += '</tr>';
+      }
+      table += '</tbody></table></div>';
+      html.push(table);
       continue;
     }
 
