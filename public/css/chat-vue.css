@@ -1575,6 +1575,48 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 }
 .chat-md .md-root table.md-table th { background: var(--fill); font-weight: 600; }
 .chat-md .md-root table.md-table tbody tr:nth-child(even) td { background: rgba(128, 128, 128, .07); }
+/* 提示容器（:::info / :::warning …）：左侧色条 + 淡底色，按类型换色 */
+.chat-md .md-root .md-admonition {
+  margin: .5em 0;
+  padding: .5em .8em;
+  border-left: 3px solid var(--muted);
+  border-radius: 8px;
+  background: rgba(128, 128, 128, .09);
+}
+.chat-md .md-root .md-adm-title { margin-bottom: .15em; font-weight: 600; font-size: .95em; color: var(--muted); }
+.chat-md .md-root .md-adm-body > :first-child { margin-top: 0; }
+.chat-md .md-root .md-adm-body > :last-child { margin-bottom: 0; }
+.chat-md .md-root .md-adm-info { border-left-color: #3b82f6; background: rgba(59, 130, 246, .1); }
+.chat-md .md-root .md-adm-info .md-adm-title { color: #3b82f6; }
+.chat-md .md-root .md-adm-tip { border-left-color: #10b981; background: rgba(16, 185, 129, .1); }
+.chat-md .md-root .md-adm-tip .md-adm-title { color: #10b981; }
+.chat-md .md-root .md-adm-warning,
+.chat-md .md-root .md-adm-caution { border-left-color: #f59e0b; background: rgba(245, 158, 11, .12); }
+.chat-md .md-root .md-adm-warning .md-adm-title,
+.chat-md .md-root .md-adm-caution .md-adm-title { color: #d97706; }
+.chat-md .md-root .md-adm-danger { border-left-color: #ef4444; background: rgba(239, 68, 68, .1); }
+.chat-md .md-root .md-adm-danger .md-adm-title { color: #ef4444; }
+.chat-md .md-root .md-adm-important { border-left-color: #8b5cf6; background: rgba(139, 92, 246, .1); }
+.chat-md .md-root .md-adm-important .md-adm-title { color: #8b5cf6; }
+[data-theme="dark"] .chat-md .md-root .md-adm-warning .md-adm-title,
+[data-theme="dark"] .chat-md .md-root .md-adm-caution .md-adm-title { color: #fbbf24; }
+/* mermaid 图表：未渲染完先显示源码，画好后隐藏源码只留图；宽图横向滚动 */
+.chat-md .md-root .md-mermaid { margin: .5em 0; }
+.chat-md .md-root .md-mermaid-src {
+  margin: 0;
+  padding: .5em .7em;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .85em;
+  line-height: 1.5;
+  background: var(--fill);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.chat-md .md-root .md-mermaid-out { max-width: 100%; overflow-x: auto; }
+.chat-md .md-root .md-mermaid-out svg { display: block; max-width: 100%; height: auto; }
+.chat-md .md-root .md-mermaid.done .md-mermaid-src { display: none; }
+.chat-md .md-root .md-mermaid-err { margin-bottom: .3em; font-size: .85em; color: var(--muted); }
 .chat-md .md-root strong { font-weight: 600; }
 .chat-md .md-root .code-block { margin: .5em 0; }
 

@@ -2,10 +2,12 @@
 /* 安全文本渲染：把消息正文解析为 文本 / 链接 / @提及 / 行内代码 / 代码块。
  * 纯文本走 Vue 的文本插值（自动转义），只有经过 highlight.js 转义后的代码块才用 v-html，
  * 因此不存在 XSS 风险。 */
-import { computed } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import hljs from 'highlight.js/lib/common';
 import { chatState, tr, copyToClipboard } from '../../core/chat';
 import { renderMath, mathReady } from '../../core/math';
+import { renderMermaid } from '../../core/mermaid';
+import { theme } from '../../core/theme';
 
 interface Token {
   t: 'text' | 'mention' | 'link' | 'code';
@@ -99,6 +101,7 @@ const blocks = computed<Block[]>(() => {
  * 流程：先把用户内容整体 HTML 转义，再仅在转义后的文本上套用自带的
  * 结构标签（用占位符保护内联代码避免被穿套），因此不可能注入脚本。
  * 覆盖：标题 / 段落 / ul/ol 列表 / 表格 / 引用 / 分隔线 / 围栏代码块 /
+ * 提示容器（:::info 这类）/ mermaid 图表 /
  * 加粗 / 斜体 / 删除线 / 行内代码 / 链接（仅 http(s)/mailto）。
  * ============================================================ */
 
@@ -201,8 +204,31 @@ function tableAligns(line: string): string[] {
   });
 }
 
+/* ---------- 提示容器（:::info / :::warning …） ---------- */
+
+/** 支持的容器类型（其它类型按 generic 样式渲染，标题用原文类型名） */
+const ADM_TYPES = ['note', 'info', 'tip', 'warning', 'danger', 'caution', 'important'];
+const ADM_MAX_DEPTH = 6; // 嵌套上限，防止构造超深嵌套把调用栈打爆
+
+const ADM_OPEN_RE = /^\s*:::+\s*([A-Za-z][\w-]*)\s*(.*)$/;
+const ADM_CLOSE_RE = /^\s*:::+\s*$/;
+
+/** 从 start 行开始找配对的收尾 :::（考虑嵌套）；找不到说明是普通文本 */
+function findAdmonitionEnd(lines: string[], start: number): number {
+  let nest = 1;
+  for (let j = start; j < lines.length; j++) {
+    if (ADM_CLOSE_RE.test(lines[j])) {
+      nest--;
+      if (nest === 0) return j;
+      continue;
+    }
+    if (ADM_OPEN_RE.test(lines[j])) nest++;
+  }
+  return -1;
+}
+
 /** 整段 Markdown 块级渲染为安全 HTML */
-function renderMd(src: string): string {
+function renderMd(src: string, depth = 0): string {
   const math: { html: string; display: boolean }[] = [];
   const lines = extractMath(String(src || '').replace(/\r\n?/g, '\n'), math).split('\n');
   const html: string[] = [];
@@ -217,6 +243,30 @@ function renderMd(src: string): string {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
+
+    // 提示容器：:::info / :::warning 自定义标题 …
+    // 只有能找到配对收尾 ::: 才当容器，否则按普通文本处理（避免吞掉后面全部内容）
+    const adm = depth < ADM_MAX_DEPTH ? ADM_OPEN_RE.exec(line) : null;
+    if (adm) {
+      const close = findAdmonitionEnd(lines, i + 1);
+      if (close !== -1) {
+        flush();
+        const type = adm[1].toLowerCase();
+        const custom = adm[2].trim();
+        const body = lines.slice(i + 1, close).join('\n');
+        const known = ADM_TYPES.indexOf(type) !== -1;
+        const title = custom
+          ? mdInline(custom)
+          : escapeHtml(known ? tr('md.admonition.' + type) : type);
+        html.push(
+          '<div class="md-admonition md-adm-' + (known ? type : 'generic') + '">' +
+          '<div class="md-adm-title">' + title + '</div>' +
+          '<div class="md-adm-body">' + renderMd(body, depth + 1) + '</div></div>'
+        );
+        i = close + 1;
+        continue;
+      }
+    }
 
     // 独占一行的块级公式：直接作为块输出（避免被 <p> 包裹）
     const onlyMath = /^\s*\u0002M(\d+)\u0002\s*$/.exec(line);
@@ -242,7 +292,17 @@ function renderMd(src: string): string {
         i++;
       }
       i++; // 跳过收尾 ```
-      html.push(mdCode(lang, buf.join('\n')));
+      const code = buf.join('\n');
+      // mermaid 图表：先只放占位节点（内含源码），等 mermaid 分块加载完再由
+      // 组件把 SVG 画进去；加载/渲染失败就一直显示源码，不会白屏。
+      if ((lang || '').toLowerCase() === 'mermaid') {
+        html.push(
+          '<div class="md-mermaid"><pre class="md-mermaid-src">' + escapeHtml(code) +
+          '</pre><div class="md-mermaid-out"></div></div>'
+        );
+      } else {
+        html.push(mdCode(lang, code));
+      }
       continue;
     }
 
@@ -367,6 +427,65 @@ const mdHtml = computed<string>(() => {
   return renderMd(props.text || '');
 });
 
+/* ---------- mermaid 图表绘制 ----------
+ * renderMd 只产出占位节点（含源码），真正的 SVG 要等 mermaid 分块加载完
+ * 才能在 DOM 上画（mermaid 渲染是异步且依赖真实 DOM 度量）。 */
+
+const mdRoot = ref<HTMLElement | null>(null);
+/** 正在绘制中的节点：mermaid 渲染是异步的，避免同一节点被并发画两遍 */
+const painting = new WeakSet<Element>();
+let mermaidSeq = 0;
+
+async function paintMermaids(): Promise<void> {
+  const root = mdRoot.value;
+  if (!root) return;
+  const nodes = Array.from(root.querySelectorAll<HTMLElement>('.md-mermaid:not(.done):not(.failed)'));
+  for (const node of nodes) {
+    if (painting.has(node)) continue;
+    const out = node.querySelector<HTMLElement>('.md-mermaid-out');
+    if (!out) continue;
+    const src = node.querySelector<HTMLElement>('.md-mermaid-src')?.textContent || '';
+    painting.add(node);
+    const svg = await renderMermaid(src, 'mermaid-' + ++mermaidSeq, theme.value === 'dark');
+    if (svg) {
+      out.innerHTML = svg;
+      node.classList.add('done');
+    } else {
+      // 失败（语法错误 / 模块没加载上）：保留源码，并加一行说明
+      node.classList.add('failed');
+      const hint = document.createElement('div');
+      hint.className = 'md-mermaid-err';
+      hint.textContent = tr('md.mermaid.failed');
+      node.insertBefore(hint, node.firstChild);
+    }
+  }
+}
+
+/** 主题切换后 mermaid 的配色要跟着变：清掉已画的图重画一遍 */
+function repaintMermaids(): void {
+  const root = mdRoot.value;
+  if (!root) return;
+  for (const node of Array.from(root.querySelectorAll<HTMLElement>('.md-mermaid.done, .md-mermaid.failed'))) {
+    node.classList.remove('done', 'failed');
+    const out = node.querySelector<HTMLElement>('.md-mermaid-out');
+    if (out) out.innerHTML = '';
+    const err = node.querySelector('.md-mermaid-err');
+    if (err) err.remove();
+  }
+  void paintMermaids();
+}
+
+// 内容变化（含公式模块加载完成触发的重渲染）后重画；模板刷新完成才能拿到节点
+watch(mdHtml, () => {
+  if (!props.md) return;
+  void nextTick().then(paintMermaids);
+}, { immediate: true });
+
+watch(theme, () => {
+  if (!props.md) return;
+  void nextTick().then(repaintMermaids);
+});
+
 // Markdown 内代码块的「复制」走事件委托（v-html 无法直接绑定）
 function onMdClick(e: Event): void {
   const t = e.target as HTMLElement | null;
@@ -382,7 +501,7 @@ function onMdClick(e: Event): void {
 <template>
   <div class="chat-text" :class="{ 'chat-md': md }">
     <template v-if="md">
-      <div class="md-root" v-html="mdHtml" @click="onMdClick"></div>
+      <div class="md-root" ref="mdRoot" v-html="mdHtml" @click="onMdClick"></div>
     </template>
     <template v-else>
       <template v-for="(b, bi) in blocks" :key="bi">
