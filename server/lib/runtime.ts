@@ -721,6 +721,58 @@ function sniffImage(buf: Buffer): string | null {
 
 const clients = new Set<any>(); // 所有在线 WS 连接
 const typingLast = new Map<string, number>(); // 用户名 -> 上次转发「正在输入」的时间（节流用）
+
+// ---------- 最后在线时间 ----------
+// 「是否在线」由 WS 连接决定，这里只记**离线那一刻的最后活动时间**，供离线用户显示。
+// 内存这份是实时用的（断开瞬间就要能推给前端），库里那份是重启后仍能显示用的。
+let lastSeenMap: Record<string, number> | null = null;
+const lastSeenWrote = new Map<string, number>(); // 用户名 -> 上次落库时间（写库节流）
+
+function ensureLastSeen(): Record<string, number> {
+  if (lastSeenMap) return lastSeenMap;
+  const out: Record<string, number> = {};
+  try {
+    const raw = auth.loadUsers() || {};
+    for (const n of Object.keys(raw)) {
+      const ts = Number(raw[n].lastSeen || 0);
+      if (ts > 0) out[n] = ts;
+    }
+  } catch (e) {
+    /* 读不到就从空开始，不影响主流程 */
+  }
+  lastSeenMap = out;
+  return out;
+}
+
+/** 记录「该用户此刻还在线」。force 用于连接/断开这种关键时刻，其余按 60 秒节流落库 */
+function markSeen(name: string, force = false): void {
+  if (!name) return;
+  const now = Date.now();
+  ensureLastSeen()[name] = now;
+  if (!force) {
+    const prev = lastSeenWrote.get(name) || 0;
+    if (now - prev < 60000) return; // 心跳触发很频繁，别每次都写库
+  }
+  lastSeenWrote.set(name, now);
+  auth.touchLastSeen(name, now);
+}
+
+function lastSeenSnapshot(): Record<string, number> {
+  return Object.assign({}, ensureLastSeen());
+}
+
+/** 除当前连接外，该用户是否还有别的在线连接（断开时判断是否真的下线了） */
+function hasOtherConn(name: string, except: any): boolean {
+  for (const c of clients) if (c !== except && clientId(c) === name) return true;
+  return false;
+}
+
+/** 给一批带 name 的条目补上 lastSeen（群成员列表等；groups 模块只管成员关系，不碰在线状态） */
+function withLastSeen<T extends { name: string }>(list: T[]): (T & { lastSeen: number | null })[] {
+  const ls = ensureLastSeen();
+  return (list || []).map((m) => Object.assign({}, m, { lastSeen: ls[m.name] || null }));
+}
+
 const shakeLast = new Map<string, number>(); // 用户名 -> 上次「窗口抖动」时间（服务端限频）
 // 抖动最短间隔。前端自己也限一次（更长），这里更短是为了不误伤正常点击，
 // 但必须有——恶意连接可以直接发原始帧刷屏，只靠客户端限不住。
@@ -766,7 +818,15 @@ function broadcastRoom(gid: string | null, dm: string | null, obj: any): void {
 
 function broadcastPresence(): void {
   const present = [...new Set(currentPresent())].sort();
-  broadcast({ type: 'presence', users: present, away: currentAway(), platforms: currentPlatforms() });
+  broadcast({
+    type: 'presence',
+    users: present,
+    away: currentAway(),
+    platforms: currentPlatforms(),
+    // 随广播带上最后在线快照：某人刚离线时前端能立刻显示「最后在线 刚刚」，
+    // 不用等下一次拉 /api/users
+    lastSeen: lastSeenSnapshot()
+  });
 }
 
 // 隐身用户对他人显示为离线：凡用于对外展示「在线」的集合都排除 invisible
@@ -884,6 +944,7 @@ export function handleWsUpgrade(req: any, socket: any, head: Buffer): void {
   socket.on('close', () => shutdownClient(client, 'closed'));
 
   clients.add(client);
+  markSeen(clientId(client), true); // 连上就算「此刻在线」，立刻落库
   broadcastPresence();
   logger.write({ ip, proto: 'ws', method: 'CONNECT', url: '/ws', status: 101, ua: req.headers['user-agent'] });
 }
@@ -892,6 +953,8 @@ function shutdownClient(client: any, _reason: string): void {
   if (!clients.has(client)) return;
   clients.delete(client);
   typingLast.delete(client.user.username);
+  // 多端登录时，还有别的连接就还不算离线，别把时间写早了
+  if (!hasOtherConn(client.user.username, client)) markSeen(client.user.username, true);
   try {
     // 先发送 Close 帧再 FIN，确保对端能收到
     client.socket.write(wsproto.encodeClose(1000));
@@ -907,6 +970,9 @@ function handleWsText(client: any, text: string): void {
   try { msg = JSON.parse(text); } catch (e) { return; }
   if (!msg || typeof msg !== 'object') return;
   if (msg.type === 'ping') {
+    // 顺带续一下「最后在线」：长时间挂着的会话如果遇到进程被杀，
+    // 库里记的时间也不会太旧（内部 60 秒节流，不会真的每次写库）
+    markSeen(clientId(client));
     client.sendText(JSON.stringify({ type: 'pong', ts: Date.now() }));
     return;
   }
@@ -1560,6 +1626,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       online,
       away: currentAway(),
       platforms: currentPlatforms(), // 在线用户的连接来源（网页端 / 桌面客户端）
+      lastSeen: lastSeenSnapshot(), // 用户名 -> 最后在线时间（ms）
       mustChange: auth.mustChange(me.username),
       totpEnabled: auth.getTotp(me.username).enabled
     });
@@ -1784,7 +1851,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         return q === '' || String(name).toLowerCase().indexOf(q) !== -1;
       })
       .sort()
-      .map((name) => ({ name, image: raw[name].image || null }));
+      .map((name) => ({ name, image: raw[name].image || null, lastSeen: ensureLastSeen()[name] || null }));
     sendJSON(res, 200, { ok: true, users });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
@@ -1793,11 +1860,15 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   // ---------- 好友接口 ----------
 
   // 带在线/头像装饰的用户名列表
-  function decorateNames(names: string[]): { name: string; online: boolean; image?: string }[] {
+  function decorateNames(names: string[]): { name: string; online: boolean; image?: string; lastSeen: number | null }[] {
     const raw = auth.loadUsers() || {};
     const online = new Set(currentPresent());
     return names.map(function (n) {
-      const o: { name: string; online: boolean; image?: string } = { name: n, online: online.has(n) };
+      const o: { name: string; online: boolean; image?: string; lastSeen: number | null } = {
+        name: n,
+        online: online.has(n),
+        lastSeen: ensureLastSeen()[n] || null
+      };
       if (raw[n] && raw[n].image) o.image = raw[n].image;
       return o;
     });
@@ -2178,7 +2249,8 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         created: raw[name].created || null,
         image: raw[name].image || null,
         online: online.has(name),
-        platform: platforms[name] || null // 连接来源：网页端 / 桌面客户端 / 两端（离线为 null）
+        platform: platforms[name] || null, // 连接来源：网页端 / 桌面客户端 / 两端（离线为 null）
+        lastSeen: ensureLastSeen()[name] || null
       }));
       sendJSON(res, 200, { ok: true, users });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -2546,7 +2618,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       sendJSON(res, 403, { ok: false, error: 'api.group.noView' });
       return;
     }
-    sendJSON(res, 200, { ok: true, gid, members: groups.groupMembers(gid) });
+    sendJSON(res, 200, { ok: true, gid, members: withLastSeen(groups.groupMembers(gid)) });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -2720,7 +2792,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       ok: true,
       group: { id: g.id, name: g.name, owner: g.owner, created: g.created },
       isOwner: groups.isOwner(gid, me.username),
-      members: groups.manageMembers(gid),
+      members: withLastSeen(groups.manageMembers(gid)),
       requests: groups.pendingRequests(gid),
       files: store.filesByRoom(gid, null)
     });

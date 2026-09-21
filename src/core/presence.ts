@@ -9,6 +9,9 @@
  * （components/group/MembersCard）共用同一套判定，避免两处各写一遍。
  * ============================================================ */
 
+import { lastSeenLabel } from './format';
+import { tr, trn } from './i18n';
+
 /** 用户名 → 该用户在哪些端在线（同时在线时两个都为 true） */
 export interface PresencePlatforms {
   [name: string]: { web: boolean; client: boolean };
@@ -32,4 +35,33 @@ export function presenceStatusKey(
   if (!p) return 'online';
   if (p.web && p.client) return 'online.both';
   return p.client ? 'online.client' : 'online.web';
+}
+
+/**
+ * 状态文案的完整写法：在线/离开用状态词，离线时改成「最后在线 N 分钟前」。
+ * 离线且没有最后在线记录（老账号、从没上线过）时仍然退回「离线」。
+ */
+export function presenceText(
+  online: boolean,
+  away: boolean,
+  platforms?: { web?: boolean; client?: boolean } | null,
+  lastSeen?: number | null,
+  now: number = Date.now()
+): string {
+  const key = presenceStatusKey(online, away, platforms);
+  if (key !== 'offline') return tr('common.' + key);
+  if (!lastSeen) return tr('common.offline');
+  return lastSeenText(lastSeen, now);
+}
+
+/** 「最后在线 N 分钟前」（含前缀文案）；没有记录时返回 '' */
+export function lastSeenText(ts?: number | null, now: number = Date.now()): string {
+  const l = lastSeenLabel(ts, now);
+  if (!l) return '';
+  const time = l.key === 'common.lastSeen.now'
+    ? tr('common.lastSeen.now')
+    : l.key === 'common.lastSeen.date'
+      ? tr('common.lastSeen.date', { date: l.date })
+      : trn(l.key, l.n);
+  return tr('common.lastSeen', { time });
 }

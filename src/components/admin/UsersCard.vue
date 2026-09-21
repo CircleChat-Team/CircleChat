@@ -9,16 +9,16 @@ import { fmtDate } from '../../core/format';
 import { passwordOk } from '../../core/password';
 import UserManageDialog from './UserManageDialog.vue';
 import type { UserItem } from '../../types';
-import { presenceStatusKey } from '../../core/presence';
+import { presenceText } from '../../core/presence';
 
 const props = defineProps<{ me: string }>();
 
 type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
 
-/** 在线状态文案 key（网页端 / 客户端 / 两端同时在线） */
+/** 状态文案（网页端 / 客户端 / 两端同时在线；离线时显示最后在线） */
 function statusKey(u: UserItem): string {
-  return presenceStatusKey(!!u.online, false, u.platform);
+  return presenceText(!!u.online, false, u.platform, u.lastSeen);
 }
 
 const items = ref<UserItem[]>([]);

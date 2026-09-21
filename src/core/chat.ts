@@ -11,7 +11,7 @@ import { tr } from './i18n';
 import { fmtSize } from './format';
 import { DEFAULT_NOTIFY_SOUND, isNotifySound, playIncoming, playOutgoing, setNotifySound as soundSetNotify } from './sound';
 import { canSystemNotify, systemNotify, shakeWindow } from '../utils/notify';
-import { presenceStatusKey, type PresencePlatforms, type StatusKey } from './presence';
+import { presenceStatusKey, presenceText, type PresencePlatforms, type StatusKey } from './presence';
 import type {
   ApiResult,
   ChatMessage,
@@ -57,6 +57,8 @@ export interface ChatState {
   away: string[];
   /** 在线用户的连接来源：网页端 / 桌面客户端（可能两端都在） */
   platforms: PresencePlatforms;
+  /** 用户名 -> 最后在线时间（ms）；离线用户用它显示「最后在线 x」 */
+  lastSeen: Record<string, number>;
   allUsers: ChatUser[];
   userImages: Record<string, string | null>;
   myGroups: ChatGroup[];
@@ -122,6 +124,7 @@ const state = reactive<ChatState>({
   online: [],
   away: [],
   platforms: {},
+  lastSeen: {},
   allUsers: [],
   userImages: {},
   myGroups: [],
@@ -264,7 +267,7 @@ function connectWs(): void {
   };
 
   sock.onmessage = (ev: MessageEvent) => {
-    let obj: { type?: string; data?: any; from?: string; users?: string[]; away?: string[]; platforms?: PresencePlatforms; by?: string; owner?: string; admin?: boolean; username?: string } | null = null;
+    let obj: { type?: string; data?: any; from?: string; users?: string[]; away?: string[]; platforms?: PresencePlatforms; lastSeen?: Record<string, number>; by?: string; owner?: string; admin?: boolean; username?: string } | null = null;
     try {
       obj = JSON.parse(ev.data as string);
     } catch {
@@ -300,6 +303,7 @@ function connectWs(): void {
         state.online = obj.users || [];
         state.away = obj.away || [];
         state.platforms = (obj.platforms as PresencePlatforms) || {};
+        if (obj.lastSeen) state.lastSeen = { ...state.lastSeen, ...(obj.lastSeen as Record<string, number>) };
         break;
       case 'groups.changed':
         loadGroups();
@@ -573,6 +577,7 @@ function loadMe(): Promise<boolean> {
     state.online = (j.online as string[]) || [];
     state.away = (j.away as string[]) || [];
     state.platforms = (j.platforms as PresencePlatforms) || {};
+    if (j.lastSeen) state.lastSeen = j.lastSeen as Record<string, number>;
     return true;
   });
 }
@@ -586,6 +591,7 @@ function loadUsers(): Promise<void> {
           state.userImages = {};
           state.allUsers.forEach((u) => {
             state.userImages[u.name] = u.image || null;
+            if (u.lastSeen) state.lastSeen[u.name] = Number(u.lastSeen);
           });
         }
       })
@@ -601,6 +607,9 @@ function loadFriends(): Promise<void> {
     .then((j) => {
       if (!j.ok) return;
       state.myFriends = (j.friends as Friend[]) || [];
+      state.myFriends.forEach((f) => {
+        if (f.lastSeen) state.lastSeen[f.name] = Number(f.lastSeen);
+      });
       state.friendRequests = (j.requests as FriendRequest[]) || [];
       state.friendSent = (j.sent as FriendSent[]) || [];
     })
@@ -1741,6 +1750,16 @@ export function statusKey(name: string): StatusKey {
   return presenceStatusKey(isOnline(name), isAway(name), state.platforms[name]);
 }
 
+/** 状态文案：在线/离开按状态词显示，离线时显示「最后在线 x」 */
+export function statusText(name: string): string {
+  return presenceText(isOnline(name), isAway(name), state.platforms[name], state.lastSeen[name]);
+}
+
+/** 某人的最后在线时间（ms），没有记录时返回 null */
+export function lastSeenOf(name: string): number | null {
+  return state.lastSeen[name] || null;
+}
+
 // ================= 自己的隐身 / 离开状态 =================
 
 function readInvisible(): boolean {
@@ -1818,10 +1837,20 @@ export function copyToClipboard(text: string): void {
   }
 }
 
+/**
+ * 拉群成员列表（所有群成员都能看，服务端只要求「是本群成员」）。
+ * 顺手把每个人的 lastSeen 并进 state.lastSeen——这样不在好友列表里的人
+ * 也能显示「最后在线 x」，群成员面板与资料卡共用同一份数据。
+ */
 export function loadGroupMembers(gid: string): void {
   get('/api/groups/members?gid=' + encodeURIComponent(gid))
     .then((j) => {
-      if (j && j.ok) state.activeGroupMembers = (j.members as GroupMember[]) || [];
+      if (!j || !j.ok) return;
+      const list = (j.members as GroupMember[]) || [];
+      state.activeGroupMembers = list;
+      list.forEach((m) => {
+        if (m.lastSeen) state.lastSeen[m.name] = Number(m.lastSeen);
+      });
     })
     .catch(() => {
       /* 忽略 */

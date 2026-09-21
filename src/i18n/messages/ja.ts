@@ -656,7 +656,19 @@ const dict: Record<string, string> = {
   "fileview.loading": "読み込み中…",
   "fileview.tooLarge": "ファイルが {size} を超えるため表示できません。ダウンロードして開いてください",
   "fileview.plain": "プレーンテキスト",
-  "fileview.hex": "16 進数"
+  "fileview.hex": "16 進数",
+  "chat.members.title": "メンバー",
+  "chat.members.owner": "オーナー",
+  "chat.members.empty": "メンバーがいません",
+  "common.lastSeen": "最終オンライン {time}",
+  "common.lastSeen.now": "たった今",
+  "common.lastSeen.minute.one": "{n} 分前",
+  "common.lastSeen.minute.other": "{n} 分前",
+  "common.lastSeen.hour.one": "{n} 時間前",
+  "common.lastSeen.hour.other": "{n} 時間前",
+  "common.lastSeen.day.one": "{n} 日前",
+  "common.lastSeen.day.other": "{n} 日前",
+  "common.lastSeen.date": "{date}"
 };
 
 export default dict;

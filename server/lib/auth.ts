@@ -71,6 +71,8 @@ export interface StoredUser {
   status?: string;
   settings?: Record<string, unknown>;
   updated?: number;
+  /** 最后一次在线时间（ms）；在线状态由 WS 连接决定，这里只记「离线时最后一次见到」 */
+  lastSeen?: number;
 }
 
 interface UserRow {
@@ -83,6 +85,7 @@ interface UserRow {
   updated: number | null;
   status?: string | null;
   mustChange?: number | null;
+  last_seen?: number | null;
 }
 
 function rowToUser(r: UserRow | null): StoredUser | null {
@@ -94,7 +97,18 @@ function rowToUser(r: UserRow | null): StoredUser | null {
   if (r.status != null) u.status = r.status;
   try { u.settings = r.settings ? JSON.parse(r.settings) : {}; } catch { u.settings = {}; }
   if (r.updated != null) u.updated = r.updated;
+  if (r.last_seen != null) u.lastSeen = Number(r.last_seen);
   return u;
+}
+
+/** 记录「最后在线时间」。写库是同步的（node:sqlite），调用方负责节流 */
+export function touchLastSeen(name: string, ts: number = Date.now()): void {
+  if (!name) return;
+  try {
+    open().prepare('UPDATE users SET last_seen = ? WHERE name = ?').run(Number(ts) || Date.now(), String(name));
+  } catch (e) {
+    /* 写失败不影响主流程（例如库被锁） */
+  }
 }
 
 /** 从已有 users.json 迁移（仅首次、表为空时） */
@@ -134,7 +148,7 @@ function migrateFromJson(): void {
 
 /** 返回 { name: StoredUser } 供接口层使用 */
 export function loadUsers(): Record<string, StoredUser> {
-  const rows = open().prepare('SELECT name, pass, created, role, image, settings, updated FROM users').all() as unknown as UserRow[];
+  const rows = open().prepare('SELECT name, pass, created, role, image, settings, updated, last_seen FROM users').all() as unknown as UserRow[];
   const map: Record<string, StoredUser> = {};
   for (const r of rows) map[r.name] = rowToUser(r) as StoredUser;
   return map;

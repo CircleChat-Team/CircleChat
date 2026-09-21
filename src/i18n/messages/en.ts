@@ -656,7 +656,19 @@ const dict: Record<string, string> = {
   "fileview.loading": "Loading…",
   "fileview.tooLarge": "File is larger than {size}; please download it to open",
   "fileview.plain": "Plain text",
-  "fileview.hex": "Hex"
+  "fileview.hex": "Hex",
+  "chat.members.title": "Members",
+  "chat.members.owner": "Owner",
+  "chat.members.empty": "No members yet",
+  "common.lastSeen": "Last seen {time}",
+  "common.lastSeen.now": "just now",
+  "common.lastSeen.minute.one": "{n} minute ago",
+  "common.lastSeen.minute.other": "{n} minutes ago",
+  "common.lastSeen.hour.one": "{n} hour ago",
+  "common.lastSeen.hour.other": "{n} hours ago",
+  "common.lastSeen.day.one": "{n} day ago",
+  "common.lastSeen.day.other": "{n} days ago",
+  "common.lastSeen.date": "on {date}"
 };
 
 export default dict;

@@ -32,6 +32,7 @@ import MergeForwardViewer from './components/chat/MergeForwardViewer.vue';
 import ImageViewer from './components/chat/ImageViewer.vue';
 import VideoViewer from './components/chat/VideoViewer.vue';
 import FileViewer from './components/chat/FileViewer.vue';
+import MemberPanel from './components/chat/MemberPanel.vue';
 import ForceChangePassword from './components/common/ForceChangePassword.vue';
 
 const title = computed(() => {
@@ -60,6 +61,8 @@ const activeAnnouncement = computed(() => {
 // 移动端：侧边栏抽屉 + 设置面板开关
 const sidebarOpen = ref(false);
 const settingsOpen = ref(false);
+// 群成员面板（所有群成员可见，以前只有群主/管理员能进群管理页看成员）
+const membersOpen = ref(false);
 
 /** 系统通知只由桌面客户端提供，网页端把开关置灰 */
 const notifyAvailable = canSystemNotify();
@@ -211,6 +214,20 @@ onMounted(refreshMailboxBadge);
         </div>
 
         <div class="chat-actions">
+          <!-- 群成员：所有群成员都能看（不再只有群主/管理员有入口） -->
+          <button
+            v-if="chatState.activeGid != null"
+            type="button"
+            class="header-btn icon-only"
+            :class="{ on: membersOpen }"
+            :title="tr('chat.members.title')"
+            :aria-label="tr('chat.members.title')"
+            @click="membersOpen = !membersOpen"
+          >
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
+            </svg>
+          </button>
           <a v-if="chatState.isAdmin" href="/admin.html" class="admin-entry" :title="tr('chat.adminPanel')">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
@@ -226,7 +243,7 @@ onMounted(refreshMailboxBadge);
           >{{ tr('chat.ctx.multi') }}</button>
           <button
             type="button"
-            class="header-btn"
+            class="header-btn icon-only"
             :title="tr('mailbox.title')"
             @click="openMailbox"
           >
@@ -261,6 +278,8 @@ onMounted(refreshMailboxBadge);
 
       <MessageList />
       <InputBar />
+
+      <MemberPanel v-model="membersOpen" />
     </main>
 
     <ProfileCard />

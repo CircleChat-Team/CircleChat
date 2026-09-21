@@ -656,7 +656,19 @@ const dict: Record<string, string> = {
   "fileview.loading": "正在载入…",
   "fileview.tooLarge": "文件超过 {size}，无法在线查看，请下载后打开",
   "fileview.plain": "纯文本",
-  "fileview.hex": "十六进制"
+  "fileview.hex": "十六进制",
+  "chat.members.title": "群成员",
+  "chat.members.owner": "群主",
+  "chat.members.empty": "暂无成员",
+  "common.lastSeen": "最后在线 {time}",
+  "common.lastSeen.now": "刚刚",
+  "common.lastSeen.minute.one": "{n} 分钟前",
+  "common.lastSeen.minute.other": "{n} 分钟前",
+  "common.lastSeen.hour.one": "{n} 小时前",
+  "common.lastSeen.hour.other": "{n} 小时前",
+  "common.lastSeen.day.one": "{n} 天前",
+  "common.lastSeen.day.other": "{n} 天前",
+  "common.lastSeen.date": "{date}"
 };
 
 export default dict;

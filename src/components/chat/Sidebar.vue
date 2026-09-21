@@ -11,7 +11,7 @@ import {
   avatarColor,
   isOnline,
   isAway,
-  statusKey,
+  statusText,
   selfStatus,
   setInvisible,
   openMyProfile,
@@ -181,7 +181,7 @@ const emit = defineEmits(['navigate']);
           </div>
           <div class="user-meta">
             <div class="user-name">{{ item.ref.name }}</div>
-            <div class="user-status">{{ tr('common.' + statusKey(item.ref.name)) }}</div>
+            <div class="user-status">{{ statusText(item.ref.name) }}</div>
           </div>
           <span v-if="chatState.unread['d:' + item.ref.name]" class="unread-dot">{{ unreadText(chatState.unread['d:' + item.ref.name]) }}</span>
         </div>

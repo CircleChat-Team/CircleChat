@@ -10,7 +10,7 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'chatplus.db');
 
 // schema 版本，仅作记录与提示；真正的迁移以“逐列比对”为准，天然向前兼容
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 interface TableDef {
   create: string;
@@ -64,14 +64,15 @@ const SCHEMA: Record<string, TableDef> = {
         totp_secret TEXT,
         totp_enabled INTEGER,
         github_id    TEXT,
-        github_login TEXT
+        github_login TEXT,
+        last_seen    INTEGER
       );
     `,
     columns: {
       name: 'TEXT', pass: 'TEXT', created: 'INTEGER', role: 'TEXT',
       image: 'TEXT', settings: 'TEXT', updated: 'INTEGER', status: 'TEXT',
       mustChange: 'INTEGER', totp_secret: 'TEXT', totp_enabled: 'INTEGER',
-      github_id: 'TEXT', github_login: 'TEXT'
+      github_id: 'TEXT', github_login: 'TEXT', last_seen: 'INTEGER'
     }
   },
   app_config: {

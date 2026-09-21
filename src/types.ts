@@ -23,6 +23,8 @@ export interface UserItem {
   online?: boolean;
   /** 连接来源：网页端 / 桌面客户端（两端同时在线时都为 true）；离线为 null */
   platform?: { web: boolean; client: boolean } | null;
+  /** 最后在线时间（ms），离线时用于显示「最后在线 x」 */
+  lastSeen?: number | null;
 }
 
 /** 待审核注册申请（GET /api/admin/approvals） */
@@ -79,6 +81,8 @@ export interface GroupMember {
   name: string;
   owner?: boolean;
   joined?: number | null;
+  /** 最后在线时间（ms），离线时用于显示「最后在线 x」 */
+  lastSeen?: number | null;
 }
 
 /** 入群申请（/api/groups/manage） */
@@ -190,12 +194,14 @@ export interface ChatUser {
   online?: boolean;
   image?: string | null;
   role?: string;
+  lastSeen?: number | null;
 }
 
 export interface Friend {
   name: string;
   online?: boolean;
   image?: string | null;
+  lastSeen?: number | null;
 }
 
 export interface FriendRequest {
