@@ -206,6 +206,49 @@ function readBody(req: any, limit: number): Promise<Buffer> {
   });
 }
 
+// ---------- 静态资源版本号（?v=<内容哈希>） ----------
+
+/**
+ * 构建产物的文件名是固定的（assets/chat.js、assets/tailwind.css，不带 hash），
+ * 一旦被浏览器或中间缓存留住，就会出现「代码更新了、页面还是旧的」。
+ * 这里在响应 HTML 时，给页面里引用的本地静态资源按**文件内容哈希**补上 `?v=`：
+ *   - 内容没变 → 版本不变，缓存照旧命中，不浪费带宽；
+ *   - 内容一变 → URL 就变，浏览器/边缘节点必然重新拉取。
+ * 用内容哈希而不是时间戳/随机数：后者会让每次请求都是新 URL，等于把缓存彻底废掉。
+ * （HTML 本身一直是 no-cache，所以每次都会拿到最新版本号。）
+ */
+const assetHashCache = new Map<string, string>();
+const htmlInjectCache = new Map<string, string>();
+
+/** 静态文件的内容哈希（取前 8 位）；读不到返回 '' */
+function assetHash(filePath: string): string {
+  const hit = assetHashCache.get(filePath);
+  if (hit !== undefined) return hit;
+  let h = '';
+  try {
+    h = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex').slice(0, 8);
+  } catch (e) {
+    /* 文件不存在（页面引用了尚未构建的产物）→ 视为无版本 */
+  }
+  assetHashCache.set(filePath, h);
+  return h;
+}
+
+/** 给 HTML 里的本地静态资源引用补 `?v=<内容哈希>`；外链/上传目录/api 一律不动 */
+function injectAssetVersions(html: string): string {
+  return html.replace(/(\s(?:src|href)=")([^"]*?)"/g, (all: string, pre: string, url: string) => {
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(url)) return all; // 外链 / data: / 锚点
+    const bare = url.split('?')[0].split('#')[0];
+    if (!bare) return all;
+    const abs = path.normalize(path.join(PUB, bare.replace(/^\.?\//, '/')));
+    if (!abs.startsWith(PUB + path.sep)) return all;              // 路径越界
+    if (abs.startsWith(UPLOAD_DIR + path.sep)) return all;       // 上传文件不做版本号
+    const v = assetHash(abs);
+    if (!v) return all;                                          // 不是本地真实静态文件
+    return pre + bare + '?v=' + v + '"';                          // 原有 ?v= 会被替换成当前哈希
+  });
+}
+
 // ---------- 静态文件服务（含 gzip、路径穿越防护） ----------
 
 function serveStatic(req: any, res: any, pathname: string): void {
@@ -276,6 +319,15 @@ function serveStatic(req: any, res: any, pathname: string): void {
     }
     fs.readFile(filePath, (e2: any, data: Buffer) => {
       if (e2) { res.writeHead(500); res.end(); return; }
+      // HTML：注入静态资源的 ?v=<内容哈希>（必须在 gzip 之前；结果按文件缓存，不每请求重算）
+      if (ext === '.html') {
+        let out = htmlInjectCache.get(filePath);
+        if (out === undefined) {
+          out = injectAssetVersions(data.toString('utf8'));
+          htmlInjectCache.set(filePath, out);
+        }
+        data = Buffer.from(out, 'utf8');
+      }
       const acceptGzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
       const big = data.length > 512 && /\.(html|css|js|json|svg|txt|md)$/.test(ext);
       const headers: Record<string, string> = {
