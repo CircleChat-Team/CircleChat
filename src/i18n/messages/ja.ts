@@ -649,7 +649,14 @@ const dict: Record<string, string> = {
   "admin.action.oauthLogin": "GitHub ログイン",
   "admin.action.oauthBind": "GitHub を連携",
   "admin.action.oauthUnbind": "GitHub の連携を解除",
-  "admin.action.oauthConfig": "外部ログイン設定を変更"
+  "admin.action.oauthConfig": "外部ログイン設定を変更",
+  "chat.file.view": "表示",
+  "fileview.wrap": "折り返し",
+  "fileview.download": "ダウンロード",
+  "fileview.loading": "読み込み中…",
+  "fileview.tooLarge": "ファイルが {size} を超えるため表示できません。ダウンロードして開いてください",
+  "fileview.plain": "プレーンテキスト",
+  "fileview.hex": "16 進数"
 };
 
 export default dict;

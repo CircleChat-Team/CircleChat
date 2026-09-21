@@ -101,6 +101,8 @@ export interface ChatState {
   forwardMode: 'single' | 'merge';
   mergeView: MergeData | null;
   imageView: string | null;
+  /** 文件查看器：文本 / Hex（见 components/chat/FileViewer.vue） */
+  fileView: { url: string; name: string; size: number } | null;
   /** 视频模态播放器（消息里只显示预览图，点开才播放） */
   videoView: { src: string; name: string } | null;
   reactTargetIdx: number | null;
@@ -159,6 +161,7 @@ const state = reactive<ChatState>({
   forwardMode: 'single',
   mergeView: null,
   imageView: null,
+  fileView: null,
   videoView: null,
   reactTargetIdx: null,
   muted: false,
@@ -1327,6 +1330,19 @@ export function openVideoView(src: string, name?: string | null): void {
 }
 export function closeVideoView(): void {
   state.videoView = null;
+}
+
+/**
+ * 打开文件查看器（文本 / Hex）。
+ * 这里只带「地址 + 名字 + 体积」，具体读文件头判断类型交给查看器组件——
+ * 判断要看真实内容，不能靠后缀名。
+ */
+export function openFileView(url: string, name?: string | null, size?: number | null): void {
+  if (!url) return;
+  state.fileView = { url, name: String(name || ''), size: Number(size || 0) };
+}
+export function closeFileView(): void {
+  state.fileView = null;
 }
 
 /** 复制图片到剪贴板（失败返回 false，调用方可回退为复制地址） */

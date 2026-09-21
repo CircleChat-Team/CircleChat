@@ -31,6 +31,7 @@ import ForwardPicker from './components/chat/ForwardPicker.vue';
 import MergeForwardViewer from './components/chat/MergeForwardViewer.vue';
 import ImageViewer from './components/chat/ImageViewer.vue';
 import VideoViewer from './components/chat/VideoViewer.vue';
+import FileViewer from './components/chat/FileViewer.vue';
 import ForceChangePassword from './components/common/ForceChangePassword.vue';
 
 const title = computed(() => {
@@ -274,6 +275,7 @@ onMounted(refreshMailboxBadge);
     <MergeForwardViewer />
     <ImageViewer />
     <VideoViewer />
+    <FileViewer />
 
     <!-- 移动端设置面板：将顶栏散落的按钮统一收纳 -->
     <div class="settings-mask" :class="{ show: settingsOpen }" @click="settingsOpen = false"></div>

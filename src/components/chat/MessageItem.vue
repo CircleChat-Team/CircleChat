@@ -17,6 +17,7 @@ import {
   openContextMenu,
   openMergeView,
   openImageView,
+  openFileView,
   toggleSelect
 } from '../../core/chat';
 import { QUICK_EMOJIS } from '../../core/emojis';
@@ -207,20 +208,34 @@ watch(
       <div v-else-if="msg.type === 'text'" class="bubble">
         <TextContent :text="msg.content" md />
       </div>
-      <a
-        v-else-if="msg.type === 'file' && !expired"
-        :href="asset(msg.content)"
-        class="file-card"
-        target="_blank"
-        rel="noopener"
-        :download="msg.name || ''"
-      >
-        <span class="file-badge">{{ fileExt(msg.name) }}</span>
-        <span class="file-meta">
-          <span class="file-name">{{ msg.name || tr('chat.file.defaultName') }}</span>
-          <span class="file-size">{{ fmtSize(msg.size) }}</span>
-        </span>
-      </a>
+      <!-- 文件卡片：点主体打开查看器（文本/Hex，超过 2MB 会在里面提示下载），
+           右侧单独的按钮才是直接下载 —— 查看与否不影响原来的下载路径 -->
+      <div v-else-if="msg.type === 'file' && !expired" class="file-card">
+        <button
+          type="button"
+          class="file-main"
+          :title="tr('chat.file.view')"
+          @click.stop="openFileView(msg.content, msg.name, msg.size)"
+        >
+          <span class="file-badge">{{ fileExt(msg.name) }}</span>
+          <span class="file-meta">
+            <span class="file-name">{{ msg.name || tr('chat.file.defaultName') }}</span>
+            <span class="file-size">{{ fmtSize(msg.size) }}</span>
+          </span>
+        </button>
+        <a
+          class="file-dl"
+          :href="asset(msg.content)"
+          :download="msg.name || ''"
+          :title="tr('fileview.download')"
+          :aria-label="tr('fileview.download')"
+          @click.stop
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15.5 7.5 11H10V4h4v7h2.5L12 15.5zM5 18h14v2H5v-2z" />
+          </svg>
+        </a>
+      </div>
       <div v-else-if="msg.type === 'merge'" class="merge-card" @click.stop="openMerge">
         <div class="merge-label">{{ tr('chat.merge.label') }}</div>
         <div class="merge-title">{{ mergeTitle }}</div>

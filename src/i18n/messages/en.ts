@@ -649,7 +649,14 @@ const dict: Record<string, string> = {
   "admin.action.oauthLogin": "GitHub sign-in",
   "admin.action.oauthBind": "Linked GitHub",
   "admin.action.oauthUnbind": "Unlinked GitHub",
-  "admin.action.oauthConfig": "Changed sign-in settings"
+  "admin.action.oauthConfig": "Changed sign-in settings",
+  "chat.file.view": "View",
+  "fileview.wrap": "Wrap",
+  "fileview.download": "Download",
+  "fileview.loading": "Loading…",
+  "fileview.tooLarge": "File is larger than {size}; please download it to open",
+  "fileview.plain": "Plain text",
+  "fileview.hex": "Hex"
 };
 
 export default dict;

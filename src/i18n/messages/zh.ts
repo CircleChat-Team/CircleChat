@@ -649,7 +649,14 @@ const dict: Record<string, string> = {
   "admin.action.oauthLogin": "GitHub 登录",
   "admin.action.oauthBind": "绑定 GitHub",
   "admin.action.oauthUnbind": "解除 GitHub 绑定",
-  "admin.action.oauthConfig": "修改第三方登录配置"
+  "admin.action.oauthConfig": "修改第三方登录配置",
+  "chat.file.view": "查看",
+  "fileview.wrap": "自动换行",
+  "fileview.download": "下载",
+  "fileview.loading": "正在载入…",
+  "fileview.tooLarge": "文件超过 {size}，无法在线查看，请下载后打开",
+  "fileview.plain": "纯文本",
+  "fileview.hex": "十六进制"
 };
 
 export default dict;
