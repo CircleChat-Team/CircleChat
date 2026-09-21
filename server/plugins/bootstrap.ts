@@ -8,7 +8,7 @@ import { run } from '../lib/migrate';
 import * as auth from '../lib/auth';
 import * as store from '../lib/store';
 import * as audit from '../lib/audit';
-import { runFileCleanup, purgeUploadTmp, FILE_CLEANUP_INTERVAL, UPLOAD_DIR } from '../lib/runtime';
+import { runFileCleanup, purgeUploadTmp, broadcastLogout, FILE_CLEANUP_INTERVAL, UPLOAD_DIR } from '../lib/runtime';
 
 // 启动初始化（与 server.js L1897-1914 一致）：
 // migrate -> auth.init -> store.load -> audit.load -> mkdir(uploads) -> 清理定时器
@@ -23,6 +23,25 @@ export default defineNitroPlugin(() => {
   // 过期文件清理：启动执行一次，之后定期检查（仅删硬盘文件，消息记录保留）
   runFileCleanup();
   setInterval(runFileCleanup, FILE_CLEANUP_INTERVAL).unref();
+
+  // 会话只存在进程内存里，重启（每次部署都会重启容器）后全部失效。
+  // 收到终止信号时先告诉在线客户端「回登录页重新登录」，别让他们对着断掉的连接干等。
+  // ⚠️ 容器里 PID 1 是 /run.sh（bash），docker 的 SIGTERM 不一定转发到 node，
+  // 所以这只是「能通知就通知」；通知不到时客户端会在重连拿到 401 后自己回登录页。
+  let saidBye = false;
+  const goodbye = (): void => {
+    if (saidBye) return;
+    saidBye = true;
+    try {
+      broadcastLogout('server-restart');
+    } catch (e) {
+      /* 忽略 */
+    }
+    // 留一点时间把帧写出去，再退出（不挡着进程，也不无限等）
+    setTimeout(() => process.exit(0), 300);
+  };
+  process.on('SIGTERM', goodbye);
+  process.on('SIGINT', goodbye);
 
   console.log('==========================================');
   console.log(' CircleChat 已加载运行时（Nitro 外壳）');

@@ -668,7 +668,8 @@ const dict: Record<string, string> = {
   "common.lastSeen.hour.other": "{n} 小时前",
   "common.lastSeen.day.one": "{n} 天前",
   "common.lastSeen.day.other": "{n} 天前",
-  "common.lastSeen.date": "{date}"
+  "common.lastSeen.date": "{date}",
+  "chat.group.left": "你已不在该群中"
 };
 
 export default dict;

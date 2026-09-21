@@ -668,7 +668,8 @@ const dict: Record<string, string> = {
   "common.lastSeen.hour.other": "{n} hours ago",
   "common.lastSeen.day.one": "{n} day ago",
   "common.lastSeen.day.other": "{n} days ago",
-  "common.lastSeen.date": "on {date}"
+  "common.lastSeen.date": "on {date}",
+  "chat.group.left": "You are no longer in this group"
 };
 
 export default dict;

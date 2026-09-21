@@ -200,7 +200,6 @@ let ws: WebSocket | null = null;
 let reconnectDelay = 1000;
 let reconnectTimer: number | undefined;
 let heartbeatTimer: number | undefined;
-let connectedOnce = false;
 let usersReady: Promise<void> | null = null;
 let typingSentAt = 0;
 let typingHideTimer: number | undefined;
@@ -250,7 +249,6 @@ function connectWs(): void {
   ws = sock;
 
   sock.onopen = () => {
-    connectedOnce = true;
     setConn('on');
     reconnectDelay = 1000;
     clearInterval(heartbeatTimer);
@@ -303,6 +301,22 @@ function connectWs(): void {
       case 'groups.changed':
         loadGroups();
         break;
+      case 'group.members': {
+        // 群成员变了（加入 / 退出 / 被移出）：正在看的群就刷新成员列表
+        const d = (obj.data || {}) as { gid?: string; name?: string; action?: string };
+        const gid = d.gid ? String(d.gid) : '';
+        if (!gid) break;
+        if (gid === state.activeGid) loadGroupMembers(gid);
+        if (d.name === state.me && d.action !== 'join') {
+          // 自己被移出（或自己退出）：刷新群列表；还赖在这个群里就撤出去
+          loadGroups();
+          if (state.activeGid === gid) {
+            switchRoom(null);
+            notify('chat.group.left');
+          }
+        }
+        break;
+      }
       case 'penalty':
         if (obj.data) {
           handlePenalty(obj.data);
@@ -328,16 +342,15 @@ function connectWs(): void {
     setConn('off');
     clearInterval(heartbeatTimer);
     if (ws !== sock) return;
-    if (!connectedOnce) {
-      get('/api/me')
-        .then((j) => {
-          if (!j.ok) location.replace('/login.html');
-          else scheduleReconnect();
-        })
-        .catch(() => scheduleReconnect());
-    } else {
-      scheduleReconnect();
-    }
+    // 断线先确认会话还在不在：会话只存在服务端内存里，服务器一重启（每次部署都重启）
+    // 就全没了 → 必须回登录页，而不是无限重连、卡在「连接中」不动。
+    // 网络抖动时 /api/me 正常返回，照旧继续重连。
+    get('/api/me')
+      .then((j) => {
+        if (!j.ok) location.replace('/login.html');
+        else scheduleReconnect();
+      })
+      .catch(() => scheduleReconnect());
   };
 
   sock.onerror = () => {

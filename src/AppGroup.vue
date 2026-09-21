@@ -95,25 +95,46 @@ function connectPresence(): void {
     });
   };
   sock.onmessage = (ev: MessageEvent) => {
-    let obj: { type?: string; users?: string[]; platforms?: PresencePlatforms } | null = null;
+    let obj: { type?: string; users?: string[]; platforms?: PresencePlatforms; data?: { gid?: string } } | null = null;
     try {
       obj = JSON.parse(ev.data as string);
     } catch {
       return;
     }
-    if (obj && obj.type === 'presence' && Array.isArray(obj.users)) {
+    if (!obj) return;
+    if (obj.type === 'logged.out') {
+      // 服务端会话已失效（如服务器重启）：回登录页，别在这儿干等
+      location.replace('/login.html');
+      return;
+    }
+    if (obj.type === 'presence' && Array.isArray(obj.users)) {
       online.value = obj.users;
       platforms.value = obj.platforms || {};
     }
+    // 成员/群信息变化：重新拉一次详情（含成员列表）
+    if (obj.type === 'group.members' || obj.type === 'groups.changed') {
+      const changed = obj.data && obj.data.gid ? String(obj.data.gid) : '';
+      if (!changed || changed === gid.value) refresh();
+    }
   };
-  sock.onclose = () => {
-    if (ws !== sock) return;
-    ws = null;
+  function scheduleReconnect(): void {
     clearTimeout(reconnectTimer);
     reconnectTimer = window.setTimeout(() => {
       connectPresence();
       reconnectDelay = Math.min(reconnectDelay * 2, 30000);
     }, reconnectDelay);
+  }
+  sock.onclose = () => {
+    if (ws !== sock) return;
+    ws = null;
+    // 先确认会话还在：会话在服务端内存里，服务器重启后会 401 → 回登录页；
+    // 网络抖动则继续重连
+    get('/api/me')
+      .then((j) => {
+        if (!j.ok) location.replace('/login.html');
+        else scheduleReconnect();
+      })
+      .catch(() => scheduleReconnect());
   };
   sock.onerror = () => {
     try {

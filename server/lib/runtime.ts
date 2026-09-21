@@ -809,6 +809,24 @@ function broadcastDm(dm: string, obj: any): void {
   }
 }
 
+// 推送给指定用户的全部连接（多端都在线时每端都发）
+function broadcastUser(name: string, obj: any): void {
+  if (!name) return;
+  for (const c of clients) if (clientId(c) === name) sendTo(c, obj);
+}
+
+/**
+ * 群成员发生变化（加入 / 主动退出 / 被移出）。
+ * 该群在线成员刷新成员列表；当事人**单独再发一次**——被移出时他已不在群里，
+ * broadcastGid 的 isMember 过滤会把他漏掉，而这恰恰是他最需要知道的。
+ */
+function notifyMembersChanged(gid: string, name: string, action: 'join' | 'leave' | 'remove'): void {
+  if (!gid) return;
+  const evt = { type: 'group.members', data: { gid, name, action } };
+  broadcastGid(gid, evt);
+  broadcastUser(name, evt);
+}
+
 // 按房间推送：dm 非空为私聊（仅双方）；gid=null 为公共聊天（全量）；否则按群推成员
 function broadcastRoom(gid: string | null, dm: string | null, obj: any): void {
   if (dm != null) broadcastDm(dm, obj);
@@ -897,6 +915,25 @@ setInterval(() => {
     try { c.socket.write(wsproto.encodePing()); } catch (e) { /* 忽略 */ }
   }
 }, HEARTBEAT_MS).unref();
+
+/**
+ * 让所有在线客户端回登录页（服务器重启 / 会话被清空时调用）。
+ *
+ * 会话只存在进程内存里（auth 的 sessions Map），重启后必然全部失效，
+ * 所以这里只是把「你该重新登录了」提前说出去，省得客户端傻等重连。
+ * 万一没机会说（进程被强杀），客户端重连时也会拿到 401 自己回登录页。
+ */
+export function broadcastLogout(reason: string): void {
+  const frame = JSON.stringify({ type: 'logged.out', data: { reason } });
+  for (const c of Array.from(clients)) {
+    try {
+      c.socket.write(wsproto.encodeText(frame));
+      c.close(); // 顺带断开：客户端 onclose 里也会再确认一次会话，双保险
+    } catch (e) {
+      /* 忽略 */
+    }
+  }
+}
 
 export function handleWsUpgrade(req: any, socket: any, head: Buffer): void {
   const pathname = new URL(req.url, 'http://localhost').pathname;
@@ -2662,6 +2699,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         return;
       }
       audit.add({ actor: me.username, action: 'group.leave', target: gid, detail: auditDetail('log.detail.group.leave'), ip });
+      notifyMembersChanged(gid, me.username, 'leave'); // 群里其他人实时看到成员列表变化
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -2834,6 +2872,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       if (!groups.approveJoin(gid, name)) { sendJSON(res, 404, { ok: false, error: '该申请不存在或已处理' }); return; }
       audit.add({ actor: me.username, action: 'group.request.approve', target: gid, detail: auditDetail('log.detail.group.request.approve', { name }), ip });
       broadcast({ type: 'groups.changed' }); // 让新成员客户端刷新群列表
+      notifyMembersChanged(gid, name, 'join'); // 群内在线的成员实时看到有人加入
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -2877,6 +2916,8 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       if (!groups.removeMember(gid, name)) { sendJSON(res, 404, { ok: false, error: '不是该群成员' }); return; }
       audit.add({ actor: me.username, action: 'group.member.remove', target: gid, detail: '移除成员：' + name, ip });
       broadcastGid(gid, { type: 'groups.changed', data: { gid } });
+      // 被移出的人已不是成员，broadcastGid 覆盖不到他，必须单独通知
+      notifyMembersChanged(gid, name, 'remove');
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
