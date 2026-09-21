@@ -34,6 +34,10 @@ export default defineNitroPlugin(() => {
     saidBye = true;
     try {
       broadcastLogout('server-restart');
+      // 打一行日志：以后翻容器日志就能确认这条「优雅通知」有没有真的走到
+      // （容器里 PID 1 是 bash，docker 的 SIGTERM 未必转发到 node；
+      //  没有这行说明信号没到，客户端只能靠重连时的 401 自己回登录页）
+      console.log('[shutdown] 已通知在线客户端退出登录，准备退出');
     } catch (e) {
       /* 忽略 */
     }
