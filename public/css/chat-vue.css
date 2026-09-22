@@ -2032,21 +2032,26 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 }
 
 /* ---------- 消息里的 GitHub 仓库卡片 ----------
-   卡片用中性半透明底：深浅主题下都成立，落在自己的绿色气泡里也不突兀 */
+   卡片自带**不透明的中性底**（浅色主题白、深色主题深色），刻意**不跟随气泡颜色**：
+   自己发的气泡是绿色，之前的半透明白底压在绿色上会把描述/统计这些次要文字糊成
+   浅绿上的白字（对比度只有 2 点几，基本看不清）。用主题色面板底 + 主题文字色后，
+   两种气泡、两种主题下都能读，卡片的身份也更清楚。 */
 .repo-card {
   margin-top: 8px;
   padding: 9px 11px 10px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(128, 128, 128, .08);
+  /* color 必须显式写：自己气泡上是白字（`.msg.self .bubble { color: #fff }`），
+     而卡片底是白色面板，不锁一次文字色就成了白字白底 */
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
   font-size: 12px;
   line-height: 1.5;
 }
-.msg.self .repo-card { border-color: rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .14); }
 .rc-head { display: flex; align-items: center; gap: 6px; }
 .rc-gh { flex-shrink: 0; display: inline-flex; color: var(--muted); }
 .rc-gh-icon { width: 15px; height: 15px; }
-.msg.self .rc-gh { color: rgba(255, 255, 255, .9); }
 .rc-name {
   flex: 1;
   min-width: 0;
@@ -2065,13 +2070,10 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
   margin-top: 5px;
   color: var(--muted);
 }
-.msg.self .rc-desc { color: rgba(255, 255, 255, .88); }
 .rc-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 6px; color: var(--muted); }
-.msg.self .rc-stats { color: rgba(255, 255, 255, .9); }
 .rc-stat { display: inline-flex; align-items: center; gap: 4px; }
 .rc-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
 .rc-commit { display: flex; align-items: baseline; gap: 6px; margin-top: 5px; color: var(--muted); }
-.msg.self .rc-commit { color: rgba(255, 255, 255, .88); }
 .rc-commit-msg { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .rc-commit-time { flex-shrink: 0; opacity: .85; }
 .rc-actions { display: flex; gap: 6px; margin-top: 8px; }
@@ -2092,18 +2094,13 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 }
 .rc-btn:hover { border-color: var(--primary); color: var(--primary); }
 .rc-btn-ghost { opacity: .85; }
-.msg.self .rc-btn { border-color: rgba(255, 255, 255, .35); }
-.msg.self .rc-btn:hover { border-color: #fff; color: #fff; }
 .rc-err { margin-top: 5px; color: var(--muted); }
-.msg.self .rc-err { color: rgba(255, 255, 255, .88); }
 .rc-link { display: inline-block; margin-top: 4px; font-size: 11.5px; color: var(--primary); text-decoration: none; }
 .rc-link:hover { text-decoration: underline; }
-.msg.self .rc-link { color: #fff; text-decoration: underline; }
 .rc-skel { display: flex; flex-direction: column; gap: 6px; margin-top: 7px; }
 .rc-skel-line { height: 9px; border-radius: 5px; background: rgba(128, 128, 128, .22); }
 .rc-skel-line.w70 { width: 70%; }
 .rc-skel-line.w40 { width: 40%; }
-.msg.self .rc-skel-line { background: rgba(255, 255, 255, .28); }
 
 /* ---------- GitHub 仓库详情弹窗 ---------- */
 .repo-mask {
