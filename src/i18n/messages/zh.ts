@@ -679,7 +679,25 @@ const dict: Record<string, string> = {
   "fileview.image": "图片",
   "fileview.audio": "音频",
   "fileview.video": "视频",
-  "fileview.previewFailed": "无法直接预览，请下载后查看"
+  "fileview.previewFailed": "无法直接预览，请下载后查看",
+  "chat.search.title": "搜索聊天记录",
+  "chat.search.room": "当前会话",
+  "chat.search.all": "全部会话",
+  "chat.search.placeholder": "输入关键词",
+  "chat.search.hint": "输入关键词，搜索聊天记录",
+  "chat.search.empty": "没有匹配的聊天记录",
+  "chat.search.count": "{n} 条结果",
+  "admin.files.selectAll": "全选",
+  "admin.files.selected": "已选 {n} 项",
+  "admin.files.clearSelect": "取消选择",
+  "admin.files.batchDelBtn": "批量删除",
+  "admin.files.batchDelTitle": "批量删除文件",
+  "admin.files.batchDelConfirm": "确定删除选中的 {n} 个文件？删除后无法恢复。",
+  "admin.files.batchDelConfirmUsed": "选中的 {n} 个文件里有 {used} 个仍被消息引用，删除后这些消息会显示「文件已过期」。确定继续？",
+  "admin.files.batchDeleted": "已删除 {n} 个文件",
+  "admin.files.batchDeletedPartial": "已删除 {n} 个文件，{failed} 个失败",
+  "api.admin.tooManyFiles": "一次最多删除 200 个文件",
+  "log.detail.file.delBatch": "批量删除 {n} 个文件"
 };
 
 export default dict;

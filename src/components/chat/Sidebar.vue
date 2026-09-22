@@ -16,7 +16,8 @@ import {
   setInvisible,
   openMyProfile,
   openStyle,
-  logout
+  logout,
+  openSearch
 } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import AppFooter from '../common/AppFooter.vue';
@@ -109,12 +110,30 @@ function doLogout(): void {
   logout();
 }
 const emit = defineEmits(['navigate']);
+
+/** 打开「全部会话」的聊天记录搜索（面板在聊天主区里，这里只负责打开） */
+function openHistorySearch(): void {
+  openSearch('all');
+  emit('navigate'); // 移动端顺手收起侧栏抽屉
+}
 </script>
 
 <template>
   <aside class="sidebar">
     <div class="sidebar-head">
       <div class="sidebar-brand">CircleChat</div>
+      <!-- 全局：搜「我的全部会话」的聊天记录（不限于当前会话） -->
+      <button
+        type="button"
+        class="sidebar-search-history"
+        :title="tr('chat.search.all')"
+        :aria-label="tr('chat.search.all')"
+        @click="openHistorySearch"
+      >
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z" />
+        </svg>
+      </button>
     </div>
 
     <!-- 顶部工具：搜索框 + 功能“+” -->

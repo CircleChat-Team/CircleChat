@@ -393,6 +393,109 @@ export function all(gid: string | null, dm: string | null): StoredMessage[] {
   return list;
 }
 
+/** 搜索命中的一条消息（只带展示需要的字段） */
+export interface SearchHit {
+  idx: number;
+  gid: string | null;
+  dm: string | null;
+  from: string;
+  ts: number;
+  /** 命中片段（含关键词，必要时向两侧截断；不是完整正文） */
+  content: string;
+}
+
+/** 搜索范围：单个房间，或「我的全部会话」 */
+export type SearchScope =
+  | { kind: 'room'; gid: string | null; dm: string | null }
+  | { kind: 'rooms'; gids: string[]; dms: string[] };
+
+/**
+ * 与某人相关的全部私聊房间。
+ * dm 列存的是排序后的 pair key（`小:大`），所以按分隔符判断是否含自己即可；
+ * 用户名规则里不含冒号，不会歧义。
+ */
+export function dmRoomsOf(name: string): string[] {
+  const who = String(name || '');
+  if (!who) return [];
+  const rows = open().prepare('SELECT DISTINCT dm FROM messages WHERE dm IS NOT NULL').all() as unknown as { dm: string }[];
+  return rows.map((r) => String(r.dm)).filter((k) => k.split(':').indexOf(who) !== -1);
+}
+
+/** 把命中位置附近截出来，别把整条长消息都塞进响应 */
+function searchSnippet(content: string, q: string, max = 240): string {
+  const text = String(content || '');
+  if (text.length <= max) return text;
+  const at = text.toLowerCase().indexOf(String(q).toLowerCase());
+  const start = at <= 0 ? 0 : Math.max(0, at - Math.floor((max - q.length) / 2));
+  const cut = text.slice(start, start + max);
+  return (start > 0 ? '…' : '') + cut + (start + max < text.length ? '…' : '');
+}
+
+/**
+ * 搜索聊天记录（只搜文本消息，跳过已撤回 / 已过期）。
+ * LIKE 在 SQLite 里对 ASCII 是大小写不敏感的；对中文按字节比，正合需要。
+ * 关键词里的 % 和 _ 要转义，否则用户输入 % 会匹配到所有消息。
+ */
+export function searchMessages(
+  q: string,
+  scope: SearchScope,
+  limit = 30,
+  offset = 0
+): { hits: SearchHit[]; total: number } {
+  const kw = String(q || '').trim();
+  if (!kw) return { hits: [], total: 0 };
+  const d = open();
+  const like = '%' + kw.replace(/[\\%_]/g, (m) => '\\' + m) + '%';
+  const where: string[] = [
+    "type = 'text'",
+    '(recalled IS NULL OR recalled = 0)',
+    "content LIKE ? ESCAPE '\\'"
+  ];
+  const params: (string | number)[] = [like];
+
+  if (scope.kind === 'room') {
+    if (scope.dm != null) {
+      where.push('dm = ? AND gid IS NULL');
+      params.push(String(scope.dm));
+    } else if (scope.gid != null) {
+      where.push('gid = ? AND dm IS NULL');
+      params.push(String(scope.gid));
+    } else {
+      where.push('gid IS NULL AND dm IS NULL');
+    }
+  } else {
+    // 全局：我的群 + 我的私聊。公共频道已移除，不再纳入。
+    const or: string[] = [];
+    if (scope.gids.length) {
+      or.push('(gid IN (' + scope.gids.map(() => '?').join(',') + ') AND dm IS NULL)');
+      params.push(...scope.gids.map(String));
+    }
+    if (scope.dms.length) {
+      or.push('(dm IN (' + scope.dms.map(() => '?').join(',') + ') AND gid IS NULL)');
+      params.push(...scope.dms.map(String));
+    }
+    if (!or.length) return { hits: [], total: 0 }; // 一个会话都没有，不必查库
+    where.push('(' + or.join(' OR ') + ')');
+  }
+
+  const clause = ' WHERE ' + where.join(' AND ');
+  const total = (d.prepare('SELECT COUNT(*) AS c FROM messages' + clause).get(...params) as { c: number }).c;
+  const rows = d
+    .prepare('SELECT idx, gid, dm, "from", ts, content FROM messages' + clause + ' ORDER BY idx DESC LIMIT ? OFFSET ?')
+    .all(...params, Math.max(1, Math.floor(limit) || 30), Math.max(0, Math.floor(offset) || 0)) as unknown as SearchHit[];
+  return {
+    hits: rows.map((r) => ({
+      idx: Number(r.idx),
+      gid: r.gid == null ? null : String(r.gid),
+      dm: r.dm == null ? null : String(r.dm),
+      from: String(r.from),
+      ts: Number(r.ts),
+      content: searchSnippet(String(r.content), kw)
+    })),
+    total: Number(total) || 0
+  };
+}
+
 /** 按 idx 取单条消息（撤回前校验归属） */
 export function get(idx: number): StoredMessage | null {
   const row = open().prepare('SELECT ' + SELECT_COLS + ' FROM messages WHERE idx = ?').get(idx) as MsgRow | undefined;

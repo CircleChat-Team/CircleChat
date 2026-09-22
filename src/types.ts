@@ -173,6 +173,16 @@ export interface ChatMessage {
 }
 
 /** 合并转发中的单条记录（type: 'merge' 消息的 content 解析结果） */
+/** 搜索命中的一条消息（GET /api/messages/search）；content 是截断过的片段 */
+export interface SearchHit {
+  idx: number;
+  gid: string | null;
+  dm: string | null;
+  from: string;
+  ts: number;
+  content: string;
+}
+
 export interface MergeItem {
   from: string;
   type: 'text' | 'image' | 'file' | 'video' | 'audio';

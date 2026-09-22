@@ -10,7 +10,9 @@ import {
   setSoundIn,
   setSoundOut,
   clearNotice,
-  uploadFiles
+  uploadFiles,
+  openSearch,
+  closeSearch
 } from './core/chat';
 import { NOTIFY_SOUNDS, playNotifyPreview, playOutgoingPreview } from './core/sound';
 import { tr } from './core/i18n';
@@ -33,6 +35,7 @@ import ImageViewer from './components/chat/ImageViewer.vue';
 import VideoViewer from './components/chat/VideoViewer.vue';
 import FileViewer from './components/chat/FileViewer.vue';
 import MemberPanel from './components/chat/MemberPanel.vue';
+import SearchPanel from './components/chat/SearchPanel.vue';
 import ForceChangePassword from './components/common/ForceChangePassword.vue';
 
 const title = computed(() => {
@@ -151,6 +154,18 @@ function refreshMailboxBadge(): void {
   }).catch(() => { /* 静默：失败时不改红点 */ });
 }
 
+/** 打开「当前会话」的聊天记录搜索；与群成员抽屉互斥（都在右侧，不叠着显示） */
+function openRoomSearch(): void {
+  membersOpen.value = false;
+  openSearch('room');
+}
+
+/** 群成员抽屉开关：打开时顺手收起搜索面板 */
+function toggleMembers(): void {
+  membersOpen.value = !membersOpen.value;
+  if (membersOpen.value) closeSearch();
+}
+
 function openMailbox(): void {
   mailboxOpen.value = true;
 }
@@ -222,7 +237,7 @@ onMounted(refreshMailboxBadge);
             :class="{ on: membersOpen }"
             :title="tr('chat.members.title')"
             :aria-label="tr('chat.members.title')"
-            @click="membersOpen = !membersOpen"
+            @click="toggleMembers"
           >
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
@@ -234,6 +249,20 @@ onMounted(refreshMailboxBadge);
             </svg>
             <span>{{ tr('chat.adminPanel') }}</span>
           </a>
+          <!-- 搜当前会话的聊天记录 -->
+          <button
+            v-if="chatState.activeGid != null || chatState.activeDmPeer != null"
+            type="button"
+            class="header-btn icon-only"
+            :class="{ on: chatState.searchOpen && chatState.searchScope === 'room' }"
+            :title="tr('chat.search.room')"
+            :aria-label="tr('chat.search.room')"
+            @click="openRoomSearch"
+          >
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z" />
+            </svg>
+          </button>
           <button
             v-if="chatState.activeGid != null || chatState.activeDmPeer != null"
             type="button"
@@ -280,6 +309,7 @@ onMounted(refreshMailboxBadge);
       <InputBar />
 
       <MemberPanel v-model="membersOpen" />
+      <SearchPanel />
     </main>
 
     <ProfileCard />

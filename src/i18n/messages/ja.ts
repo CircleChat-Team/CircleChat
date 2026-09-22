@@ -679,7 +679,25 @@ const dict: Record<string, string> = {
   "fileview.image": "画像",
   "fileview.audio": "音声",
   "fileview.video": "動画",
-  "fileview.previewFailed": "直接プレビューできません。ダウンロードして確認してください"
+  "fileview.previewFailed": "直接プレビューできません。ダウンロードして確認してください",
+  "chat.search.title": "チャット履歴を検索",
+  "chat.search.room": "このチャット",
+  "chat.search.all": "すべてのチャット",
+  "chat.search.placeholder": "キーワードを入力",
+  "chat.search.hint": "キーワードを入力して履歴を検索します",
+  "chat.search.empty": "一致する履歴がありません",
+  "chat.search.count": "{n} 件",
+  "admin.files.selectAll": "すべて選択",
+  "admin.files.selected": "{n} 件選択中",
+  "admin.files.clearSelect": "選択解除",
+  "admin.files.batchDelBtn": "まとめて削除",
+  "admin.files.batchDelTitle": "ファイルをまとめて削除",
+  "admin.files.batchDelConfirm": "選択した {n} 個のファイルを削除しますか？元に戻せません。",
+  "admin.files.batchDelConfirmUsed": "選択した {n} 個のうち {used} 個はメッセージから参照されています。削除するとそれらのメッセージは「ファイルの有効期限切れ」と表示されます。続行しますか？",
+  "admin.files.batchDeleted": "{n} 個のファイルを削除しました",
+  "admin.files.batchDeletedPartial": "{n} 個削除、{failed} 個失敗",
+  "api.admin.tooManyFiles": "一度に削除できるのは最大 200 個です",
+  "log.detail.file.delBatch": "{n} 個のファイルをまとめて削除"
 };
 
 export default dict;

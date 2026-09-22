@@ -2,7 +2,7 @@
 /* ============================================================
  * 全服文件管理（列表 / 搜索 / 下载 / 删除）
  * ============================================================ */
-import { ref, inject, onMounted } from 'vue';
+import { computed, ref, inject, onMounted } from 'vue';
 import { get, post, url } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
 import { confirm } from '../../core/dialog';
@@ -42,6 +42,9 @@ function load(): void {
       items.value = (j.files as FileItem[]) || [];
       total.value = Number(j.total) || 0;
       totalSize.value = Number(j.totalSize) || 0;
+      // 列表变了（搜索 / 刷新 / 删除）之后，勾选里不该留下已经不存在的文件
+      const alive = items.value.map((f) => f.name);
+      selected.value = selected.value.filter((n) => alive.indexOf(n) !== -1);
     })
     .catch(() => {
       failed.value = 'common.loadFailed';
@@ -80,6 +83,60 @@ function remove(f: FileItem): void {
   });
 }
 
+// ---------- 批量管理 ----------
+/** 已勾选的文件（存存储名） */
+const selected = ref<string[]>([]);
+
+const allChecked = computed(() => items.value.length > 0 && selected.value.length === items.value.length);
+
+function isChecked(name: string): boolean {
+  return selected.value.indexOf(name) !== -1;
+}
+
+function toggleOne(name: string): void {
+  const i = selected.value.indexOf(name);
+  if (i === -1) selected.value.push(name);
+  else selected.value.splice(i, 1);
+}
+
+function toggleAll(): void {
+  selected.value = allChecked.value ? [] : items.value.map((f) => f.name);
+}
+
+function clearSelection(): void {
+  selected.value = [];
+}
+
+/** 批量删除：走服务端的批量接口（一次请求 + 一条审计），逐个报告失败项 */
+function batchRemove(): void {
+  const names = selected.value.slice();
+  if (!names.length) return;
+  const usedCount = items.value.filter((f) => names.indexOf(f.name) !== -1 && f.used > 0).length;
+  confirm({
+    title: tr('admin.files.batchDelTitle'),
+    text: usedCount
+      ? tr('admin.files.batchDelConfirmUsed', { n: names.length, used: usedCount })
+      : tr('admin.files.batchDelConfirm', { n: names.length }),
+    okText: tr('admin.files.delBtn')
+  }).then((ok) => {
+    if (!ok) return;
+    post('/api/admin/files/del-batch', { names }).then((j) => {
+      if (!j.ok) {
+        toast(tr(j.error || 'common.opFailed'));
+        return;
+      }
+      const failed = (j.failed as string[]) || [];
+      toast(
+        failed.length
+          ? tr('admin.files.batchDeletedPartial', { n: Number(j.deleted) || 0, failed: failed.length })
+          : tr('admin.files.batchDeleted', { n: Number(j.deleted) || 0 })
+      );
+      clearSelection();
+      load();
+    });
+  });
+}
+
 onMounted(load);
 </script>
 
@@ -94,6 +151,17 @@ onMounted(load);
       </h2>
 
       <div class="ml-auto flex items-center gap-1.5">
+        <!-- 全选当前列表（含搜索过滤后的结果） -->
+        <label class="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted">
+          <input
+            type="checkbox"
+            class="h-3.5 w-3.5 accent-primary"
+            :checked="allChecked"
+            :disabled="!items.length"
+            @change="toggleAll"
+          >
+          <span>{{ tr('admin.files.selectAll') }}</span>
+        </label>
         <input
           v-model="keyword"
           type="text"
@@ -112,6 +180,27 @@ onMounted(load);
       </div>
     </div>
 
+    <!-- 选中后出现的批量操作条 -->
+    <div v-if="selected.length" class="mb-2 flex flex-wrap items-center gap-2 rounded-lg bg-fill px-3 py-2 text-xs">
+      <span class="font-medium">{{ tr('admin.files.selected', { n: selected.length }) }}</span>
+      <div class="ml-auto flex items-center gap-1.5">
+        <button
+          type="button"
+          class="shrink-0 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
+          @click="clearSelection"
+        >
+          {{ tr('admin.files.clearSelect') }}
+        </button>
+        <button
+          type="button"
+          class="shrink-0 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs transition-colors hover:border-danger hover:text-danger"
+          @click="batchRemove"
+        >
+          {{ tr('admin.files.batchDelBtn') }}
+        </button>
+      </div>
+    </div>
+
     <div class="flex flex-col gap-1.5">
       <p v-if="failed" class="py-2.5 text-center text-xs text-muted">{{ tr(failed) }}</p>
       <p v-else-if="!items.length" class="py-2.5 text-center text-xs text-muted">{{ tr('admin.files.empty') }}</p>
@@ -122,6 +211,13 @@ onMounted(load);
         class="flex items-center gap-2 rounded-xl bg-fill px-2.5 py-1.5 text-xs"
         :class="{ 'opacity-80': !f.used }"
       >
+        <input
+          type="checkbox"
+          class="h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary"
+          :checked="isChecked(f.name)"
+          :aria-label="f.origin || f.name"
+          @change="toggleOne(f.name)"
+        >
         <span class="flex h-[34px] w-[34px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-panel text-muted">
           <img v-if="f.kind === 'image'" :src="fileUrl(f.name)" alt="" loading="lazy" class="h-full w-full object-cover">
           <svg v-else class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

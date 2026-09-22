@@ -13,7 +13,7 @@ import {
   mentionsMe,
   fmtSize,
   getProfile,
-  notify,
+  jumpToMessage,
   openContextMenu,
   openMergeView,
   openImageView,
@@ -129,17 +129,10 @@ function onMsgClick(e: MouseEvent): void {
 function openProfile(): void {
   getProfile(props.msg.from);
 }
+/** 跳到被引用的消息：逻辑统一在 chat.ts（带重试与高亮） */
 function jumpTo(idx?: number): void {
   if (idx == null) return;
-  const el = document.querySelector('.msg[data-idx="' + idx + '"]');
-  if (el) {
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    el.classList.add('highlight');
-    setTimeout(() => el.classList.remove('highlight'), 1400);
-  } else {
-    // 原消息不在当前加载范围内（最多 500 条）时给个提示，而不是点了没反应
-    notify('chat.reply.notInView');
-  }
+  jumpToMessage(idx);
 }
 
 // 右键菜单选择「回应」后，由全局状态触发本消息弹出表情选择器

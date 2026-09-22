@@ -24,8 +24,12 @@ import type {
   GroupMember,
   ProfileData,
   MergeData,
-  MergeItem
+  MergeItem,
+  SearchHit
 } from '../types';
+
+/** 搜索范围：room = 当前会话；all = 我的全部会话 */
+export type SearchScope = 'room' | 'all';
 
 const PAGE = 30; // 每批渲染 / 加载条数
 const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
@@ -98,6 +102,14 @@ export interface ChatState {
   forwardMode: 'single' | 'merge';
   mergeView: MergeData | null;
   imageView: string | null;
+  /** 聊天记录搜索面板（会话内 / 全部会话） */
+  searchOpen: boolean;
+  searchScope: SearchScope;
+  searchQuery: string;
+  searchLoading: boolean;
+  searchHits: SearchHit[];
+  searchTotal: number;
+  searchError: string;
   /** 文件查看器：文本 / Hex（见 components/chat/FileViewer.vue） */
   fileView: FileViewTarget | null;
   /** 视频模态播放器（消息里只显示预览图，点开才播放） */
@@ -159,6 +171,13 @@ const state = reactive<ChatState>({
   forwardMode: 'single',
   mergeView: null,
   imageView: null,
+  searchOpen: false,
+  searchScope: 'room',
+  searchQuery: '',
+  searchLoading: false,
+  searchHits: [],
+  searchTotal: 0,
+  searchError: '',
   fileView: null,
   videoView: null,
   reactTargetIdx: null,
@@ -202,6 +221,7 @@ let reconnectTimer: number | undefined;
 let heartbeatTimer: number | undefined;
 let usersReady: Promise<void> | null = null;
 let typingSentAt = 0;
+let searchSeq = 0; // 搜索请求序号：丢弃过期响应
 let typingHideTimer: number | undefined;
 
 // ---------------- WebSocket ----------------
@@ -1761,6 +1781,103 @@ export function statusKey(name: string): StatusKey {
 /** 状态文案：在线/离开按状态词显示，离线时显示「最后在线 x」 */
 export function statusText(name: string): string {
   return presenceText(isOnline(name), isAway(name), state.platforms[name], state.lastSeen[name]);
+}
+
+// ---------------- 聊天记录搜索 ----------------
+
+/** 打开搜索面板；scope=room 搜当前会话，all 搜全部会话 */
+export function openSearch(scope: SearchScope = 'room'): void {
+  state.searchScope = scope === 'all' ? 'all' : 'room';
+  state.searchOpen = true;
+  if (state.searchQuery.trim()) runSearch();
+}
+
+export function closeSearch(): void {
+  state.searchOpen = false;
+}
+
+export function setSearchScope(scope: SearchScope): void {
+  state.searchScope = scope === 'all' ? 'all' : 'room';
+  if (state.searchQuery.trim()) runSearch();
+}
+
+/**
+ * 执行搜索。带自增序号丢弃过期响应——输入框是连续触发的，
+ * 先发的请求可能后回来，不丢的话结果会来回跳。
+ */
+export function runSearch(): void {
+  const q = state.searchQuery.trim();
+  const seq = ++searchSeq;
+  if (!q) {
+    state.searchHits = [];
+    state.searchTotal = 0;
+    state.searchLoading = false;
+    state.searchError = '';
+    return;
+  }
+  let path = '/api/messages/search?limit=50&q=' + encodeURIComponent(q);
+  if (state.searchScope === 'room') {
+    if (state.activeGid != null) path += '&gid=' + encodeURIComponent(String(state.activeGid));
+    else if (state.activeDmPeer != null) path += '&dm=' + encodeURIComponent(state.activeDmPeer);
+    else {
+      state.searchHits = []; // 没有进入任何会话，没什么可搜的
+      state.searchTotal = 0;
+      return;
+    }
+  }
+  state.searchLoading = true;
+  state.searchError = '';
+  get(path)
+    .then((j) => {
+      if (seq !== searchSeq) return;
+      state.searchLoading = false;
+      if (!j.ok) {
+        state.searchError = j.error || 'common.loadFailed';
+        state.searchHits = [];
+        state.searchTotal = 0;
+        return;
+      }
+      state.searchHits = (j.hits as SearchHit[]) || [];
+      state.searchTotal = Number(j.total) || 0;
+    })
+    .catch(() => {
+      if (seq !== searchSeq) return;
+      state.searchLoading = false;
+      state.searchError = 'common.loadFailed';
+    });
+}
+
+/**
+ * 跳到某条消息（滚动到中间 + 高亮闪烁）。
+ * 切会话后历史是异步拉的，所以带几次重试；真的不在当前加载范围
+ * （每个房间只保留最近 MAX_MESSAGES 条）时给个提示，而不是点了没反应。
+ */
+export function jumpToMessage(idx: number, tries = 8): void {
+  const el = document.querySelector('.msg[data-idx="' + idx + '"]');
+  if (el) {
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.add('highlight');
+    window.setTimeout(() => el.classList.remove('highlight'), 1400);
+    return;
+  }
+  if (tries > 0) {
+    window.setTimeout(() => jumpToMessage(idx, tries - 1), 120);
+    return;
+  }
+  notify('chat.reply.notInView');
+}
+
+/** 点搜索结果：切到所在会话再跳过去 */
+export function searchJump(hit: SearchHit): void {
+  if (!hit) return;
+  if (hit.dm) {
+    const peer = String(hit.dm).split(':').find((n) => n !== state.me) || '';
+    if (peer) switchRoomToDm(peer);
+  } else if (hit.gid != null) {
+    switchRoom(String(hit.gid));
+  }
+  // 切会话会重新拉历史，等一拍再跳（jumpToMessage 自身还会重试）
+  window.setTimeout(() => jumpToMessage(hit.idx), 60);
 }
 
 /** 某人的最后在线时间（ms），没有记录时返回 null */

@@ -2588,6 +2588,61 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       return;
     }
 
+    // POST /api/admin/files/del-batch —— 批量删除上传文件 {names: []}
+    // 逐个走与单删相同的流程（删盘 + 去重记录 + 引用它的消息标记过期），
+    // 汇总成一条审计记录；非法名 / 已不存在的计入 failed，不影响其余的删除
+    if (pathname === '/api/admin/files/del-batch' && req.method === 'POST') {
+      readBody(req, 32768).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const list = o && Array.isArray(o.names) ? o.names : null;
+        if (!list || !list.length) {
+          sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        if (list.length > 200) {
+          sendJSON(res, 400, { ok: false, error: 'api.admin.tooManyFiles' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        const seen: Record<string, true> = {};
+        let deleted = 0;
+        let expired = 0;
+        const failed: string[] = [];
+        for (const raw of list) {
+          const name = typeof raw === 'string' ? raw.trim() : '';
+          if (!name || seen[name]) continue; // 空值 / 重复项直接跳过
+          seen[name] = true;
+          if (!UPLOAD_NAME_RE.test(name)) { failed.push(name); continue; }
+          const fp = path.join(UPLOAD_DIR, name);
+          if (fp !== path.join(UPLOAD_DIR, path.basename(fp))) { failed.push(name); continue; }
+          try {
+            if (!fs.existsSync(fp)) { failed.push(name); continue; }
+            fs.unlinkSync(fp);
+          } catch (e) {
+            failed.push(name);
+            continue;
+          }
+          store.dropUpload(name);
+          expired += store.expireByFile(name);
+          deleted++;
+        }
+        audit.add({
+          actor: me.username,
+          action: 'admin.file.delBatch',
+          target: deleted + ' files',
+          detail: auditDetail('log.detail.file.delBatch', { n: deleted }),
+          ip
+        });
+        sendJSON(res, 200, { ok: true, deleted, expired, failed });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
     sendJSON(res, 404, { ok: false, error: 'api.notFound' });
     logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
@@ -3001,6 +3056,59 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       }
     }
     sendJSON(res, 200, { ok: true, messages: store.all(gid, null), max: store.MAX_MESSAGES });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/messages/search —— 搜索聊天记录
+  //   ?gid= 或 ?dm= 限定在某个群 / 私聊（会话内搜索）；两个都不带就是「我的全部会话」
+  //   ?q= 关键词；?limit= / ?offset= 分页。权限与 /api/messages 一致（不是成员就搜不到）
+  if (pathname === '/api/messages/search' && req.method === 'GET') {
+    const q = (urlObj.searchParams.get('q') || '').trim();
+    const gid = (urlObj.searchParams.get('gid') || '').trim() || null;
+    const dmPeer = (urlObj.searchParams.get('dm') || '').trim() || null;
+    const limit = Math.min(Math.max(parseInt(urlObj.searchParams.get('limit') as string, 10) || 30, 1), 100);
+    const offset = Math.max(parseInt(urlObj.searchParams.get('offset') as string, 10) || 0, 0);
+    if (q.length > 64) {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    if (!q) {
+      sendJSON(res, 200, { ok: true, hits: [], total: 0, q: '' });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    let scope: store.SearchScope;
+    if (dmPeer !== null) {
+      if (dmPeer.length > 64 || dmPeer === me.username) {
+        sendJSON(res, 403, { ok: false, error: 'api.dm.noView' });
+        logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      const raw = auth.loadUsers() || {};
+      if (!Object.prototype.hasOwnProperty.call(raw, dmPeer)) {
+        sendJSON(res, 404, { ok: false, error: 'api.user.notFound' });
+        logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      scope = { kind: 'room', gid: null, dm: friends.pairKey(me.username, dmPeer) };
+    } else if (gid !== null) {
+      if (gid.length > 64 || !groups.isMember(gid, me.username)) {
+        sendJSON(res, 403, { ok: false, error: 'api.group.noViewMessages' });
+        logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      scope = { kind: 'room', gid, dm: null };
+    } else {
+      scope = {
+        kind: 'rooms',
+        gids: groups.listGroupsOf(me.username).map((g: any) => String(g.id)),
+        dms: store.dmRoomsOf(me.username)
+      };
+    }
+    const found = store.searchMessages(q, scope, limit, offset);
+    sendJSON(res, 200, { ok: true, hits: found.hits, total: found.total, q, scope: scope.kind });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }

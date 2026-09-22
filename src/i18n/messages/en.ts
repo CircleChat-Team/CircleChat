@@ -679,7 +679,25 @@ const dict: Record<string, string> = {
   "fileview.image": "Image",
   "fileview.audio": "Audio",
   "fileview.video": "Video",
-  "fileview.previewFailed": "Cannot preview inline; please download the file"
+  "fileview.previewFailed": "Cannot preview inline; please download the file",
+  "chat.search.title": "Search messages",
+  "chat.search.room": "This chat",
+  "chat.search.all": "All chats",
+  "chat.search.placeholder": "Type a keyword",
+  "chat.search.hint": "Type a keyword to search your messages",
+  "chat.search.empty": "No matching messages",
+  "chat.search.count": "{n} results",
+  "admin.files.selectAll": "Select all",
+  "admin.files.selected": "{n} selected",
+  "admin.files.clearSelect": "Clear",
+  "admin.files.batchDelBtn": "Delete selected",
+  "admin.files.batchDelTitle": "Delete files",
+  "admin.files.batchDelConfirm": "Delete the {n} selected file(s)? This cannot be undone.",
+  "admin.files.batchDelConfirmUsed": "{used} of the {n} selected files are still referenced by messages; those messages will show \"file expired\" after deletion. Continue?",
+  "admin.files.batchDeleted": "Deleted {n} file(s)",
+  "admin.files.batchDeletedPartial": "Deleted {n} file(s), {failed} failed",
+  "api.admin.tooManyFiles": "At most 200 files can be deleted at once",
+  "log.detail.file.delBatch": "Deleted {n} files in batch"
 };
 
 export default dict;
