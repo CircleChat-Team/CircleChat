@@ -2870,7 +2870,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
       if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权审核该群' }); return; }
       if (!groups.approveJoin(gid, name)) { sendJSON(res, 404, { ok: false, error: '该申请不存在或已处理' }); return; }
-      audit.add({ actor: me.username, action: 'group.request.approve', target: gid, detail: auditDetail('log.detail.group.request.approve', { name }), ip });
+      audit.add({ actor: me.username, action: 'group.request.approve', target: gid, detail: auditDetail('log.detail.group.approve', { name }), ip });
       broadcast({ type: 'groups.changed' }); // 让新成员客户端刷新群列表
       notifyMembersChanged(gid, name, 'join'); // 群内在线的成员实时看到有人加入
       sendJSON(res, 200, { ok: true });
@@ -2892,7 +2892,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
       if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权审核该群' }); return; }
       if (!groups.rejectJoin(gid, name)) { sendJSON(res, 404, { ok: false, error: '该申请不存在或已处理' }); return; }
-      audit.add({ actor: me.username, action: 'group.request.reject', target: gid, detail: auditDetail('log.detail.group.request.reject', { name }), ip });
+      audit.add({ actor: me.username, action: 'group.request.reject', target: gid, detail: auditDetail('log.detail.group.reject', { name }), ip });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {

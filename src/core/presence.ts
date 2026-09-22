@@ -18,7 +18,7 @@ export interface PresencePlatforms {
 }
 
 /** 状态文案 key：用法 tr('common.' + key) */
-export type StatusKey = 'away' | 'online' | 'online.web' | 'online.client' | 'online.both' | 'offline';
+export type StatusKey = 'away' | 'online' | 'onlineWeb' | 'onlineClient' | 'onlineBoth' | 'offline';
 
 /**
  * 由「是否在线 / 是否离开 / 连接来源」得出状态文案 key。
@@ -33,8 +33,8 @@ export function presenceStatusKey(
   if (!online) return 'offline';
   if (away) return 'away';
   if (!p) return 'online';
-  if (p.web && p.client) return 'online.both';
-  return p.client ? 'online.client' : 'online.web';
+  if (p.web && p.client) return 'onlineBoth';
+  return p.client ? 'onlineClient' : 'onlineWeb';
 }
 
 /**
@@ -63,5 +63,5 @@ export function lastSeenText(ts?: number | null, now: number = Date.now()): stri
     : l.key === 'common.lastSeen.date'
       ? tr('common.lastSeen.date', { date: l.date })
       : trn(l.key, l.n);
-  return tr('common.lastSeen', { time });
+  return tr('common.lastSeenLabel', { time });
 }

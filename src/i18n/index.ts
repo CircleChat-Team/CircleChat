@@ -2,31 +2,9 @@ import { createI18n } from 'vue-i18n';
 import zh from './messages/zh';
 import en from './messages/en';
 import ja from './messages/ja';
+import { nest, type Dict } from './nest';
 
-export type Dict = Record<string, string>;
-
-/** 把扁平 key（如 'login.submit'）转成 vue-i18n 需要的嵌套结构 */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function nest(flat: Dict): any {
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(flat)) {
-    const parts = key.split('.');
-    let cur = out;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i];
-      // 若当前节点已是「叶子字符串」，说明它本应是个对象
-      // （例如同时定义了 "x" 与 "x.one"/"x.other" 的复数形式），
-      // 在此把它升级为空对象，避免后面给字符串挂属性时报错。
-      if (typeof cur[part] === 'string') cur[part] = {};
-      if (typeof cur[part] !== 'object' || cur[part] === null) cur[part] = {};
-      cur = cur[part] as Record<string, unknown>;
-    }
-    const last = parts[parts.length - 1];
-    // 若该叶子已被复数子键（如 .one/.other）占用成对象，则不要被标量覆盖。
-    if (typeof cur[last] !== 'object') cur[last] = flat[key];
-  }
-  return out;
-}
+export type { Dict };
 
 /** 支持的语言（顺序即下拉框顺序）；'ja' 为标准语言码（源文件 jp.js 的遗留命名已在此统一） */
 export const SUPPORTED = ['zh', 'en', 'ja'] as const;
