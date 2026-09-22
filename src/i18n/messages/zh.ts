@@ -669,7 +669,13 @@ const dict: Record<string, string> = {
   "common.lastSeen.day.one": "{n} 天前",
   "common.lastSeen.day.other": "{n} 天前",
   "common.lastSeen.date": "{date}",
-  "chat.group.left": "你已不在该群中"
+  "chat.group.left": "你已不在该群中",
+  "fileview.colOffset": "偏移",
+  "fileview.colHex": "十六进制",
+  "fileview.colText": "文本",
+  "fileview.bytesPerRow": "每行 {n}",
+  "fileview.hexAt": "偏移 {offset} · {hex} · 十进制 {dec} · 字符 {char}",
+  "fileview.hexTotal": "{bytes} 字节 · 每行 {per} 字节 · 共 {rows} 行"
 };
 
 export default dict;

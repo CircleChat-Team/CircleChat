@@ -188,7 +188,7 @@ export function shouldHighlight(text: string, bytesLength: number): boolean {
 
 /**
  * 生成经典 hex dump 文本：每行「偏移地址 + 16 字节十六进制 + ASCII」。
- * 返回单个字符串（整体塞进一个 <pre>），比生成十几万个 DOM 节点快得多。
+ * 返回单个字符串；给不想搭 DOM 的地方用（组件里是做三列网格，逐字节渲染）。
  */
 export function hexDump(bytes: Uint8Array, perLine = 16): string {
   const out: string[] = [];
@@ -201,15 +201,65 @@ export function hexDump(bytes: Uint8Array, perLine = 16): string {
       const p = off + i;
       if (p < end) {
         const b = bytes[p];
-        hex += (b < 16 ? '0' : '') + b.toString(16) + ' ';
-        ascii += b >= 32 && b < 127 ? String.fromCharCode(b) : '.';
+        hex += byteHex(b) + ' ';
+        ascii += byteChar(b);
       } else {
         hex += '   ';
         ascii += ' ';
       }
       if (i === half - 1) hex += ' ';
     }
-    out.push(off.toString(16).padStart(8, '0') + '  ' + hex + '|' + ascii + '|');
+    out.push(hexOffset(off) + '  ' + hex + '|' + ascii + '|');
   }
   return out.join('\n');
+}
+
+/**
+ * Hex 视图的可视行窗口：2MB 文件有十几万行，全量渲染 DOM 会卡死，
+ * 所以只渲染 [first, last) 这几行。抽成纯函数（越界、空内容、滚到底都要对）。
+ * 缓冲区上下各多渲染 buffer 行，快速滚动时不至于露白。
+ */
+export function hexWindow(
+  totalRows: number,
+  scrollTop: number,
+  viewH: number,
+  rowH: number,
+  buffer = 6
+): { first: number; last: number } {
+  const rows = Math.max(0, Math.floor(Number(totalRows) || 0));
+  if (rows === 0) return { first: 0, last: 0 };
+  const h = Math.max(1, Number(rowH) || 22);
+  const visible = Math.max(1, Math.ceil((Number(viewH) || 0) / h));
+  const top = Math.max(0, Number(scrollTop) || 0);
+  // 滚到底（或 scrollTop 超界）时不能越过最后一行，否则会渲染出一段空白
+  const maxFirst = Math.max(0, rows - visible);
+  const first = Math.max(0, Math.min(Math.floor(top / h) - buffer, maxFirst));
+  return { first, last: Math.min(rows, first + visible + buffer * 2) };
+}
+
+/** 二进制视图的行数（每行 perLine 字节） */
+export function hexRowCount(byteLength: number, perLine = 16): number {
+  const n = Math.max(0, Number(byteLength) || 0);
+  const per = Math.max(1, Math.floor(perLine) || 16);
+  return Math.ceil(n / per);
+}
+
+/** 偏移地址：8 位小写十六进制，如 000001a0 */
+export function hexOffset(offset: number): string {
+  return (Number(offset) || 0).toString(16).padStart(8, '0');
+}
+
+/** 单字节 → 两位小写十六进制 */
+export function byteHex(b: number): string {
+  return (Number(b) & 0xff).toString(16).padStart(2, '0');
+}
+
+/** 单字节是否是可打印 ASCII（ASCII 列用它区分淡显） */
+export function isPrintableByte(b: number): boolean {
+  return b >= 32 && b < 127;
+}
+
+/** 单字节在 ASCII 列显示什么：不可打印一律用中点（与常见 hex 编辑器一致） */
+export function byteChar(b: number): string {
+  return isPrintableByte(b) ? String.fromCharCode(b) : '\u00b7';
 }

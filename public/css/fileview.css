@@ -93,8 +93,7 @@
   white-space: pre;
   user-select: none;
 }
-.fileview-pre,
-.fileview-hex {
+.fileview-pre {
   flex: 1;
   min-width: 0;
   margin: 0;
@@ -106,5 +105,79 @@
   white-space: pre;
   tab-size: 4;
 }
-.fileview-pre.wrap,
-.fileview-hex.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fileview-pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---------- Hex 视图：偏移 | 十六进制 | 文本 三列 ----------
+   逐字节渲染（不是一坨文本），所以能逐字节做高亮与光标；
+   行高写进 --hx-row-h，组件里的虚拟滚动按同一个值换算可视行，两边必须一致 */
+.hx-wrap {
+  --hx-row-h: 22px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: #e6edf3;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.hx-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, .07);
+  font-size: 11px;
+  color: #6b7280;
+}
+.hx-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .22) transparent;
+}
+.hx-spacer { position: relative; }
+.hx-rows { position: absolute; top: 0; left: 0; right: 0; }
+.hx-row {
+  display: flex;
+  align-items: center;
+  height: var(--hx-row-h);
+  padding: 0 12px;
+  line-height: var(--hx-row-h);
+  white-space: pre;
+}
+.hx-row:hover { background: rgba(255, 255, 255, .045); }
+.hx-off { flex: 0 0 auto; width: 74px; color: #6b7280; }
+.hx-bytes { flex: 0 0 auto; display: flex; }
+.hx-txt {
+  flex: 0 0 auto;
+  display: flex;
+  margin-left: 14px;
+  padding-left: 14px;
+  border-left: 1px solid rgba(255, 255, 255, .08);
+}
+.hx-head .hx-txt { border-left-color: transparent; }
+/* 字节/字符都是 <i>，默认斜体，得按回正常字重 */
+.hx-b,
+.hx-c { font-style: normal; }
+.hx-b { color: #79c0ff; }
+.hx-b.dim { color: #3a4351; }
+.hx-b.gap { margin-right: 6px; }
+.hx-c { color: #dbe4ee; }
+.hx-c.dim { color: #3a4351; }
+.hx-b.on,
+.hx-c.on {
+  background: var(--primary);
+  color: #04120b;
+  border-radius: 3px;
+}
+.hx-status {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  overflow: hidden;
+  border-top: 1px solid rgba(255, 255, 255, .07);
+  color: #9aa4b2;
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

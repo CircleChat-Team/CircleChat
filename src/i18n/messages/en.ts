@@ -669,7 +669,13 @@ const dict: Record<string, string> = {
   "common.lastSeen.day.one": "{n} day ago",
   "common.lastSeen.day.other": "{n} days ago",
   "common.lastSeen.date": "on {date}",
-  "chat.group.left": "You are no longer in this group"
+  "chat.group.left": "You are no longer in this group",
+  "fileview.colOffset": "Offset",
+  "fileview.colHex": "Hex",
+  "fileview.colText": "Text",
+  "fileview.bytesPerRow": "{n} / row",
+  "fileview.hexAt": "Offset {offset} · {hex} · {dec} · char {char}",
+  "fileview.hexTotal": "{bytes} bytes · {per} per row · {rows} rows"
 };
 
 export default dict;
