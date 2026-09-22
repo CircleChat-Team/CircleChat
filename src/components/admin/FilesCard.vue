@@ -14,7 +14,7 @@ import type { FileItem } from '../../types';
 type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
 
-/** 在线查看（文本 / Hex）；图片不在这里看——列表里已经有缩略图了 */
+/** 在线查看：图片 / 音频 / 视频 / 文本 / Hex 按内容自动判别（见 FileViewer） */
 const fileView = ref<FileViewTarget | null>(null);
 
 function viewFile(f: FileItem): void {
@@ -140,7 +140,6 @@ onMounted(load);
         </span>
 
         <button
-          v-if="f.kind !== 'image'"
           type="button"
           class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
           @click="viewFile(f)"

@@ -22,6 +22,9 @@
   background: rgba(0, 0, 0, .5);
 }
 .fileview {
+  /* 行高：文本视图与 Hex 视图共用；组件里的虚拟滚动按同一个值换算可视行，
+     两边必须一致（组件里是 ROW_H = 22） */
+  --row-h: 22px;
   display: flex;
   flex-direction: column;
   width: min(1100px, 94vw);
@@ -79,39 +82,10 @@
 .fileview-body { flex: 1; min-height: 0; overflow: auto; background: #0f1419; }
 .fileview-msg { padding: 44px 16px; text-align: center; font-size: 13px; color: #9aa4b2; }
 .fileview-msg .fv-btn { margin-top: 14px; background: transparent; border-color: rgba(255, 255, 255, .25); color: #e5e7eb; }
-.fileview-code { display: flex; min-height: 100%; }
-.fileview-gutter {
-  flex: 0 0 auto;
-  margin: 0;
-  padding: 12px 8px 12px 12px;
-  border-right: 1px solid rgba(255, 255, 255, .06);
-  color: #4b5563;
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.55;
-  text-align: right;
-  white-space: pre;
-  user-select: none;
-}
-.fileview-pre {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  padding: 12px;
-  color: #e6edf3;
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.55;
-  white-space: pre;
-  tab-size: 4;
-}
-.fileview-pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
-
 /* ---------- Hex 视图：偏移 | 十六进制 | 文本 三列 ----------
    逐字节渲染（不是一坨文本），所以能逐字节做高亮与光标；
-   行高写进 --hx-row-h，组件里的虚拟滚动按同一个值换算可视行，两边必须一致 */
+   行高用共用变量 --row-h（见 .fileview） */
 .hx-wrap {
-  --hx-row-h: 22px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -151,9 +125,9 @@
 .hx-row {
   display: flex;
   align-items: center;
-  height: var(--hx-row-h);
+  height: var(--row-h);
   padding: 0 12px;
-  line-height: var(--hx-row-h);
+  line-height: var(--row-h);
   white-space: pre;
 }
 /* 隔行底色按「绝对行号」给（组件里算的 r.row % 2），
@@ -200,4 +174,87 @@
   font-size: 11px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* ---------- 媒体预览（图片 / 视频 / 音频） ----------
+   内容不进内存：<img>/<audio>/<video> 自己流式加载，服务端对媒体支持 Range，
+   所以多大都能看，也不受 2MB 限制 */
+.media-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 16px;
+}
+.media-wrap img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.media-wrap video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  background: #000;
+}
+.media-audio { flex-direction: column; gap: 14px; }
+.media-audio audio { width: min(560px, 100%); }
+.media-note {
+  max-width: 100%;
+  overflow: hidden;
+  color: #9aa4b2;
+  font-size: 12px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-fail { color: #9aa4b2; font-size: 13px; text-align: center; }
+
+/* ---------- 文本视图 ----------
+   行数多时虚拟滚动：只挂可视区的行，所以每行高度必须固定（--row-h），
+   换行会让行高不定 → 大文本不提供换行开关 */
+.tx-wrap { height: 100%; min-height: 0; }
+.tx-scroll {
+  height: 100%;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .22) transparent;
+}
+/* 行比视口宽时按内容撑开，横向滚动条才会出现（绝对定位的中间层不裁切） */
+.tx-spacer {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+}
+.tx-spacer.fixed .tx-rows { position: absolute; top: 0; left: 0; right: 0; }
+.tx-row {
+  display: flex;
+  align-items: flex-start;
+  height: var(--row-h);
+  line-height: var(--row-h);
+  color: #e6edf3;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.tx-row.alt { background: rgba(255, 255, 255, .018); }
+.tx-row.wrap { height: auto; }
+.tx-no {
+  flex: 0 0 auto;
+  width: var(--no-w, 4ch);
+  padding-right: 12px;
+  color: #4b5563;
+  text-align: right;
+  user-select: none;
+}
+.tx-line {
+  flex: 0 0 auto;
+  padding-right: 14px;
+  white-space: pre;
+}
+.tx-row.wrap .tx-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

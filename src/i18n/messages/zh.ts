@@ -675,7 +675,11 @@ const dict: Record<string, string> = {
   "fileview.colText": "文本",
   "fileview.bytesPerRow": "每行 {n}",
   "fileview.hexAt": "偏移 {offset} · {hex} · 十进制 {dec} · 字符 {char}",
-  "fileview.hexTotal": "{bytes} 字节 · 每行 {per} 字节 · 共 {rows} 行"
+  "fileview.hexTotal": "{bytes} 字节 · 每行 {per} 字节 · 共 {rows} 行",
+  "fileview.image": "图片",
+  "fileview.audio": "音频",
+  "fileview.video": "视频",
+  "fileview.previewFailed": "无法直接预览，请下载后查看"
 };
 
 export default dict;

@@ -90,6 +90,47 @@ export function sniffKind(head: Uint8Array): 'text' | 'binary' {
   return suspicious / head.length > 0.05 ? 'binary' : 'text';
 }
 
+/** 可以直接在浏览器里预览的媒体类型 */
+export type MediaKind = 'image' | 'audio' | 'video';
+
+/**
+ * 读文件头判断是不是能直接预览/播放的媒体（**同样不看后缀**）。
+ * 判断出来就不必把内容读进内存：交给 <img>/<audio>/<video> 自己流式加载，
+ * 大视频也能播（服务端对媒体支持 Range）。
+ */
+export function sniffMedia(head: Uint8Array): MediaKind | null {
+  const b = head;
+  if (b.length < 12) return null;
+  const at = (o: number, ...sig: number[]): boolean => sig.every((v, i) => b[o + i] === v);
+  // UTF-16 带 BOM 的文本别被下面的「帧同步」误判成音频
+  if (bomOf(b)) return null;
+
+  // 图片
+  if (at(0, 0x89, 0x50, 0x4e, 0x47)) return 'image'; // PNG
+  if (at(0, 0xff, 0xd8, 0xff)) return 'image';       // JPEG
+  if (at(0, 0x47, 0x49, 0x46, 0x38)) return 'image'; // GIF8
+  if (at(0, 0x42, 0x4d)) return 'image';             // BMP
+  if (at(0, 0x00, 0x00, 0x01, 0x00)) return 'image'; // ICO
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return 'image'; // RIFF/WEBP
+
+  // 视频
+  if (at(4, 0x66, 0x74, 0x79, 0x70)) return 'video'; // MP4 / MOV / M4V（ftyp）
+  if (at(0, 0x1a, 0x45, 0xdf, 0xa3)) return 'video'; // Matroska / WebM
+  if (at(0, 0x46, 0x4c, 0x56, 0x01)) return 'video'; // FLV
+  if (at(0, 0x30, 0x26, 0xb2, 0x75)) return 'video'; // ASF / WMV
+  if (at(0, 0x00, 0x00, 0x01, 0xba) || at(0, 0x00, 0x00, 0x01, 0xb3)) return 'video'; // MPEG PS / ES
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && (at(8, 0x41, 0x56, 0x49, 0x20) || at(8, 0x41, 0x43, 0x4f, 0x4e))) return 'video'; // AVI / ANI
+
+  // 音频
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x41, 0x56, 0x45)) return 'audio'; // WAV
+  if (at(0, 0x49, 0x44, 0x33)) return 'audio';       // MP3（带 ID3 头）
+  if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return 'audio'; // MP3 / AAC 帧同步
+  if (at(0, 0x66, 0x4c, 0x61, 0x43)) return 'audio'; // FLAC
+  if (at(0, 0x4f, 0x67, 0x67, 0x53)) return 'audio'; // OggS
+  if (at(0, 0x4d, 0x54, 0x68, 0x64)) return 'audio'; // MIDI（MThd）
+  return null;
+}
+
 /** 按字节解码为字符串（识别 BOM；非法字节退化为替换字符，不抛错） */
 export function decodeBytes(bytes: Uint8Array): string {
   const bom = bomOf(bytes);
@@ -176,6 +217,76 @@ export function detectLanguage(text: string): string | null {
   return null;
 }
 
+/**
+ * 把整体高亮出来的 HTML 按行切开，供虚拟滚动逐行渲染。
+ *
+ * 难点在于 hljs 的输出里标签会跨行（块注释、模板字符串等），直接 split('\n')
+ * 会把标签劈坏。所以这里按「标签栈」走：切行时先补上当前未闭合标签的 </span>，
+ * 新行开头再把它们原样开回来——这样每一行自己都是闭合合法的 HTML。
+ */
+export function splitHtmlLines(html: string): string[] {
+  const out: string[] = [];
+  const stack: string[] = [];
+  let cur = '';
+  const tagName = (t: string): string => t.slice(1).split(/[\s>/]/, 1)[0];
+  const closeOpen = (): string => {
+    let s = '';
+    for (let i = stack.length - 1; i >= 0; i--) s += '</' + tagName(stack[i]) + '>';
+    return s;
+  };
+  const breakLine = (): void => {
+    out.push(cur + closeOpen());
+    cur = stack.join('');
+  };
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    const nl = html.indexOf('\n', i);
+    // 先处理更靠前的那个（文本段里可能有换行，标签里一定没有）
+    if (nl !== -1 && (lt === -1 || nl < lt)) {
+      cur += html.slice(i, nl);
+      breakLine();
+      i = nl + 1;
+      continue;
+    }
+    if (lt === -1) {
+      cur += html.slice(i);
+      break;
+    }
+    const gt = html.indexOf('>', lt);
+    if (gt === -1) {
+      cur += html.slice(lt);
+      break;
+    }
+    // 标签前面那段文本也得加上（漏掉就把内容吃掉了）
+    const tag = html.slice(lt, gt + 1);
+    cur += html.slice(i, lt);
+    if (tag.startsWith('</')) stack.pop();
+    else if (!tag.endsWith('/>')) stack.push(tag);
+    cur += tag;
+    i = gt + 1;
+  }
+  out.push(cur);
+  return out;
+}
+
+/** 文本按行切好（供虚拟滚动逐行渲染），行内是转义后的纯文本 */
+export function plainTextLines(text: string): string[] {
+  const out: string[] = [];
+  const parts = String(text ?? '').split('\n');
+  for (const p of parts) {
+    out.push(
+      p
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+    );
+  }
+  return out;
+}
+
 /** 该不该做高亮：体积、单行长度两道闸（都由经验阈值控制，避免卡界面） */
 export function shouldHighlight(text: string, bytesLength: number): boolean {
   if (bytesLength > MAX_HIGHLIGHT_BYTES) return false;
@@ -187,11 +298,11 @@ export function shouldHighlight(text: string, bytesLength: number): boolean {
 // ---------- Hex 视图 ----------
 
 /**
- * Hex 视图的可视行窗口：2MB 文件有十几万行，全量渲染 DOM 会卡死，
+ * 可视行窗口（文本视图与 Hex 视图共用）：2MB 文件有十几万行，全量渲染 DOM 会卡死，
  * 所以只渲染 [first, last) 这几行。抽成纯函数（越界、空内容、滚到底都要对）。
  * 缓冲区上下各多渲染 buffer 行，快速滚动时不至于露白。
  */
-export function hexWindow(
+export function rowWindow(
   totalRows: number,
   scrollTop: number,
   viewH: number,

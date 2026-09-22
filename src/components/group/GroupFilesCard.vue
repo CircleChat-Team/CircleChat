@@ -21,7 +21,7 @@ const emit = defineEmits<{ refreshed: [] }>();
 type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
 
-/** 在线查看（文本 / Hex）；图片不在这里看——没有图片灯箱，Hex 看图片也没意义 */
+/** 在线查看：图片 / 音频 / 视频 / 文本 / Hex 按内容自动判别（见 FileViewer） */
 const fileView = ref<FileViewTarget | null>(null);
 
 function viewFile(f: GroupFile): void {
@@ -68,7 +68,7 @@ function remove(f: GroupFile): void {
           <span class="ml-2 text-muted">{{ fmtDate(f.ts) }}</span>
         </span>
         <button
-          v-if="f.type !== 'image' && f.content"
+          v-if="f.content"
           type="button"
           class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
           @click="viewFile(f)"
