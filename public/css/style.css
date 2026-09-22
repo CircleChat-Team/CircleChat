@@ -10,6 +10,43 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ---------- 滚动条：全站统一 ----------
+ * 原来只有 .msg-list / .sidebar-scroll 这类**带类名**的容器做了滚动条样式，
+ * 管理面板的 `<main class="… overflow-y-auto">` 没有对应的类，就落回浏览器
+ * 默认的粗滚动条，跟其它页面不一致。这里给所有滚动容器补一层默认样式：
+ * 带类名的既有规则选择器更具体，依旧优先，不受影响。
+ *
+ * 只用 ::-webkit-scrollbar（Chromium / Safari）。**不要**在 html 上写
+ * scrollbar-width / scrollbar-color：它们会被继承，而 Chromium 一旦发现某个
+ * 元素用了标准滚动条属性，就会忽略该元素上的 ::-webkit-scrollbar 定制，
+ * 那会把聊天页已经写好的自定义滚动条一起废掉。Firefox 不认
+ * ::-webkit-scrollbar，所以下面用 @supports 单独给它一份等价配置。 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* 滑块配色沿用已有容器（.msg-list 等）那套灰，保持一致。
+   这里只写 background / border-radius：已有的类规则会覆盖同名属性，
+   所以聊天页里那些自定义滚动条的样子不会被这层默认值改动。 */
+::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: rgba(128, 128, 128, .3);
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 128, .5); }
+::-webkit-scrollbar-thumb:active { background: rgba(128, 128, 128, .62); }
+
+/* Firefox：不识别 ::-webkit-scrollbar 的才用标准属性，配色与上面保持一致 */
+@supports not selector(::-webkit-scrollbar) {
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(128, 128, 128, .4) transparent;
+  }
+}
+
 /* ---------- 无障碍：键盘焦点可见（鼠标点击不显示，避免干扰观感） ---------- */
 :where(button, a[href], input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--primary, #07c160);
