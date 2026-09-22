@@ -120,11 +120,16 @@
   font-family: var(--mono);
   font-size: 13px;
 }
+/* 列头在滚动容器内 sticky：横向滚动时列头跟着走（否则一右滚，标签就和列错位），
+   纵向滚动时钉在顶上；底色必须不透明，不然行会从它下面透出来 */
 .hx-head {
-  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
-  padding: 0 12px 6px;
+  padding: 6px 12px;
+  background: #0f1419;
   border-bottom: 1px solid rgba(255, 255, 255, .07);
   font-size: 11px;
   color: #6b7280;
@@ -136,7 +141,12 @@
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, .22) transparent;
 }
-.hx-spacer { position: relative; }
+/* 内容比视口宽时让整块按内容宽度撑开，滚动条才会真正出现（绝对定位的中间层不会裁切） */
+.hx-spacer {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+}
 .hx-rows { position: absolute; top: 0; left: 0; right: 0; }
 .hx-row {
   display: flex;
@@ -146,6 +156,9 @@
   line-height: var(--hx-row-h);
   white-space: pre;
 }
+/* 隔行底色按「绝对行号」给（组件里算的 r.row % 2），
+   不能用 :nth-child —— 虚拟滚动每次只渲染一段，奇偶会跟着窗口漂 */
+.hx-row.alt { background: rgba(255, 255, 255, .018); }
 .hx-row:hover { background: rgba(255, 255, 255, .045); }
 .hx-off { flex: 0 0 auto; width: 74px; color: #6b7280; }
 .hx-bytes { flex: 0 0 auto; display: flex; }
@@ -157,13 +170,20 @@
   border-left: 1px solid rgba(255, 255, 255, .08);
 }
 .hx-head .hx-txt { border-left-color: transparent; }
-/* 字节/字符都是 <i>，默认斜体，得按回正常字重 */
+/* 字节/字符都是 <i>：
+   ① 默认斜体，按回正常；
+   ② flex:0 0 auto —— flex 子项默认可被压缩，窄屏下格子会被挤扁、列立刻错位，宁可横向滚动；
+   ③ 宽度用 ch 定死（字体是等宽的 ch 才准）。字节格子是「两位十六进制 + 一个空格」= 3ch，
+      顺带保证即使浏览器把行尾空格吞了，列宽也不会变；ASCII 格子 1ch */
 .hx-b,
-.hx-c { font-style: normal; }
-.hx-b { color: #79c0ff; }
+.hx-c {
+  flex: 0 0 auto;
+  font-style: normal;
+}
+.hx-b { width: 3ch; color: #79c0ff; }
 .hx-b.dim { color: #3a4351; }
 .hx-b.gap { margin-right: 6px; }
-.hx-c { color: #dbe4ee; }
+.hx-c { width: 1ch; color: #dbe4ee; }
 .hx-c.dim { color: #3a4351; }
 .hx-b.on,
 .hx-c.on {

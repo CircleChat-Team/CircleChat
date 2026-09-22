@@ -187,34 +187,6 @@ export function shouldHighlight(text: string, bytesLength: number): boolean {
 // ---------- Hex 视图 ----------
 
 /**
- * 生成经典 hex dump 文本：每行「偏移地址 + 16 字节十六进制 + ASCII」。
- * 返回单个字符串；给不想搭 DOM 的地方用（组件里是做三列网格，逐字节渲染）。
- */
-export function hexDump(bytes: Uint8Array, perLine = 16): string {
-  const out: string[] = [];
-  const half = perLine / 2;
-  for (let off = 0; off < bytes.length; off += perLine) {
-    const end = Math.min(off + perLine, bytes.length);
-    let hex = '';
-    let ascii = '';
-    for (let i = 0; i < perLine; i++) {
-      const p = off + i;
-      if (p < end) {
-        const b = bytes[p];
-        hex += byteHex(b) + ' ';
-        ascii += byteChar(b);
-      } else {
-        hex += '   ';
-        ascii += ' ';
-      }
-      if (i === half - 1) hex += ' ';
-    }
-    out.push(hexOffset(off) + '  ' + hex + '|' + ascii + '|');
-  }
-  return out.join('\n');
-}
-
-/**
  * Hex 视图的可视行窗口：2MB 文件有十几万行，全量渲染 DOM 会卡死，
  * 所以只渲染 [first, last) 这几行。抽成纯函数（越界、空内容、滚到底都要对）。
  * 缓冲区上下各多渲染 buffer 行，快速滚动时不至于露白。

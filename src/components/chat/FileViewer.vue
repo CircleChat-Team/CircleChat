@@ -340,21 +340,28 @@ useOverlay({
 
         <!-- Hex：三列（偏移 | 十六进制 | 文本），逐字节单元格 + 只渲染可视区 -->
         <div v-else-if="phase === 'hex'" class="hx-wrap">
-          <div class="hx-head">
-            <span class="hx-off">{{ tr('fileview.colOffset') }}</span>
-            <span class="hx-bytes">{{ tr('fileview.colHex') }}</span>
-            <span class="hx-txt">{{ tr('fileview.colText') }}</span>
-          </div>
-
           <div
             ref="hexScroll"
             class="hx-scroll"
             @scroll="syncHexViewport"
             @mouseleave="hxHover = null"
           >
+            <!-- 列头放在滚动容器里做 sticky：横向滚动时跟着列一起走 -->
+            <div class="hx-head">
+              <span class="hx-off">{{ tr('fileview.colOffset') }}</span>
+              <span class="hx-bytes">{{ tr('fileview.colHex') }}</span>
+              <span class="hx-txt">{{ tr('fileview.colText') }}</span>
+            </div>
+
             <div class="hx-spacer" :style="{ height: hexPadHeight + 'px' }">
               <div class="hx-rows" :style="{ transform: 'translateY(' + hexFirstRow * ROW_H + 'px)' }">
-                <div v-for="r in hexView" :key="r.offset" class="hx-row" @mouseleave="hxHover = null">
+                <div
+                  v-for="r in hexView"
+                  :key="r.offset"
+                  class="hx-row"
+                  :class="{ alt: r.row % 2 === 1 }"
+                  @mouseleave="hxHover = null"
+                >
                   <span class="hx-off">{{ hexOffset(r.offset) }}</span>
                   <span class="hx-bytes">
                     <i
