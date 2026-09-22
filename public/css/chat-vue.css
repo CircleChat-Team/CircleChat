@@ -1251,6 +1251,15 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
   text-decoration: underline;
 }
 .chat-link:hover { opacity: .82; }
+/* 自己气泡里的链接：气泡本身是绿色，而链接色 --primary-dark 也是绿色，
+   绿字压绿底对比度只有 1.05:1 —— 等于没显示（用户截图反馈过）。
+   这里跟 markdown 模式的做法对齐（style.css 里 .msg.self .bubble .md-link 用的是 #eafff2），
+   颜色改成近白，靠下划线跟正文区分开。 */
+.msg.self .chat-link {
+  color: #eafff2;
+  text-decoration-thickness: 1.5px;
+}
+.msg.self .chat-link:hover { opacity: .9; }
 
 /* ---------- 输入栏表情面板：修正弹出位置 ----------
    原 .emoji-wrap 在 flex 流里宽高为 0，导致内部 .emoji-panel（absolute 定位）塌缩到输入框左侧。

@@ -700,7 +700,7 @@ const dict: Record<string, string> = {
   "log.detail.file.delBatch": "批量删除 {n} 个文件",
   "github.stale": "数据可能不是最新",
   "github.failed": "仓库信息获取失败",
-  "github.notFound": "仓库不存在或已删除",
+  "github.notFound": "仓库不存在、已删除或未公开",
   "github.rateLimited": "GitHub 接口已限流（未配置 token 时每小时 60 次），请稍后再试",
   "github.expand": "展开详细信息",
   "github.open": "访问仓库",

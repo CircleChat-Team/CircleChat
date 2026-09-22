@@ -700,7 +700,7 @@ const dict: Record<string, string> = {
   "log.detail.file.delBatch": "{n} 個のファイルをまとめて削除",
   "github.stale": "最新でない可能性があります",
   "github.failed": "リポジトリ情報の取得に失敗しました",
-  "github.notFound": "リポジトリが存在しないか削除されています",
+  "github.notFound": "リポジトリが存在しない・削除済み・非公開のいずれかです",
   "github.rateLimited": "GitHub API のレート制限に達しました（token 未設定時は 1 時間 60 回）。しばらくしてからお試しください",
   "github.expand": "詳細を表示",
   "github.open": "リポジトリを開く",

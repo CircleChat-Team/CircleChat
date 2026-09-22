@@ -700,7 +700,7 @@ const dict: Record<string, string> = {
   "log.detail.file.delBatch": "Deleted {n} files in batch",
   "github.stale": "May be out of date",
   "github.failed": "Failed to load repository info",
-  "github.notFound": "Repository not found or deleted",
+  "github.notFound": "Repository not found, deleted, or private",
   "github.rateLimited": "GitHub API rate limit reached (60/hour without a token). Please try again later",
   "github.expand": "Show details",
   "github.open": "Open repository",
