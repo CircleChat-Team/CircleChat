@@ -31,8 +31,8 @@ const CACHE_TTL = 60 * 1000;
 export interface RepoEntry<T> {
   loading: boolean;
   data: T | null;
-  /** 失败原因（i18n 文案键），空串表示没出错 */
-  error: string;
+  /** 失败原因的 i18n 文案键（**存键不存译文**：切换语言时已经取过的条目也要跟着变），空串表示没出错 */
+  code: string;
   /** 数据来自服务端的过期缓存（GitHub 此刻不可用） */
   stale: boolean;
   /** 取到数据的时间（ms） */
@@ -43,7 +43,7 @@ const basicCache = reactive<Record<string, RepoEntry<RepoBasic>>>({});
 const detailCache = reactive<Record<string, RepoEntry<RepoDetail>>>({});
 
 function emptyEntry<T>(): RepoEntry<T> {
-  return { loading: true, data: null, error: '', stale: false, at: 0 };
+  return { loading: true, data: null, code: '', stale: false, at: 0 };
 }
 
 /** 拉取基础信息；已有缓存 / 正在请求中就直接复用，不会重复发请求 */
@@ -87,12 +87,12 @@ async function fetchBasic(key: string): Promise<void> {
   try {
     const j = await get('/api/github/repo?repo=' + encodeURIComponent(key));
     slot.data = (j.repo as RepoBasic) || null;
-    slot.error = j.ok ? '' : tr(j.error || 'github.failed');
+    slot.code = j.ok ? '' : String(j.error || 'github.failed');
     slot.stale = !!j.stale;
     slot.at = Number(j.at) || Date.now();
   } catch {
     slot.data = null;
-    slot.error = tr('github.failed');
+    slot.code = 'github.failed';
   }
   slot.loading = false;
 }
@@ -103,12 +103,12 @@ async function fetchDetail(key: string): Promise<void> {
   try {
     const j = await get('/api/github/repo/detail?repo=' + encodeURIComponent(key));
     slot.data = (j.detail as RepoDetail) || null;
-    slot.error = j.ok ? '' : tr(j.error || 'github.failed');
+    slot.code = j.ok ? '' : String(j.error || 'github.failed');
     slot.stale = !!j.stale;
     slot.at = Number(j.at) || Date.now();
   } catch {
     slot.data = null;
-    slot.error = tr('github.failed');
+    slot.code = 'github.failed';
   }
   slot.loading = false;
 }

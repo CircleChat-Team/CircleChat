@@ -200,7 +200,7 @@ useOverlay({
         </section>
 
         <!-- 详情取不到时的说明（仓库主信息通常还在，不影响上层） -->
-        <p v-if="detailEntry && detailEntry.error" class="repo-alert">{{ detailEntry.error }}</p>
+        <p v-if="detailEntry && detailEntry.code" class="repo-alert">{{ tr(detailEntry.code) }}</p>
         <p v-else-if="detailEntry && detailEntry.stale" class="repo-alert">{{ tr('github.stale') }}</p>
       </div>
     </div>

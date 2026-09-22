@@ -16,11 +16,20 @@ const props = defineProps<{ repo: string }>();
 // 同步拿到（可能还在加载中的）缓存条目；组件被重新挂载也会复用它，不会重新请求
 const entry = computed(() => repoBasic(props.repo));
 const data = computed(() => entry.value.data);
+
+/**
+ * 拿不到仓库信息就整张卡片都不画（只留消息里原本的链接）。
+ * 最常见的情况是**私有仓库**——未登录的 GitHub API 对私有仓库返回 404，
+ * 这时候画一张「仓库不存在或未公开」的卡片对发链接的人来说纯属噪音
+ *（收链接的人点开也只会看到 GitHub 自己的 404）。
+ * 限流/网络这类**临时**失败仍然画卡片，并说明原因、让人过会儿再看。
+ */
+const hidden = computed(() => !entry.value.loading && !data.value && entry.value.code === 'github.notFound');
 </script>
 
 <template>
   <!-- 整张卡吞掉点击：别让点卡片把消息气泡的其它行为（多选等）带出来 -->
-  <div class="repo-card" @click.stop>
+  <div v-if="!hidden" class="repo-card" @click.stop>
     <div class="rc-head">
       <span class="rc-gh" aria-hidden="true">
         <svg viewBox="0 0 16 16" class="rc-gh-icon">
@@ -39,7 +48,7 @@ const data = computed(() => entry.value.data);
 
     <!-- 取不到：给一行原因 + 直接去 GitHub 的链接，别让卡片变成死块 -->
     <template v-else-if="!data">
-      <p class="rc-err">{{ entry.error || tr('github.failed') }}</p>
+      <p class="rc-err">{{ tr(entry.code || 'github.failed') }}</p>
       <a class="rc-link" :href="'https://github.com/' + repo" target="_blank" rel="noopener noreferrer">
         github.com/{{ repo }} ↗
       </a>
