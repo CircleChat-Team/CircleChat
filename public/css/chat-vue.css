@@ -2030,3 +2030,222 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 @media (max-width: 640px) {
   .search-panel { width: 100%; }
 }
+
+/* ---------- 消息里的 GitHub 仓库卡片 ----------
+   卡片用中性半透明底：深浅主题下都成立，落在自己的绿色气泡里也不突兀 */
+.repo-card {
+  margin-top: 8px;
+  padding: 9px 11px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(128, 128, 128, .08);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.msg.self .repo-card { border-color: rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .14); }
+.rc-head { display: flex; align-items: center; gap: 6px; }
+.rc-gh { flex-shrink: 0; display: inline-flex; color: var(--muted); }
+.rc-gh-icon { width: 15px; height: 15px; }
+.msg.self .rc-gh { color: rgba(255, 255, 255, .9); }
+.rc-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.rc-stale { flex-shrink: 0; font-size: 10.5px; opacity: .75; }
+.rc-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 5px;
+  color: var(--muted);
+}
+.msg.self .rc-desc { color: rgba(255, 255, 255, .88); }
+.rc-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 6px; color: var(--muted); }
+.msg.self .rc-stats { color: rgba(255, 255, 255, .9); }
+.rc-stat { display: inline-flex; align-items: center; gap: 4px; }
+.rc-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+.rc-commit { display: flex; align-items: baseline; gap: 6px; margin-top: 5px; color: var(--muted); }
+.msg.self .rc-commit { color: rgba(255, 255, 255, .88); }
+.rc-commit-msg { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rc-commit-time { flex-shrink: 0; opacity: .85; }
+.rc-actions { display: flex; gap: 6px; margin-top: 8px; }
+.rc-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font-size: 11.5px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color .15s var(--ease), color .15s var(--ease);
+}
+.rc-btn:hover { border-color: var(--primary); color: var(--primary); }
+.rc-btn-ghost { opacity: .85; }
+.msg.self .rc-btn { border-color: rgba(255, 255, 255, .35); }
+.msg.self .rc-btn:hover { border-color: #fff; color: #fff; }
+.rc-err { margin-top: 5px; color: var(--muted); }
+.msg.self .rc-err { color: rgba(255, 255, 255, .88); }
+.rc-link { display: inline-block; margin-top: 4px; font-size: 11.5px; color: var(--primary); text-decoration: none; }
+.rc-link:hover { text-decoration: underline; }
+.msg.self .rc-link { color: #fff; text-decoration: underline; }
+.rc-skel { display: flex; flex-direction: column; gap: 6px; margin-top: 7px; }
+.rc-skel-line { height: 9px; border-radius: 5px; background: rgba(128, 128, 128, .22); }
+.rc-skel-line.w70 { width: 70%; }
+.rc-skel-line.w40 { width: 40%; }
+.msg.self .rc-skel-line { background: rgba(255, 255, 255, .28); }
+
+/* ---------- GitHub 仓库详情弹窗 ---------- */
+.repo-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 62;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4vh 3vw;
+  background: rgba(0, 0, 0, .5);
+}
+.repo-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 94vw);
+  max-height: 88vh;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.repo-mhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.repo-mtitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 600;
+}
+.repo-stale { flex-shrink: 0; font-size: 11px; color: var(--muted); }
+.repo-x {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.repo-x:hover { background: var(--fill); color: var(--text); }
+.repo-mbody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 14px;
+  overflow-y: auto;
+}
+.repo-hero { display: flex; flex-direction: column; gap: 8px; }
+.repo-desc { font-size: 13px; line-height: 1.6; color: var(--muted); }
+.repo-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.repo-tag { padding: 2px 8px; border-radius: 999px; background: var(--fill); color: var(--muted); font-size: 11px; }
+.repo-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.repo-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  text-decoration: none;
+  transition: border-color .15s var(--ease), color .15s var(--ease);
+}
+.repo-btn:hover { border-color: var(--primary); color: var(--primary); }
+.repo-push { font-size: 11.5px; color: var(--muted); }
+.repo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.repo-stat { padding: 9px 11px; border: 1px solid var(--border); border-radius: 11px; background: var(--fill); }
+.repo-stat-k { display: block; font-size: 11px; color: var(--muted); }
+.repo-stat-v {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.repo-sec { display: flex; flex-direction: column; gap: 7px; }
+.repo-sec-head { display: flex; align-items: baseline; gap: 8px; }
+.repo-sec-t { flex-shrink: 0; font-size: 13px; font-weight: 600; }
+.repo-sec-hint { font-size: 11px; color: var(--muted); }
+.repo-sec-link { margin-left: auto; font-size: 11.5px; color: var(--muted); text-decoration: none; }
+.repo-sec-link:hover { color: var(--primary); }
+.repo-langs { display: flex; flex-direction: column; gap: 8px; }
+.repo-lang-bar { display: flex; height: 10px; overflow: hidden; border-radius: 999px; background: var(--fill); }
+.repo-lang-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.repo-lang-item { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); }
+.repo-lang-item em { font-style: normal; color: var(--text); opacity: .8; }
+.repo-release { font-size: 13px; font-weight: 600; color: var(--primary); text-decoration: none; }
+.repo-release:hover { text-decoration: underline; }
+.repo-commits {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  list-style: none;
+}
+.repo-commit { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.repo-commit::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.repo-commit-msg { font-size: 12.5px; font-weight: 500; color: var(--text); text-decoration: none; }
+.repo-commit-msg:hover { text-decoration: underline; }
+.repo-commit-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.repo-commit-avatar { width: 15px; height: 15px; border-radius: 50%; }
+.repo-commit-author { color: var(--text); opacity: .75; }
+.repo-sha { padding: 1px 4px; border-radius: 4px; background: var(--fill); font-family: var(--mono); font-size: 10.5px; }
+.repo-contribs { display: flex; flex-wrap: wrap; gap: 7px; }
+.repo-contrib img { display: block; width: 34px; height: 34px; border-radius: 50%; transition: transform .15s var(--ease); }
+.repo-contrib:hover img { transform: scale(1.08); }
+.repo-empty { font-size: 12px; color: var(--muted); }
+.repo-alert { padding: 8px 10px; border-radius: 9px; background: var(--fill); font-size: 11.5px; line-height: 1.6; color: var(--muted); }
+.repo-skel { height: 10px; border-radius: 5px; background: var(--fill); }
+.repo-skel.w40 { width: 40%; }
+.repo-skel.w60 { width: 60%; }
+.repo-skel.w80 { width: 80%; }
+
+@media (max-width: 640px) {
+  .repo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

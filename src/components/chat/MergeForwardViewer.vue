@@ -60,7 +60,7 @@ useOverlay({
               rel="noopener"
             >📎 {{ it.name || tr('chat.file.defaultName') }}<span v-if="it.size"> · {{ fmtSize(it.size) }}</span></a>
             <div v-else class="merge-item-text">
-              <TextContent :text="it.content || ''" md />
+              <TextContent :text="it.content || ''" md :repos="false" />
             </div>
           </div>
         </div>

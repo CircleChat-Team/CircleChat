@@ -173,6 +173,47 @@ export interface ChatMessage {
 }
 
 /** 合并转发中的单条记录（type: 'merge' 消息的 content 解析结果） */
+/** GitHub 仓库的一次提交（GET /api/github/repo） */
+export interface RepoCommit {
+  sha: string;
+  message: string;
+  date: string;
+  author: string;
+  avatar: string | null;
+  url: string;
+}
+
+/** GitHub 仓库基础信息（消息里的仓库卡片） */
+export interface RepoBasic {
+  full: string;
+  owner: string;
+  name: string;
+  description: string | null;
+  stars: number;
+  forks: number;
+  watchers: number;
+  issues: number;
+  language: string | null;
+  license: string | null;
+  sizeKb: number;
+  topics: string[];
+  branch: string;
+  createdAt: string | null;
+  pushedAt: string | null;
+  commit: RepoCommit | null;
+  html: string;
+}
+
+/** GitHub 仓库详细信息（展开弹窗；GET /api/github/repo/detail） */
+export interface RepoDetail {
+  contributors: { login: string; avatar: string; url: string; contributions: number }[];
+  languages: Record<string, number>;
+  release: { tag: string; name: string; url: string; publishedAt: string } | null;
+  commits: RepoCommit[];
+  /** 取失败的分块（contributors / languages / release / commits），用于区分「没有」与「没取到」 */
+  failed: string[];
+}
+
 /** 搜索命中的一条消息（GET /api/messages/search）；content 是截断过的片段 */
 export interface SearchHit {
   idx: number;

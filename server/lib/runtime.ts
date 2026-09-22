@@ -24,6 +24,7 @@ import * as audit from './audit';
 import * as moderate from './moderate';
 import * as mailbox from './mailbox';
 import * as appconfig from './appconfig';
+import * as github from './github';
 import { fileKindOf } from './filetypes';
 import * as wsproto from './ws';
 import * as logger from './log';
@@ -1298,6 +1299,13 @@ const OAUTH_STATE_TTL = 10 * 60 * 1000;
 
 /** 授权请求的 state → { 模式, 发起的本地账号, 过期时间 }；一次性、10 分钟有效 */
 const oauthStates = new Map<string, { mode: 'login' | 'bind'; username: string; expires: number }>();
+
+/** GitHub 取数失败的原因码 → 前端文案键 */
+function githubErrorKey(code: string): string {
+  if (code === 'rate_limited') return 'github.rateLimited';
+  if (code === 'not_found') return 'github.notFound';
+  return 'github.failed';
+}
 
 function githubConfig(): { clientId: string; secret: string } {
   return { clientId: appconfig.get(GH_CFG_ID), secret: appconfig.get(GH_CFG_SECRET) };
@@ -3110,6 +3118,46 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     const found = store.searchMessages(q, scope, limit, offset);
     sendJSON(res, 200, { ok: true, hits: found.hits, total: found.total, q, scope: scope.kind });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/github/repo?repo=owner/name —— 消息里 GitHub 链接的仓库卡片（基础信息）
+  // 前端一次请求拿全卡片要的数据；服务端内部带缓存 + 并发合并，见 server/lib/github.ts
+  if (pathname === '/api/github/repo' && req.method === 'GET') {
+    const full = (urlObj.searchParams.get('repo') || '').trim();
+    if (!github.isValidFull(full)) {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    github.repoBasic(full).then((r) => {
+      const body: Record<string, unknown> = { ok: !!r.data, repo: r.data, stale: r.stale, at: r.at };
+      if (!r.data) body.error = githubErrorKey(r.error);
+      sendJSON(res, 200, body);
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch(() => {
+      sendJSON(res, 200, { ok: false, error: 'github.failed' });
+    });
+    return;
+  }
+
+  // GET /api/github/repo/detail?repo=owner/name —— 点开「展开详细信息」才取
+  // （贡献者 / 语言构成 / 最新发布 / 提交历史；仓库主信息卡片里已经有了，不重复取）
+  if (pathname === '/api/github/repo/detail' && req.method === 'GET') {
+    const full = (urlObj.searchParams.get('repo') || '').trim();
+    if (!github.isValidFull(full)) {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    github.repoDetail(full).then((r) => {
+      const body: Record<string, unknown> = { ok: !!r.data, detail: r.data, stale: r.stale, at: r.at };
+      if (!r.data) body.error = githubErrorKey(r.error);
+      sendJSON(res, 200, body);
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch(() => {
+      sendJSON(res, 200, { ok: false, error: 'github.failed' });
+    });
     return;
   }
 

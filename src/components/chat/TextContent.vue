@@ -8,6 +8,8 @@ import { chatState, tr, copyToClipboard } from '../../core/chat';
 import { renderMath, mathReady } from '../../core/math';
 import { renderMermaid } from '../../core/mermaid';
 import { theme } from '../../core/theme';
+import { extractRepos } from '../../core/github';
+import RepoCard from './RepoCard.vue';
 
 interface Token {
   t: 'text' | 'mention' | 'link' | 'code';
@@ -79,7 +81,10 @@ function copyCode(text?: string): void {
   copyToClipboard(text || '');
 }
 
-const props = defineProps<{ text: string; md?: boolean }>();
+const props = defineProps<{ text: string; md?: boolean; repos?: boolean }>();
+
+/** 正文里出现的 GitHub 仓库：卡片画在文本**下方**（合并转发的列表里关掉，免得一排卡片） */
+const repos = computed(() => (props.repos === false ? [] : extractRepos(props.text || '')));
 
 const blocks = computed<Block[]>(() => {
   const out: Block[] = [];
@@ -523,5 +528,8 @@ function onMdClick(e: Event): void {
         </template></span>
       </template>
     </template>
+
+    <!-- GitHub 仓库卡片：基础信息只走一次接口（见 core/github.ts 的共享缓存） -->
+    <RepoCard v-for="r in repos" :key="r" :repo="r" />
   </div>
 </template>

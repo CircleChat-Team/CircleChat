@@ -114,6 +114,8 @@ export interface ChatState {
   fileView: FileViewTarget | null;
   /** 视频模态播放器（消息里只显示预览图，点开才播放） */
   videoView: { src: string; name: string } | null;
+  /** 消息里 GitHub 链接的仓库详情弹窗（owner/name；见 components/chat/RepoModal.vue） */
+  repoView: string | null;
   reactTargetIdx: number | null;
   muted: boolean;
   mutedUntil: number | null;
@@ -180,6 +182,7 @@ const state = reactive<ChatState>({
   searchError: '',
   fileView: null,
   videoView: null,
+  repoView: null,
   reactTargetIdx: null,
   muted: false,
   mutedUntil: null,
@@ -1380,6 +1383,15 @@ export function openFileView(url: string, name?: string | null, size?: number | 
 }
 export function closeFileView(): void {
   state.fileView = null;
+}
+
+/** 打开 GitHub 仓库详情弹窗（卡片上的「展开详细信息」） */
+export function openRepoView(full: string): void {
+  const f = String(full || '').trim();
+  if (f) state.repoView = f;
+}
+export function closeRepoView(): void {
+  state.repoView = null;
 }
 
 /** 复制图片到剪贴板（失败返回 false，调用方可回退为复制地址） */

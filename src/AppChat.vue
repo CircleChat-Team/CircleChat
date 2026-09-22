@@ -36,6 +36,7 @@ import VideoViewer from './components/chat/VideoViewer.vue';
 import FileViewer from './components/chat/FileViewer.vue';
 import MemberPanel from './components/chat/MemberPanel.vue';
 import SearchPanel from './components/chat/SearchPanel.vue';
+import RepoModal from './components/chat/RepoModal.vue';
 import ForceChangePassword from './components/common/ForceChangePassword.vue';
 
 const title = computed(() => {
@@ -310,6 +311,7 @@ onMounted(refreshMailboxBadge);
 
       <MemberPanel v-model="membersOpen" />
       <SearchPanel />
+      <RepoModal />
     </main>
 
     <ProfileCard />
