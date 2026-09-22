@@ -81,10 +81,18 @@ function copyCode(text?: string): void {
   copyToClipboard(text || '');
 }
 
-const props = defineProps<{ text: string; md?: boolean; repos?: boolean }>();
+const props = defineProps<{ text: string; md?: boolean; hideRepos?: boolean }>();
 
-/** 正文里出现的 GitHub 仓库：卡片画在文本**下方**（合并转发的列表里关掉，免得一排卡片） */
-const repos = computed(() => (props.repos === false ? [] : extractRepos(props.text || '')));
+/**
+ * 正文里出现的 GitHub 仓库：卡片画在文本**下方**。
+ *
+ * 注意这里用「hideRepos 显式关闭」而不是「repos === false 判断」：
+ * defineProps 里声明成 boolean 的 prop 会被编译成运行时 Boolean 类型，
+ * 而 Vue 对**没传值**的 Boolean prop 一律取 false（`<Comp disabled />` 那套约定），
+ * 所以没传 repos 时拿到的是 false 而不是 undefined —— 用 `=== false` 判断会
+ * 让所有消息都走「关闭」分支，卡片永远不渲染。默认不传=开启，才符合直觉。
+ */
+const repos = computed(() => (props.hideRepos ? [] : extractRepos(props.text || '')));
 
 const blocks = computed<Block[]>(() => {
   const out: Block[] = [];
