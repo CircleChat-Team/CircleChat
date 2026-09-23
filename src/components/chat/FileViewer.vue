@@ -1,6 +1,9 @@
 <script setup lang="ts">
 /* ============================================================
- * 文件查看器：文本 / Hex / 图片 / 音频 / 视频
+ * 文件查看器：预览 / 文本 / Hex / 图片 / 音频 / 视频
+ *
+ * 预览（SVG / HTML / Markdown）走 core/preview.ts：内容**只在沙箱 iframe 里渲染**
+ * （HTML/MD）或**清理后当图片渲染**（SVG），本站 DOM 不接触这些内容。
  *
  * 判定**一律读文件头**（不看后缀）：
  *   媒体（图片/音频/视频）→ 交给 <img>/<audio>/<video> 自己流式加载，多大都能看
@@ -17,6 +20,14 @@ import { asset } from '../../core/api';
 import { fmtSize } from '../../core/format';
 import { tr } from '../../core/i18n';
 import { useOverlay } from '../../core/useOverlay';
+import { theme } from '../../core/theme';
+import {
+  MAX_PREVIEW_BYTES,
+  buildPreviewDoc,
+  detectPreview,
+  sanitizeSvg,
+  type PreviewKind
+} from '../../core/preview';
 import {
   MAX_VIEW_BYTES,
   byteChar,
@@ -47,6 +58,16 @@ const text = ref('');
 const lang = ref<string | null>(null);
 const highlighted = ref(false);
 const wrap = ref(true);
+/** 渲染预览（SVG / HTML / Markdown）；null = 这个文件没有预览形态 */
+const previewKind = ref<PreviewKind | null>(null);
+/** 预览 or 源码（两者都可用时由用户切） */
+const viewMode = ref<'preview' | 'text'>('text');
+/** HTML / Markdown 的沙箱文档（srcdoc） */
+const previewDoc = ref('');
+/** SVG 清理后转成图片：用 blob URL，不落 DOM、也不走站点同源文档 */
+const svgUrl = ref('');
+/** SVG 解析/清理失败 → 提示改看源码，而不是留一片空白 */
+const svgBroken = ref(false);
 /** 媒体预览失败（服务端没按媒体类型下发、或浏览器不支持该编码） */
 const mediaFailed = ref(false);
 
@@ -84,6 +105,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onWindowResize);
+  revokeSvg(); // 关窗/切页面时把 SVG 的 blob URL 回收掉
 });
 
 // 进入有滚动条的视图后量一次可视区（挂载前拿不到高度）
@@ -150,8 +172,11 @@ const txRows = computed(() => {
 /** 行号列宽度按最大行号算 */
 const noWidth = computed(() => Math.max(3, String(totalLines.value).length) + 'ch');
 
-/** 顶部标签：媒体/hex/纯文本/语言名 */
+/** 顶部标签：媒体/hex/预览类型/纯文本/语言名 */
 const tag = computed(() => {
+  if (phase.value === 'text' && previewKind.value && viewMode.value === 'preview') {
+    return previewKind.value === 'markdown' ? 'Markdown' : previewKind.value.toUpperCase();
+  }
   if (phase.value === 'hex') return tr('fileview.hex');
   if (phase.value === 'image') return tr('fileview.image');
   if (phase.value === 'audio') return tr('fileview.audio');
@@ -291,6 +316,48 @@ async function fetchHead(u: string, bytes = 4096): Promise<Uint8Array> {
   return out;
 }
 
+/**
+ * 生成预览内容。
+ * - HTML / Markdown：拼一个带 CSP 的文档字符串，交给 iframe 的 srcdoc（不生成 DOM）
+ * - SVG：清理后转成 blob URL，用 <img> 渲染（图片上下文里 SVG 不执行脚本）
+ */
+function buildPreview(): void {
+  const kind = previewKind.value;
+  if (kind === 'svg') {
+    const res = sanitizeSvg(text.value);
+    if (!res) {
+      svgBroken.value = true;
+      previewDoc.value = '';
+      return;
+    }
+    svgBroken.value = false;
+    revokeSvg();
+    try {
+      svgUrl.value = URL.createObjectURL(new Blob([res.svg], { type: 'image/svg+xml' }));
+    } catch (e) {
+      svgBroken.value = true;
+    }
+    return;
+  }
+  // base 指向文件所在目录，文档里的相对路径按文件自身位置解析
+  const dir = url.value.replace(/[^/]*$/, '');
+  previewDoc.value = buildPreviewDoc(kind === 'html' ? 'html' : 'markdown', text.value, {
+    base: dir,
+    theme: theme.value === 'dark' ? 'dark' : 'light'
+  });
+}
+
+/** 回收 SVG 的 blob URL（每次换文件/关窗都要做，否则一直占内存） */
+function revokeSvg(): void {
+  if (!svgUrl.value) return;
+  try {
+    URL.revokeObjectURL(svgUrl.value);
+  } catch (e) {
+    /* 忽略 */
+  }
+  svgUrl.value = '';
+}
+
 /** 整读（文本 / hex 需要完整内容；调用前已用文件头把媒体挡掉） */
 async function fetchAll(u: string): Promise<Uint8Array> {
   const res = await fetch(u, { credentials: 'same-origin' });
@@ -311,6 +378,11 @@ async function load(): Promise<void> {
   perLine.value = 16;
   hxHover.value = null;
   hxPick.value = null;
+  previewKind.value = null;
+  previewDoc.value = '';
+   svgBroken.value = false;
+  revokeSvg();
+  viewMode.value = 'text';
   try {
     // 1) 先看文件头：媒体（图片/音频/视频）交给标签自己流式加载，多大的文件都能看，
     //    也不必把内容读进内存
@@ -341,6 +413,14 @@ async function load(): Promise<void> {
     const l = detectLanguage(text.value);
     lang.value = l;
     phase.value = 'text'; // 先按纯文本显示，高亮器到位后自动升级，不用一直等
+    // 能渲染预览的（SVG / HTML / Markdown）默认给预览；超上限就只给文本/Hex
+    if (buf.length <= MAX_PREVIEW_BYTES) {
+      previewKind.value = detectPreview(text.value);
+      if (previewKind.value) {
+        buildPreview();
+        viewMode.value = 'preview';
+      }
+    }
     // 高亮条件：认得出语言 + 语言在 hljs 的 common 打包里 + 体积/单行长度没过闸
     if (l && shouldHighlight(text.value, buf.length)) {
       const h = await ensureHljs();
@@ -353,8 +433,17 @@ async function load(): Promise<void> {
 }
 
 watch(view, (v) => {
-  if (v) void load();
+  if (v) {
+    void load();
+    return;
+  }
+  revokeSvg(); // 关窗
 }, { immediate: true });
+
+// 主题变了要重建文档：markdown 预览的配色是写进文档里的
+watch(theme, () => {
+  if (previewKind.value && previewKind.value !== 'svg' && previewDoc.value) buildPreview();
+});
 
 useOverlay({
   isOpen: () => !!view.value,
@@ -374,9 +463,24 @@ useOverlay({
         >{{ tag }}</span>
         <span class="fileview-size">{{ fmtSize(view.size) }}</span>
         <div class="fileview-actions">
+          <!-- 能渲染的（SVG / HTML / Markdown）：预览与源码之间切换 -->
+          <template v-if="phase === 'text' && previewKind">
+            <button
+              type="button"
+              class="fv-btn"
+              :class="{ on: viewMode === 'preview' }"
+              @click="viewMode = 'preview'"
+            >{{ tr('fileview.previewMode') }}</button>
+            <button
+              type="button"
+              class="fv-btn"
+              :class="{ on: viewMode === 'text' }"
+              @click="viewMode = 'text'"
+            >{{ tr('fileview.source') }}</button>
+          </template>
           <!-- 大文本是虚拟滚动（固定行高），换行会让行高不定，所以只在整篇渲染时给 -->
           <button
-            v-if="phase === 'text' && !virtualText"
+            v-if="phase === 'text' && !virtualText && viewMode === 'text'"
             type="button"
             class="fv-btn"
             :class="{ on: wrap }"
@@ -467,6 +571,36 @@ useOverlay({
           </div>
 
           <div class="hx-status">{{ hexInfo }}</div>
+        </div>
+
+        <!-- 渲染预览：内容只活在沙箱 iframe / 图片里，不与本站 DOM 同源 -->
+        <div
+          v-else-if="phase === 'text' && previewKind && viewMode === 'preview'"
+          class="pv-wrap"
+          :class="{ 'pv-wrap-frame': previewKind !== 'svg' }"
+        >
+          <p v-if="svgBroken" class="fileview-msg">
+            {{ tr('fileview.svgBroken') }}
+            <button type="button" class="fv-btn" @click="viewMode = 'text'">{{ tr('fileview.source') }}</button>
+          </p>
+          <!-- SVG：清理后当图片渲染（图片上下文里不执行脚本、不取外部资源） -->
+          <img
+            v-else-if="previewKind === 'svg'"
+            class="pv-svg"
+            :src="svgUrl"
+            :alt="view.name || ''"
+            @error="svgBroken = true"
+          >
+          <!-- HTML / Markdown：sandbox 里没有 allow-scripts / allow-same-origin，
+               文档内另有 CSP default-src 'none'，两层都挡脚本与外部请求 -->
+          <iframe
+            v-else
+            class="pv-frame"
+            sandbox=""
+            referrerpolicy="no-referrer"
+            :srcdoc="previewDoc"
+            :title="view.name || 'preview'"
+          ></iframe>
         </div>
 
         <!-- 文本：行号 + 内容；行数多时只渲染可视区（虚拟滚动） -->

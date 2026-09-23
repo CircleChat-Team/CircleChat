@@ -166,7 +166,7 @@ onMounted(load);
           v-model="keyword"
           type="text"
           maxlength="64"
-          class="h-[30px] w-32 rounded-lg border border-line bg-fill px-2.5 text-xs outline-none transition-colors focus:border-primary"
+          class="files-search h-[30px] w-32 rounded-lg border border-line bg-fill px-2.5 text-xs outline-none transition-colors focus:border-primary"
           :placeholder="tr('admin.files.searchPlaceholder')"
           @keydown.enter.prevent="load"
         >
@@ -208,7 +208,7 @@ onMounted(load);
       <div
         v-for="f in items"
         :key="f.name"
-        class="flex items-center gap-2 rounded-xl bg-fill px-2.5 py-1.5 text-xs"
+        class="file-row flex items-center gap-2 rounded-xl bg-fill px-2.5 py-1.5 text-xs"
         :class="{ 'opacity-80': !f.used }"
       >
         <input
@@ -237,7 +237,7 @@ onMounted(load);
 
         <button
           type="button"
-          class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
+          class="file-view shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
           @click="viewFile(f)"
         >
           {{ tr('chat.file.view') }}

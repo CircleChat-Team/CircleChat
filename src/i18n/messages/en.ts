@@ -756,7 +756,10 @@ const dict: Record<string, string> = {
   "admin.logGroup.admin": "Admin actions",
   "admin.logGroup.mod": "Moderation",
   "admin.action.captcha": "Human verification changed",
-  "admin.action.fileDelBatch": "Files deleted in batch"
+  "admin.action.fileDelBatch": "Files deleted in batch",
+  "fileview.previewMode": "Preview",
+  "fileview.source": "Source",
+  "fileview.svgBroken": "This SVG could not be parsed — showing the source instead."
 };
 
 export default dict;

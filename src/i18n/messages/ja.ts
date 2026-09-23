@@ -756,7 +756,10 @@ const dict: Record<string, string> = {
   "admin.logGroup.admin": "管理操作",
   "admin.logGroup.mod": "違反対応",
   "admin.action.captcha": "人機認証の変更",
-  "admin.action.fileDelBatch": "ファイル一括削除"
+  "admin.action.fileDelBatch": "ファイル一括削除",
+  "fileview.previewMode": "プレビュー",
+  "fileview.source": "ソース",
+  "fileview.svgBroken": "この SVG は解析できませんでした。ソースを表示します。"
 };
 
 export default dict;
