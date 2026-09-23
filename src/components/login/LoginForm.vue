@@ -2,12 +2,13 @@
 /* ============================================================
  * 登录表单
  * ============================================================ */
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { get, post } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { redirectAfterLogin } from '../../core/nav';
 import ForceChangePassword from '../common/ForceChangePassword.vue';
 import CaptchaField from '../common/CaptchaField.vue';
+import AppealForm from '../common/AppealForm.vue';
 
 const props = defineProps<{ initialUser?: string }>();
 
@@ -16,6 +17,10 @@ const pass = ref('');
 const showPass = ref(false);
 const loading = ref(false);
 const err = ref('');
+/** 保留服务端给的原始错误键：用来判断「是不是因为被封禁才登不进来」 */
+const errKey = ref('');
+/** 封禁提示下方的申诉表单是否展开 */
+const appealOpen = ref(false);
 
 // 图形验证码：值在父组件，id 在子组件里（提交时取）
 const captchaText = ref('');
@@ -93,6 +98,7 @@ async function submit(): Promise<void> {
       loading.value = false;
       // error 既可能是 i18n 键，也可能是服务端直出的中文；
       // I18N.t 对未知键原样返回，两种情况都能正确显示
+      errKey.value = String(j.error || '');
       err.value = tr(j.error || 'login.err.failed');
       refreshCaptcha(); // 这次提交已经把验证码用掉了
     })
@@ -135,6 +141,9 @@ async function verify2fa(): Promise<void> {
       twofaErr.value = tr('login.err.network');
     });
 }
+/** 登不进来是因为被封禁（封号 / IP 封号）——这时才需要引导申诉 */
+const isBannedErr = computed(() => errKey.value === 'api.login.banned' || errKey.value === 'api.login.ipBanned');
+
 function backToLogin(): void {
   need2fa.value = false;
   twofaErr.value = '';
@@ -197,6 +206,19 @@ function backToLogin(): void {
     </button>
 
     <p v-if="err" class="text-center text-xs text-danger">{{ err }}</p>
+
+    <!-- 被封禁的人根本登不进来，这里就近给一个申诉入口（用户名已填好） -->
+    <template v-if="isBannedErr">
+      <button
+        type="button"
+        class="appeal-inline text-center text-xs text-primary transition-opacity hover:opacity-80"
+        @click="appealOpen = !appealOpen"
+      >{{ tr('mod.appeal.open') }}</button>
+      <div v-if="appealOpen" class="appeal-box rounded-xl border border-line bg-fill p-3">
+        <p class="mb-2 text-[11px] leading-relaxed text-muted">{{ tr('mod.appeal.loginHint') }}</p>
+        <AppealForm need-credentials :initial-user="user" />
+      </div>
+    </template>
 
     <!-- 第三方登录：仅管理员在管理面板配好 GitHub OAuth 后才显示 -->
     <template v-if="githubOn">

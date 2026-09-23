@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue';
-import { chatState, sendText, uploadFiles, notifyTyping, dmgating, sendShake, canShake } from '../../core/chat';
+import { chatState, sendText, uploadFiles, notifyTyping, dmgating, sendShake, canShake, openMyProfile } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import EmojiPanel from './EmojiPanel.vue';
 import UploadProgress from './UploadProgress.vue';
@@ -232,6 +232,12 @@ function onShake(): void {
 
     <div v-if="mutedText" class="reply-bar muted-bar">
       <span class="reply-text">{{ mutedText }}</span>
+      <!-- 被禁言的人最想知道「怎么办」：直接给申诉入口（打开资料的处罚页签） -->
+      <button
+        type="button"
+        class="muted-appeal shrink-0 text-xs underline transition-opacity hover:opacity-80"
+        @click="openMyProfile('penalty')"
+      >{{ tr('mod.appeal.open') }}</button>
     </div>
 
     <UploadProgress />

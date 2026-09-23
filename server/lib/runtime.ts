@@ -1694,6 +1694,60 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
+  // POST /api/appeal —— 提交申诉 {reason}；未登录时另需 {username, password}
+  //   ⚠️ 这个接口必须放在「以下接口均需登录」那道闸门**之前**：
+  //   被封禁的人根本登不进来，未登录也要能申诉。所以这里自己读 cookie 判断是否已登录，
+  //   未登录时用「用户名 + 密码」证明身份，并沿用登录那套 IP 失败锁定
+  //   （否则这里就成了一个可以无限试密码的撞库探针）。
+  if (pathname === '/api/appeal' && req.method === 'POST') {
+    const whoCookie = auth.authByCookie(req.headers.cookie);
+    if (auth.isLocked(ip)) {
+      sendJSON(res, 429, { ok: false, error: 'api.login.rateLimited' });
+      logger.write({ ip, method: req.method, url: pathname, status: 429, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const reason = o && typeof o.reason === 'string' ? o.reason.trim() : '';
+      // 已登录就用会话里的身份（禁言/警告用户走这条）；否则下面用账号密码认人
+      let who = whoCookie ? whoCookie.username : '';
+      if (!who) {
+        const name = o && typeof o.username === 'string' ? o.username.trim() : '';
+        const pass = o && typeof o.password === 'string' ? o.password : '';
+        // 直接用 auth.login 只做「账号 + 密码」校验：这里**不能**用带封禁拦截的登录流程，
+        // 被处罚的人恰恰是要申诉的那批人（auth.login 不建会话、不拦封禁）
+        const u = name && pass ? auth.login(name, pass) : null;
+        if (!u) {
+          auth.recordFail(ip);
+          sendJSON(res, 403, { ok: false, error: 'api.login.badCredentials' });
+          logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        auth.clearFails(ip);
+        who = name;
+      }
+      const r = moderate.addAppeal({ user: who, ip, reason });
+      if (!r.ok) {
+        sendJSON(res, 400, { ok: false, error: r.code });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      audit.add({
+        actor: who,
+        action: 'mod.appeal',
+        target: who,
+        detail: auditDetail('log.detail.mod.appeal', { reason: reason.slice(0, 60) }),
+        ip
+      });
+      sendJSON(res, 200, { ok: true, id: r.id });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
   // 以下接口均需登录
   const me = auth.authByCookie(req.headers.cookie);
   if (!me) {
@@ -1743,6 +1797,13 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     const penalties = moderate.listPenaltiesFor(me.username, ip);
     const status = moderate.statusOf(me.username, ip);
     sendJSON(res, 200, { ok: true, penalties, status });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/me/appeals —— 我提交过的申诉（含处理结果与备注）
+  if (pathname === '/api/me/appeals' && req.method === 'GET') {
+    sendJSON(res, 200, { ok: true, appeals: moderate.listAppealsFor(me.username) });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -2287,6 +2348,65 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         if (!res2.ok) { sendJSON(res, 400, { ok: false, error: res2.code }); return; }
         audit.add({ actor: me.username, action: 'mod.punish', target: id, detail: auditDetail('log.detail.punish', { type: o.type, id: res2.id }), ip });
         sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
+    // GET /api/admin/appeals?status= —— 申诉列表（pending / approved / rejected，省略=全部）
+    if (pathname === '/api/admin/appeals' && req.method === 'GET') {
+      const status = urlObj.searchParams.get('status') || '';
+      if (status && ['pending', 'approved', 'rejected'].indexOf(status) === -1) {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      sendJSON(res, 200, { ok: true, appeals: moderate.listAppeals(status || undefined) });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // POST /api/admin/appeals/handle —— 处理申诉 {id, action: approve|reject, note?}
+    //   approve = 通过并**自动撤销关联的那条处罚**
+    if (pathname === '/api/admin/appeals/handle' && req.method === 'POST') {
+      readBody(req, 4096).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const id = Number(o && o.id);
+        const action = o && typeof o.action === 'string' ? o.action : '';
+        const note = o && typeof o.note === 'string' ? o.note.trim().slice(0, 200) : '';
+        if (!Number.isInteger(id) || id <= 0) {
+          sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        // 驳回必须写理由：备注会随站内通知发给本人，不写等于没解释（前端也拦了一道，这里兜底）
+        if (action === 'reject' && !note) {
+          sendJSON(res, 400, { ok: false, error: 'mod.appeal.noteRequired' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        const r = moderate.handleAppeal(id, action, me.username, note);
+        if (!r.ok) {
+          const code = r.code === 'mod.appealGone' ? 404 : 400;
+          sendJSON(res, code, { ok: false, error: r.code });
+          logger.write({ ip, method: req.method, url: pathname, status: code, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        audit.add({
+          actor: me.username,
+          action: action === 'approve' ? 'mod.appeal.approve' : 'mod.appeal.reject',
+          target: 'appeal#' + id,
+          detail: auditDetail('log.detail.mod.appealHandle', {
+            id: String(id),
+            penalty: r.penaltyId == null ? '-' : String(r.penaltyId),
+            note: note || '-'
+          }),
+          ip
+        });
+        sendJSON(res, 200, { ok: true, penaltyId: r.penaltyId });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
         sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });

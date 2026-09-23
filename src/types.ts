@@ -141,6 +141,30 @@ export interface PenaltyItem {
   revoked_at?: number | null;
 }
 
+/** 处罚申诉（POST /api/appeal、GET /api/me/appeals、GET /api/admin/appeals） */
+export interface AppealItem {
+  id: number;
+  /** 关联的处罚 id（处罚被删时可能为 null） */
+  penalty_id?: number | null;
+  user: string;
+  /** 提交时那条处罚的类型快照 */
+  type?: string | null;
+  reason?: string | null;
+  created?: number | null;
+  status: string;
+  handled_by?: string | null;
+  handled_at?: number | null;
+  /** 管理员处理备注（驳回理由等） */
+  note?: string | null;
+  /** 关联处罚的快照（管理端列表用，来自 LEFT JOIN） */
+  penalty_type?: string | null;
+  penalty_reason?: string | null;
+  penalty_target?: string | null;
+  penalty_created?: number | null;
+  penalty_expires?: number | null;
+  penalty_active?: boolean;
+}
+
 /** 聊天消息（GET /api/messages、WS 下发 msg） */
 export interface ChatMessage {
   idx?: number;

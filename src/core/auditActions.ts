@@ -48,6 +48,9 @@ export const ACTION_KEYS: Record<string, string> = {
   'mod.dismiss': 'admin.action.modDismiss',
   'mod.punish': 'admin.action.modPunish',
   'mod.revoke': 'admin.action.modRevoke',
+  'mod.appeal': 'admin.action.modAppeal',
+  'mod.appeal.approve': 'admin.action.modAppealApprove',
+  'mod.appeal.reject': 'admin.action.modAppealReject',
   'twofa.setup': 'admin.action.twofaSetup',
   'twofa.enable': 'admin.action.twofaEnable',
   'twofa.disable': 'admin.action.twofaDisable',
@@ -119,7 +122,7 @@ export const ACTION_GROUPS: ActionGroup[] = [
   {
     key: 'mod',
     label: 'admin.logGroup.mod',
-    actions: ['mod.dismiss', 'mod.punish', 'mod.revoke']
+    actions: ['mod.dismiss', 'mod.punish', 'mod.revoke', 'mod.appeal', 'mod.appeal.approve', 'mod.appeal.reject']
   }
 ];
 

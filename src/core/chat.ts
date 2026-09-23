@@ -83,6 +83,8 @@ export interface ChatState {
   profileOpen: boolean;
   profile: ProfileData | null;
   myProfileOpen: boolean;
+  /** 打开个人资料时想直接落到哪个页签（输入区禁言横幅的「申诉」用它） */
+  profileTab: 'profile' | 'security' | 'penalty' | null;
   styleOpen: boolean;
   friendSearchOpen: boolean;
   groupDialogOpen: boolean;
@@ -159,6 +161,7 @@ const state = reactive<ChatState>({
   profileOpen: false,
   profile: null,
   myProfileOpen: false,
+  profileTab: null,
   styleOpen: false,
   friendSearchOpen: false,
   groupDialogOpen: false,
@@ -1509,7 +1512,8 @@ export function closeProfile(): void {
   state.profile = null;
 }
 
-export function openMyProfile(): void {
+export function openMyProfile(tab?: 'profile' | 'security' | 'penalty'): void {
+  state.profileTab = tab || null;
   state.myProfileOpen = true;
 }
 export function openStyle(): void {

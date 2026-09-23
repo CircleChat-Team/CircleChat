@@ -1,14 +1,16 @@
 <script setup lang="ts">
 /* ============================================================
- * 社区治理卡片：举报审核 + 处罚管理
+ * 社区治理卡片：举报审核 + 处罚管理 + 申诉处理
  * 处罚：警告 / 禁言 / 封禁 / IP 封禁（后三者可设时长 ≤3650 天或永久）
+ * 申诉：被处罚的人提交；**通过会自动撤销关联的那条处罚**，驳回要写备注（备注会通知到本人）
  * ============================================================ */
-import { ref, inject, onMounted, reactive } from 'vue';
+import { computed, inject, onMounted, reactive, ref } from 'vue';
 import { get, post } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { confirm } from '../../core/dialog';
 import { fmtDate } from '../../core/format';
-import type { ReportItem, PenaltyItem } from '../../types';
+import { appealStatusKey } from '../../core/appeal';
+import type { AppealItem, ReportItem, PenaltyItem } from '../../types';
 
 type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
@@ -16,6 +18,12 @@ const toast = inject<ToastFn>('toast', () => {});
 const reports = ref<ReportItem[]>([]);
 const penalties = ref<PenaltyItem[]>([]);
 const failed = ref('');
+
+// 申诉：默认只看待处理，可切到全部
+const appeals = ref<AppealItem[]>([]);
+const appealFilter = ref<'pending' | 'all'>('pending');
+/** 每条申诉的处理备注（会随站内通知发给本人） */
+const appealNote = reactive<Record<number, string>>({});
 
 // 手动新增处罚表单
 const form = reactive({ type: 'warning', target: '', days: 1, permanent: false, reason: '' });
@@ -40,9 +48,53 @@ function load(): void {
     failed.value = '';
     reports.value = (jr.reports as ReportItem[]) || [];
     penalties.value = (jp.penalties as PenaltyItem[]) || [];
+    loadAppeals();
   }).catch(() => {
     failed.value = 'common.loadFailed';
   });
+}
+
+/** 拉申诉列表（一次拿全量，待处理/全部在本地切） */
+function loadAppeals(): void {
+  get('/api/admin/appeals?status=').then((j) => {
+    appeals.value = (j && j.ok ? (j.appeals as AppealItem[]) : []) || [];
+  }).catch(() => {
+    appeals.value = [];
+  });
+}
+
+/** 当前展示哪些申诉 */
+const visibleAppeals = computed(() =>
+  appealFilter.value === 'pending' ? appeals.value.filter((a) => a.status === 'pending') : appeals.value
+);
+const pendingAppealCount = computed(() => appeals.value.filter((a) => a.status === 'pending').length);
+
+/**
+ * 处理申诉。
+ * 通过：服务端会顺手撤销关联处罚，本人立刻恢复（禁言的能发言、封禁的能登录）。
+ * 驳回：备注会随站内通知一起发给本人，所以要求必填 —— 不写理由的驳回等于没解释。
+ */
+function handleAppeal(a: AppealItem, action: 'approve' | 'reject'): void {
+  const note = String(appealNote[a.id] || '').trim();
+  if (action === 'reject' && !note) { toast(tr('mod.appeal.noteRequired')); return; }
+  const run = (): void => {
+    post('/api/admin/appeals/handle', { id: a.id, action, note }).then((j) => {
+      toast(j.ok ? tr(action === 'approve' ? 'mod.appeal.approved' : 'mod.appeal.rejected') : tr(j.error || 'common.opFailed'));
+      if (j.ok) {
+        appealNote[a.id] = '';
+        load();
+      }
+    });
+  };
+  if (action === 'approve') {
+    confirm({
+      title: tr('mod.appeal.approveTitle'),
+      text: tr('mod.appeal.approveConfirm', { user: a.user, type: typeText(String(a.penalty_type || a.type || '')) }),
+      okText: tr('mod.appeal.approve')
+    }).then((ok) => { if (ok) run(); });
+    return;
+  }
+  run();
 }
 
 /** 忽略举报 */
@@ -172,6 +224,76 @@ onMounted(load);
             @click="dismiss(r)"
           >{{ tr('mod.dismiss') }}</button>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 申诉 -->
+  <section class="rounded-card border border-line bg-panel p-4">
+    <div class="mb-3 flex flex-wrap items-center gap-2">
+      <h2 class="text-[13px] font-semibold text-muted">
+        {{ tr('mod.appeals.title') }}
+        <span class="font-normal">{{ pendingAppealCount }}</span>
+      </h2>
+      <div class="ml-auto flex items-center gap-1.5">
+        <button
+          type="button"
+          class="appeal-tab rounded-lg border px-2.5 py-1 text-xs transition-colors"
+          :class="appealFilter === 'pending' ? 'border-primary text-primary' : 'border-line hover:border-primary hover:text-primary'"
+          @click="appealFilter = 'pending'"
+        >{{ tr('mod.appeals.pending') }}</button>
+        <button
+          type="button"
+          class="appeal-tab rounded-lg border px-2.5 py-1 text-xs transition-colors"
+          :class="appealFilter === 'all' ? 'border-primary text-primary' : 'border-line hover:border-primary hover:text-primary'"
+          @click="appealFilter = 'all'"
+        >{{ tr('mod.appeals.all') }}</button>
+      </div>
+    </div>
+
+    <div class="flex flex-col gap-2">
+      <p v-if="!visibleAppeals.length" class="py-2.5 text-center text-xs text-muted">
+        {{ tr(appealFilter === 'pending' ? 'mod.appeals.empty' : 'mod.appeals.emptyAll') }}
+      </p>
+
+      <div v-for="a in visibleAppeals" :key="a.id" class="appeal-row rounded-xl bg-fill px-3 py-2.5 text-[13px]">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+          <span class="font-medium text-ink">{{ a.user }}</span>
+          <span v-if="a.penalty_type" class="shrink-0 rounded bg-panel px-1.5 py-0.5 text-[11px]">{{ typeText(a.penalty_type) }}</span>
+          <span v-if="a.status !== 'pending'" class="shrink-0">{{ tr(appealStatusKey(a.status)) }}</span>
+          <span class="ml-auto">{{ fmtDate(a.created) }}</span>
+        </div>
+
+        <p class="mt-1.5 break-words rounded-lg bg-panel px-2.5 py-1.5 text-xs">{{ a.reason || '-' }}</p>
+        <p class="mt-1 text-[11px] leading-relaxed text-muted">
+          {{ tr('mod.appeal.penaltyInfo', { type: typeText(String(a.penalty_type || a.type || '')), reason: a.penalty_reason || '-', date: fmtDate(a.penalty_created) }) }}
+          <span v-if="a.penalty_active" class="text-danger">{{ tr('mod.appeal.stillActive') }}</span>
+          <span v-else>{{ tr('mod.appeal.inactive') }}</span>
+        </p>
+
+        <div v-if="a.status === 'pending'" class="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            v-model="appealNote[a.id]"
+            type="text"
+            maxlength="200"
+            class="appeal-note h-7 min-w-40 flex-1 rounded-lg border border-line bg-panel px-2 text-xs outline-none transition-colors focus:border-primary"
+            :placeholder="tr('mod.appeal.notePlaceholder')"
+          >
+          <button
+            type="button"
+            class="appeal-approve h-7 shrink-0 rounded-lg bg-primary px-2.5 text-xs text-white transition-colors hover:bg-primary-dark"
+            @click="handleAppeal(a, 'approve')"
+          >{{ tr('mod.appeal.approve') }}</button>
+          <button
+            type="button"
+            class="appeal-reject h-7 shrink-0 rounded-lg border border-line bg-panel px-2.5 text-xs transition-colors hover:border-danger hover:text-danger"
+            @click="handleAppeal(a, 'reject')"
+          >{{ tr('mod.appeal.reject') }}</button>
+        </div>
+        <p v-else class="mt-1 text-[11px] text-muted">
+          {{ tr('mod.appeal.handledBy', { by: a.handled_by || '-', date: fmtDate(a.handled_at) }) }}
+          <span v-if="a.note"> · {{ tr('mod.appeal.note') }} {{ a.note }}</span>
+        </p>
       </div>
     </div>
   </section>

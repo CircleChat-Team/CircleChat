@@ -573,6 +573,10 @@ const LOCK_MS = 10 * 60 * 1000; // 锁定 10 分钟
 export function isLocked(ip: string): boolean {
   const rec = failMap.get(ip);
   if (!rec) return false;
+  // 还没锁上（until 还是 0）时**不能**当过期删掉：以前这里写成 `Date.now() > rec.until`，
+  // 而每次请求开头都会调 isLocked，于是计数每次都被清零 → 攒够 5 次永远不可能，
+  // 失败锁定等于没生效。只有「真的锁过、且已经过期」才清除记录。
+  if (!rec.until) return false;
   if (Date.now() > rec.until) { failMap.delete(ip); return false; }
   return true;
 }

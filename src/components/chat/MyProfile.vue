@@ -6,7 +6,7 @@
  * 各编辑块已拆为独立子组件（profile/ 目录），此处负责弹层、
  * Tab 状态与处罚状态（供身份块与处罚列表共用）的统一拉取。
  * ============================================================ */
-import { ref, computed, onMounted } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { get } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { chatState, closeMyProfile } from '../../core/chat';
@@ -33,6 +33,15 @@ const tabs: TabItem[] = [
   { k: 'penalty', key: 'profile.tab.penalty', icon: ICON_GAVEL }
 ];
 const activeTab = ref<TabKey>('profile');
+
+// 别处（输入区禁言横幅的「申诉」）可以指定打开时落在哪个页签
+watch(
+  () => chatState.myProfileOpen && chatState.profileTab,
+  (t) => {
+    if (t) activeTab.value = t as TabKey;
+  },
+  { immediate: true }
+);
 
 // 处罚状态（身份块徽标 + 处罚列表共用，统一在打开时拉取一次）
 const penalties = ref<PenaltyItem[]>([]);

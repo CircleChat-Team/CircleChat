@@ -12,11 +12,14 @@ import LoginForm from './components/login/LoginForm.vue';
 import RegisterForm from './components/login/RegisterForm.vue';
 import AppFooter from './components/common/AppFooter.vue';
 import DownloadClient from './components/common/DownloadClient.vue';
+import AppealForm from './components/common/AppealForm.vue';
 
 type Mode = 'login' | 'register';
 
 const mode = ref<Mode>('login');
 const user = ref('');
+/** 登录页的常驻申诉入口（不一定要先试一次登录） */
+const appealOpen = ref(false);
 
 // 内置管理员仍用默认密码时，登录页提示（便于不看 README 的人）
 const defaultAdmin = ref<string | null>(null);
@@ -75,6 +78,19 @@ function onRegistered(name: string): void {
       >
         {{ tr(mode === 'login' ? 'reg.toggle' : 'reg.back') }}
       </button>
+
+      <!-- 申诉入口：被封禁的人登不进来，得在登录页就能提交（要用户名 + 密码证明身份） -->
+      <div class="mt-3">
+        <button
+          type="button"
+          class="appeal-link w-full text-center text-xs text-muted transition-colors hover:text-ink"
+          @click="appealOpen = !appealOpen"
+        >{{ tr('mod.appeal.entry') }}</button>
+        <div v-if="appealOpen" class="appeal-box mt-2 rounded-xl border border-line bg-fill p-3">
+          <p class="mb-2 text-[11px] leading-relaxed text-muted">{{ tr('mod.appeal.loginHint') }}</p>
+          <AppealForm need-credentials />
+        </div>
+      </div>
 
       <!-- 桌面客户端里不显示（见组件内判断） -->
       <DownloadClient />

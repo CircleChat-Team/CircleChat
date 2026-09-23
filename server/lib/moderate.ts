@@ -1,6 +1,7 @@
 // CircleChat 私人聊天服务器 — 社区治理模块（Nitro 版，对应 lib/moderate.js）
-// 提供：消息举报（reports）+ 管理员处罚（penalties）。
+// 提供：消息举报（reports）+ 管理员处罚（penalties）+ 处罚申诉（appeals）。
 // 处罚类型：warning 警告 / mute 禁言 / ban 封禁 / ipban IP封禁。
+// 申诉：被处罚的人可以申诉一次；管理员通过则自动撤销关联的那条处罚。
 // mute / ban / ipban 均可设置时长（最长 3650 天）或永久；warning 仅记录。
 // 表结构由本模块 open() 自行维护（启动时首次访问自动建表）。
 import fs from 'node:fs';
@@ -53,6 +54,20 @@ function open(): DatabaseSync {
     );
     CREATE INDEX IF NOT EXISTS idx_penalties_target ON penalties(target);
     CREATE INDEX IF NOT EXISTS idx_penalties_expires ON penalties(expires);
+    CREATE TABLE IF NOT EXISTS appeals (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      penalty_id INTEGER,
+      user       TEXT NOT NULL,
+      type       TEXT,
+      reason     TEXT,
+      created    INTEGER,
+      status     TEXT DEFAULT 'pending',
+      handled_by TEXT,
+      handled_at INTEGER,
+      note       TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_appeals_status ON appeals(status);
+    CREATE INDEX IF NOT EXISTS idx_appeals_user ON appeals(user);
   `);
   return db;
 }
@@ -231,6 +246,104 @@ export function blockFor(user: string, ip: string | null, now?: number): { muted
 /** 是否存在被封禁/被禁言（登录或发消息前调用）。 */
 export function statusOf(user: string, ip: string | null): { muted: boolean; mutedUntil: number | null; banned: boolean; bannedUntil: number | null; ipBanned: boolean } {
   return blockFor(user, ip);
+}
+
+// ---------- 申诉 ----------
+
+/** 申诉理由长度（太短说明没写清楚，太长没必要） */
+const APPEAL_MIN = 3;
+const APPEAL_MAX = 500;
+/** 同一用户两次申诉之间的最短间隔：防止反复提交刷管理面板（5 分钟，别把人卡太久） */
+const APPEAL_COOLDOWN_MS = 5 * 60 * 1000;
+
+/** 一条处罚记录是否仍然生效 */
+function stillActive(row: Record<string, unknown>, now: number): boolean {
+  return !row.revoked && (row.expires == null || Number(row.expires) > now);
+}
+
+/**
+ * 某人当前还在生效的**最近一条**处罚（账号类，外加当前 IP 的 IP 封禁）。
+ * 申诉必须挂在具体某条处罚上，所以先把它找出来；没有就说明没什么可申诉的。
+ */
+export function activePenaltyFor(user: string, ip: string | null): Record<string, unknown> | null {
+  const now = Date.now();
+  const rows = open().prepare(
+    'SELECT * FROM penalties WHERE revoked = 0 AND (expires IS NULL OR expires > ?) ' +
+    "AND (target = ? OR (type = 'ipban' AND target = ?)) ORDER BY created DESC"
+  ).all(now, String(user), String(ip || '')) as Record<string, unknown>[];
+  for (const r of rows) if (stillActive(r, now)) return r;
+  return null;
+}
+
+/**
+ * 提交申诉。
+ * 三道闸：有在生效的处罚 → 没有待处理的申诉 → 距上次申诉已过冷却时间。
+ * 身份校验由调用方负责（未登录时要求用户名 + 密码），这里只管业务规则。
+ */
+export function addAppeal(params: { user: string; ip?: string | null; reason: string }): { ok: boolean; code?: string; id?: number } {
+  const user = String(params.user || '').trim();
+  if (!user) return { ok: false, code: 'mod.appealBadUser' };
+  const reason = String(params.reason || '').trim();
+  if (reason.length < APPEAL_MIN || reason.length > APPEAL_MAX) return { ok: false, code: 'mod.appealReasonInvalid' };
+  const pen = activePenaltyFor(user, params.ip || null);
+  if (!pen) return { ok: false, code: 'mod.appealNoPenalty' };
+  const d = open();
+  const now = Date.now();
+  const last = d.prepare('SELECT status, created FROM appeals WHERE user = ? ORDER BY created DESC LIMIT 1')
+    .get(user) as { status: string; created: number } | undefined;
+  if (last) {
+    if (String(last.status) === 'pending') return { ok: false, code: 'mod.appealPending' };
+    if (now - Number(last.created) < APPEAL_COOLDOWN_MS) return { ok: false, code: 'mod.appealTooSoon' };
+  }
+  const res = d.prepare(
+    'INSERT INTO appeals (penalty_id, user, type, reason, created, status) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(Number(pen.id), user, String(pen.type || ''), reason, now, 'pending');
+  return { ok: true, id: Number(res.lastInsertRowid) };
+}
+
+/** 申诉列表（新→旧），带关联处罚的快照，省得管理面板再查一遍。status 省略=全部 */
+export function listAppeals(status?: string): Record<string, unknown>[] {
+  const now = Date.now();
+  const sql = 'SELECT a.*, p.type AS penalty_type, p.reason AS penalty_reason, p.target AS penalty_target, ' +
+    'p.created AS penalty_created, p.expires AS penalty_expires, p.revoked AS penalty_revoked ' +
+    'FROM appeals a LEFT JOIN penalties p ON p.id = a.penalty_id' +
+    (status ? ' WHERE a.status = ?' : '') + ' ORDER BY a.created DESC';
+  const rows = (status ? open().prepare(sql).all(String(status)) : open().prepare(sql).all()) as Record<string, unknown>[];
+  return rows.map((r) => ({
+    ...r,
+    penalty_active: r.penalty_revoked != null
+      ? stillActive({ revoked: r.penalty_revoked, expires: r.penalty_expires }, now)
+      : false
+  }));
+}
+
+/** 某人自己的申诉（新→旧） */
+export function listAppealsFor(user: string): Record<string, unknown>[] {
+  const all = listAppeals();
+  return all.filter((r) => String(r.user) === String(user));
+}
+
+/**
+ * 处理申诉：approve 通过（并撤销关联处罚）/ reject 驳回。只有 pending 可处理。
+ * 结果写站内通知告知本人（通知里带上备注，方便解释原因）。
+ */
+export function handleAppeal(id: number, action: string, by: string, note: string): { ok: boolean; code?: string; penaltyId?: number | null } {
+  if (action !== 'approve' && action !== 'reject') return { ok: false, code: 'mod.appealBadAction' };
+  const d = open();
+  const row = d.prepare("SELECT * FROM appeals WHERE id = ? AND status = 'pending'").get(Number(id)) as Record<string, unknown> | undefined;
+  if (!row) return { ok: false, code: 'mod.appealGone' };
+  const pid = row.penalty_id == null ? null : Number(row.penalty_id);
+  // 通过 = 撤销那条处罚（处罚可能已被别人撤销/删掉，revokePenalty 会返回 false，不当作错误）
+  if (action === 'approve' && pid != null) revokePenalty(pid, by);
+  d.prepare('UPDATE appeals SET status = ?, handled_by = ?, handled_at = ?, note = ? WHERE id = ?')
+    .run(action === 'approve' ? 'approved' : 'rejected', String(by), Date.now(), String(note || '').slice(0, 200), Number(id));
+  mailbox.notify({
+    target: String(row.user),
+    kind: 'appeal',
+    title: action === 'approve' ? 'mod.notify.appealApproved' : 'mod.notify.appealRejected',
+    body: String(note || '')
+  });
+  return { ok: true, penaltyId: pid };
 }
 
 export { MAX_DAYS };
