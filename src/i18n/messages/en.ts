@@ -807,7 +807,8 @@ const dict: Record<string, string> = {
   "admin.action.modAppealReject": "Appeal rejected",
   "log.detail.mod.appeal": "Reason: {reason}",
   "log.detail.mod.appealHandle": "Appeal #{id}, penalty #{penalty}, note: {note}",
-  "fileview.previewTooLarge": "File is too large (over {size}) — rendered preview skipped"
+  "fileview.previewTooLarge": "File is too large (over {size}) — rendered preview skipped",
+  "fileview.noHighlight": "File is large or has very long lines — syntax highlighting skipped"
 };
 
 export default dict;

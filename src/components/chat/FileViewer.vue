@@ -59,6 +59,8 @@ const phase = ref<Phase>('loading');
 const text = ref('');
 const lang = ref<string | null>(null);
 const highlighted = ref(false);
+/** 内容字节数（高亮闸门按字节算，用它判断「是不是因为太大才没高亮」） */
+const byteLen = ref(0);
 const wrap = ref(true);
 /** 渲染预览（SVG / HTML / Markdown）；null = 这个文件没有预览形态 */
 const previewKind = ref<PreviewKind | null>(null);
@@ -195,6 +197,13 @@ const tag = computed(() => {
   if (phase.value === 'video') return tr('fileview.video');
   if (!lang.value || !highlighted.value) return tr('fileview.plain');
   return lang.value;
+});
+
+/** 明明认得语言、却没高亮的说明（体积或超长行闸门），否则用户只看到「纯文本」两个字 */
+const tagTitle = computed(() => {
+  if (phase.value !== 'text' || !lang.value || highlighted.value) return '';
+  if (shouldHighlight(text.value, byteLen.value)) return '';
+  return tr('fileview.noHighlight');
 });
 
 // ---------- Hex ----------
@@ -455,6 +464,7 @@ async function load(): Promise<void> {
       return;
     }
     text.value = decodeBytes(buf);
+    byteLen.value = buf.length;
     const l = detectLanguage(text.value);
     lang.value = l;
     phase.value = 'text'; // 先按纯文本显示，高亮器到位后自动升级，不用一直等
@@ -468,15 +478,22 @@ async function load(): Promise<void> {
         void buildPreview();
         viewMode.value = 'preview';
       }
-      // 判成 markdown 就把语言定成 markdown：detectLanguage 会被代码块里的
-      // `const x = 1` / `def f():` 带偏，认成 javascript / python，源码视图的高亮就全错了
+      // 预览类型同时确定了「源码视图按什么语言高亮」：
+      //   markdown：detectLanguage 会被代码块里的 `const x = 1` / `def f():` 带偏，
+      //             也可能压根认不出来（只有标题 + 列表的文档）
+      //   html：detectLanguage 只认 `<!DOCTYPE html>` / `<html>` 开头，
+      //         没有这些的片段会被判成「认不出来」→ 源码就成了纯文本
       if (previewKind.value === 'markdown') lang.value = 'markdown';
+      else if (previewKind.value === 'html' && !lang.value) lang.value = 'xml';
     }
-    // 高亮条件：认得出语言 + 语言在 hljs 的 common 打包里 + 体积/单行长度没过闸
-    if (l && shouldHighlight(text.value, buf.length)) {
+    // 高亮条件：有语言（**含上面按预览类型补的**）+ 语言在 hljs 的 common 打包里 +
+    // 体积/单行长度没过闸。必须用 lang.value：用原始推断结果的话，
+    // 上面刚补好的语言会被这条闸门拦掉，源码依旧是纯文本
+    const hl = lang.value;
+    if (hl && shouldHighlight(text.value, buf.length)) {
       const h = await ensureHljs();
       if (view.value !== v) return;
-      if (h && h.getLanguage(l)) highlighted.value = true;
+      if (h && h.getLanguage(hl)) highlighted.value = true;
     }
   } catch (e) {
     phase.value = 'error';
@@ -511,6 +528,7 @@ useOverlay({
         <span
           v-if="phase !== 'loading' && phase !== 'error' && phase !== 'too-large'"
           class="fileview-tag"
+          :title="tagTitle"
         >{{ tag }}</span>
         <span class="fileview-size">{{ fmtSize(view.size) }}</span>
         <div class="fileview-actions">

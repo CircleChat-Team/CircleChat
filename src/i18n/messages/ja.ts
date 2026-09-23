@@ -807,7 +807,8 @@ const dict: Record<string, string> = {
   "admin.action.modAppealReject": "申し立てを却下",
   "log.detail.mod.appeal": "申し立て理由：{reason}",
   "log.detail.mod.appealHandle": "申し立て #{id}、処分 #{penalty}、メモ：{note}",
-  "fileview.previewTooLarge": "ファイルが大きいため（{size} 超）、プレビューを生成していません"
+  "fileview.previewTooLarge": "ファイルが大きいため（{size} 超）、プレビューを生成していません",
+  "fileview.noHighlight": "ファイルが大きいか長すぎる行があるため、構文ハイライトは行いません"
 };
 
 export default dict;
