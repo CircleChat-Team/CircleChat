@@ -729,7 +729,13 @@ const dict: Record<string, string> = {
   "github.sectionFailed": "Failed to load (possibly GitHub rate limit, try again later)",
   "chat.media.volume": "Volume",
   "chat.media.mute": "Mute",
-  "chat.media.unmute": "Unmute"
+  "chat.media.unmute": "Unmute",
+  "login.captcha.placeholder": "Captcha",
+  "login.captcha.refresh": "Not clear? Get another",
+  "login.captcha.required": "Please enter the captcha",
+  "api.captcha.wrong": "Incorrect captcha, please try again",
+  "api.captcha.expired": "Captcha expired, please get a new one",
+  "log.detail.login.fail.captcha": "Login failed: wrong captcha"
 };
 
 export default dict;

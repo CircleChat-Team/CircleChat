@@ -729,7 +729,13 @@ const dict: Record<string, string> = {
   "github.sectionFailed": "取得に失敗しました（GitHub のレート制限の可能性、後でもう一度お試しください）",
   "chat.media.volume": "音量",
   "chat.media.mute": "ミュート",
-  "chat.media.unmute": "ミュート解除"
+  "chat.media.unmute": "ミュート解除",
+  "login.captcha.placeholder": "認証コード",
+  "login.captcha.refresh": "見えにくい場合は交換",
+  "login.captcha.required": "認証コードを入力してください",
+  "api.captcha.wrong": "認証コードが正しくありません。もう一度入力してください",
+  "api.captcha.expired": "認証コードの有効期限が切れました。再取得してください",
+  "log.detail.login.fail.captcha": "ログイン失敗：認証コードが違います"
 };
 
 export default dict;

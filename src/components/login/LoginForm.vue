@@ -7,6 +7,7 @@ import { get, post } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { redirectAfterLogin } from '../../core/nav';
 import ForceChangePassword from '../common/ForceChangePassword.vue';
+import CaptchaField from '../common/CaptchaField.vue';
 
 const props = defineProps<{ initialUser?: string }>();
 
@@ -15,6 +16,15 @@ const pass = ref('');
 const showPass = ref(false);
 const loading = ref(false);
 const err = ref('');
+
+// 图形验证码：值在父组件，id 在子组件里（提交时取）
+const captchaText = ref('');
+const captcha = ref<InstanceType<typeof CaptchaField> | null>(null);
+/** 提交失败后换一张：验证码是一次性的，被消费掉的那个再用只会一直报「已过期」 */
+function refreshCaptcha(): void {
+  captchaText.value = '';
+  captcha.value?.refresh();
+}
 
 // ---------- 第三方登录（GitHub） ----------
 // 是否显示入口取决于管理员是否在管理面板里配好了 OAuth 应用
@@ -48,9 +58,18 @@ async function submit(): Promise<void> {
     err.value = tr('login.err.empty');
     return;
   }
+  if (!captchaText.value.trim()) {
+    err.value = tr('login.captcha.required');
+    return;
+  }
   err.value = '';
   loading.value = true;
-  post('/api/login', { username: u, password: pass.value })
+  post('/api/login', {
+    username: u,
+    password: pass.value,
+    captchaId: captcha.value ? captcha.value.getId() : '',
+    captcha: captchaText.value.trim()
+  })
     .then((j) => {
       if (j.ok) {
         // 已开启两步验证：先保存挑战，展示验证码输入
@@ -73,10 +92,12 @@ async function submit(): Promise<void> {
       // error 既可能是 i18n 键，也可能是服务端直出的中文；
       // I18N.t 对未知键原样返回，两种情况都能正确显示
       err.value = tr(j.error || 'login.err.failed');
+      refreshCaptcha(); // 这次提交已经把验证码用掉了
     })
     .catch(() => {
       loading.value = false;
       err.value = tr('login.err.network');
+      refreshCaptcha();
     });
 }
 
@@ -158,6 +179,8 @@ function backToLogin(): void {
         </svg>
       </button>
     </div>
+
+    <CaptchaField ref="captcha" v-model="captchaText" />
 
     <button
       type="submit"

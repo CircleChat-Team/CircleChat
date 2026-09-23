@@ -6,6 +6,7 @@ import { ref } from 'vue';
 import { post } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { passwordOk } from '../../core/password';
+import CaptchaField from '../common/CaptchaField.vue';
 
 const emit = defineEmits<{ submitted: [name: string] }>();
 
@@ -15,6 +16,10 @@ const pass = ref('');
 const pass2 = ref('');
 const loading = ref(false);
 const hint = ref('');
+
+// 图形验证码（同登录页：一次性，失败后要换一张）
+const captchaText = ref('');
+const captcha = ref<InstanceType<typeof CaptchaField> | null>(null);
 
 // 简单邮箱格式校验
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -41,9 +46,19 @@ async function submit(): Promise<void> {
     hint.value = tr('reg.mismatch');
     return;
   }
+  if (!captchaText.value.trim()) {
+    hint.value = tr('login.captcha.required');
+    return;
+  }
 
   loading.value = true;
-  post('/api/register', { name: u, email: em, password: p })
+  post('/api/register', {
+    name: u,
+    email: em,
+    password: p,
+    captchaId: captcha.value ? captcha.value.getId() : '',
+    captcha: captchaText.value.trim()
+  })
     .then((j) => {
       loading.value = false;
       if (j.ok) {
@@ -56,10 +71,14 @@ async function submit(): Promise<void> {
         return;
       }
       hint.value = tr(j.error || 'reg.fail');
+      captchaText.value = '';
+      captcha.value?.refresh(); // 验证码已被这次提交消费掉
     })
     .catch(() => {
       loading.value = false;
       hint.value = tr('login.err.network');
+      captchaText.value = '';
+      captcha.value?.refresh();
     });
 }
 </script>
@@ -98,6 +117,8 @@ async function submit(): Promise<void> {
       class="h-11 w-full rounded-xl border border-line bg-fill px-3 text-[15px] outline-none transition-colors focus:border-primary"
       :placeholder="tr('reg.pass2Placeholder')"
     >
+
+    <CaptchaField ref="captcha" v-model="captchaText" />
 
     <button
       type="submit"

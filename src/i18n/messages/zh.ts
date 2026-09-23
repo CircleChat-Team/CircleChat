@@ -729,7 +729,13 @@ const dict: Record<string, string> = {
   "github.sectionFailed": "获取失败（可能被 GitHub 限流，稍后再试）",
   "chat.media.volume": "音量",
   "chat.media.mute": "静音",
-  "chat.media.unmute": "取消静音"
+  "chat.media.unmute": "取消静音",
+  "login.captcha.placeholder": "验证码",
+  "login.captcha.refresh": "看不清？换一张",
+  "login.captcha.required": "请输入验证码",
+  "api.captcha.wrong": "验证码不正确，请重新输入",
+  "api.captcha.expired": "验证码已过期，请重新获取",
+  "log.detail.login.fail.captcha": "登录失败：验证码错误"
 };
 
 export default dict;

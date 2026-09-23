@@ -25,6 +25,7 @@ import * as moderate from './moderate';
 import * as mailbox from './mailbox';
 import * as appconfig from './appconfig';
 import * as github from './github';
+import * as captcha from './captcha';
 import { fileKindOf } from './filetypes';
 import * as wsproto from './ws';
 import * as logger from './log';
@@ -1300,6 +1301,11 @@ const OAUTH_STATE_TTL = 10 * 60 * 1000;
 /** 授权请求的 state → { 模式, 发起的本地账号, 过期时间 }；一次性、10 分钟有效 */
 const oauthStates = new Map<string, { mode: 'login' | 'bind'; username: string; expires: number }>();
 
+/** 验证码校验失败时的文案键（前端直接 tr 出来显示） */
+function captchaErrorKey(r: captcha.VerifyResult): string {
+  return r === 'expired' ? 'api.captcha.expired' : 'api.captcha.wrong';
+}
+
 /** GitHub 取数失败的原因码 → 前端文案键 */
 function githubErrorKey(code: string): string {
   if (code === 'rate_limited') return 'github.rateLimited';
@@ -1345,6 +1351,13 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
       const pass = o && typeof o.password === 'string' ? o.password : '';
       const email = o && typeof o.email === 'string' ? o.email.trim().slice(0, 190) : '';
+      // 图形验证码（注册是开放接口，不拦一手会被脚本刷满待审队列）
+      const cv = captcha.verify(o && o.captchaId, o && o.captcha);
+      if (cv !== 'ok') {
+        sendJSON(res, 400, { ok: false, error: captchaErrorKey(cv) });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
       if (!USERNAME_RE.test(name) || !passwordStrength(pass)) {
         sendJSON(res, 400, { ok: false, error: 'api.user.registerFormat' });
         logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -1380,10 +1393,20 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     }
     readBody(req, 8192).then((body) => {
       let u!: string; let p!: string;
-      try { ({ username: u, password: p } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 解析失败走下面校验 */ }
+      let cid: any; let ctext: any;
+      try { ({ username: u, password: p, captchaId: cid, captcha: ctext } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 解析失败走下面校验 */ }
       if (typeof u !== 'string' || typeof p !== 'string') {
         auth.recordFail(ip);
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      // 图形验证码：同样计入失败次数，防止用「换账号 + 猜验证码」绕过密码限流
+      const cap = captcha.verify(cid, ctext);
+      if (cap !== 'ok') {
+        auth.recordFail(ip);
+        audit.add({ actor: u.trim(), action: 'login.fail', detail: auditDetail('log.detail.login.fail.captcha'), ip });
+        sendJSON(res, 400, { ok: false, error: captchaErrorKey(cap) });
         logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
@@ -1459,6 +1482,17 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   }
 
   // GET /api/setup（公开：内置管理员是否仍用默认密码，供登录页提示）
+  // GET /api/captcha?dark=0|1 —— 取一张图形验证码 {id, svg}（免登录：登录页要用）
+  if (pathname === '/api/captcha' && req.method === 'GET') {
+    const dark = urlObj.searchParams.get('dark') === '1';
+    const c = captcha.create(dark);
+    // 验证码图不能缓存：否则浏览器拿到上一张，用户输的却是眼前这张
+    res.setHeader('Cache-Control', 'no-store');
+    sendJSON(res, 200, { ok: true, id: c.id, svg: c.svg });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
   if (pathname === '/api/setup' && req.method === 'GET') {
     sendJSON(res, 200, { ok: true, defaultAdmin: auth.defaultAdminPassword() });
     return;
