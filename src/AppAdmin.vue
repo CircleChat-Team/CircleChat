@@ -14,6 +14,7 @@ import FilesCard from './components/admin/FilesCard.vue';
 import LogsCard from './components/admin/LogsCard.vue';
 import ModerationCard from './components/admin/ModerationCard.vue';
 import OAuthCard from './components/admin/OAuthCard.vue';
+import SecurityCard from './components/admin/SecurityCard.vue';
 import Dialog from './components/common/Dialog.vue';
 
 const props = defineProps<{ me: string }>();
@@ -39,6 +40,7 @@ const tabs = [
   { id: 'moderation', label: 'admin.tab.moderation' },
   { id: 'files', label: 'admin.tab.files' },
   { id: 'oauth', label: 'admin.tab.oauth' },
+  { id: 'security', label: 'admin.tab.security' },
   { id: 'logs', label: 'admin.tab.logs' }
 ];
 const active = ref('approvals');
@@ -119,6 +121,7 @@ function logout(): void {
         <ModerationCard v-if="active === 'moderation'" />
         <FilesCard v-if="active === 'files'" />
         <OAuthCard v-if="active === 'oauth'" />
+        <SecurityCard v-if="active === 'security'" />
         <LogsCard v-if="active === 'logs'" />
       </div>
     </main>

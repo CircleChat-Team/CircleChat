@@ -1351,8 +1351,8 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
       const pass = o && typeof o.password === 'string' ? o.password : '';
       const email = o && typeof o.email === 'string' ? o.email.trim().slice(0, 190) : '';
-      // 图形验证码（注册是开放接口，不拦一手会被脚本刷满待审队列）
-      const cv = captcha.verify(o && o.captchaId, o && o.captcha);
+      // 图形验证码（注册是开放接口，不拦一手会被脚本刷满待审队列）；管理员可在管理面板关掉
+      const cv = captcha.isEnabled('register') ? captcha.verify(o && o.captchaId, o && o.captcha) : 'ok';
       if (cv !== 'ok') {
         sendJSON(res, 400, { ok: false, error: captchaErrorKey(cv) });
         logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -1402,7 +1402,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         return;
       }
       // 图形验证码：同样计入失败次数，防止用「换账号 + 猜验证码」绕过密码限流
-      const cap = captcha.verify(cid, ctext);
+      const cap = captcha.isEnabled('login') ? captcha.verify(cid, ctext) : 'ok';
       if (cap !== 'ok') {
         auth.recordFail(ip);
         audit.add({ actor: u.trim(), action: 'login.fail', detail: auditDetail('log.detail.login.fail.captcha'), ip });
@@ -1482,13 +1482,20 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   }
 
   // GET /api/setup（公开：内置管理员是否仍用默认密码，供登录页提示）
-  // GET /api/captcha?dark=0|1 —— 取一张图形验证码 {id, svg}（免登录：登录页要用）
+  // GET /api/captcha?scope=login|register&dark=0|1 —— 取一张图形验证码（免登录：登录页要用）
+  // 该页面被管理员关掉人机验证时返回 { enabled: false } 且**不生成**验证码（前端据此隐藏输入框）
   if (pathname === '/api/captcha' && req.method === 'GET') {
+    const scope: captcha.CaptchaScope = urlObj.searchParams.get('scope') === 'register' ? 'register' : 'login';
     const dark = urlObj.searchParams.get('dark') === '1';
-    const c = captcha.create(dark);
     // 验证码图不能缓存：否则浏览器拿到上一张，用户输的却是眼前这张
     res.setHeader('Cache-Control', 'no-store');
-    sendJSON(res, 200, { ok: true, id: c.id, svg: c.svg });
+    if (!captcha.isEnabled(scope)) {
+      sendJSON(res, 200, { ok: true, enabled: false });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const c = captcha.create(dark);
+    sendJSON(res, 200, { ok: true, enabled: true, id: c.id, svg: c.svg });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -2153,6 +2160,46 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (!auth.isAdmin(me.username)) {
       sendJSON(res, 403, { ok: false, error: 'api.admin.forbidden' });
       logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // GET /api/admin/captcha —— 人机验证开关（登录页 / 注册页各一个）
+    if (pathname === '/api/admin/captcha' && req.method === 'GET') {
+      sendJSON(res, 200, { ok: true, login: captcha.isEnabled('login'), register: captcha.isEnabled('register') });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // POST /api/admin/captcha —— 保存人机验证开关 {login?: boolean, register?: boolean}
+    if (pathname === '/api/admin/captcha' && req.method === 'POST') {
+      readBody(req, 1024).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验走下面 */ }
+        if (!o || typeof o !== 'object' ||
+            (o.login !== undefined && typeof o.login !== 'boolean') ||
+            (o.register !== undefined && typeof o.register !== 'boolean')) {
+          sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        if (typeof o.login === 'boolean') captcha.setEnabled('login', o.login);
+        if (typeof o.register === 'boolean') captcha.setEnabled('register', o.register);
+        const state = { login: captcha.isEnabled('login'), register: captcha.isEnabled('register') };
+        audit.add({
+          actor: me.username,
+          action: 'admin.captcha',
+          target: 'captcha',
+          detail: auditDetail('log.detail.captcha', {
+            login: state.login ? '✓' : '✕',
+            register: state.register ? '✓' : '✕'
+          }),
+          ip
+        });
+        sendJSON(res, 200, { ok: true, login: state.login, register: state.register });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
       return;
     }
 

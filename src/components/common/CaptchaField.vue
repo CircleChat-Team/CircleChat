@@ -13,12 +13,14 @@ import { get } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { theme } from '../../core/theme';
 
-const props = defineProps<{ modelValue: string }>();
-const emit = defineEmits<{ 'update:modelValue': [string] }>();
+const props = defineProps<{ modelValue: string; scope?: 'login' | 'register' }>();
+const emit = defineEmits<{ 'update:modelValue': [string]; enabled: [boolean] }>();
 
 const id = ref('');
 const svg = ref('');
 const failed = ref(false);
+/** 该页面是否开启人机验证（管理员在管理面板控制；关掉时整个控件都不渲染） */
+const on = ref(true);
 
 /** SVG 走 data URI 给 <img>，不用 v-html（不给模板注入留任何口子） */
 const dataUri = computed(() =>
@@ -27,13 +29,24 @@ const dataUri = computed(() =>
 
 /** 重新取一张（点击图片、提交失败、切换主题时都要用） */
 function refresh(): void {
-  get('/api/captcha?dark=' + (theme.value === 'dark' ? '1' : '0'))
+  get('/api/captcha?scope=' + (props.scope || 'login') + '&dark=' + (theme.value === 'dark' ? '1' : '0'))
     .then((j) => {
+      // 管理员把这一页的人机验证关了：不渲染输入框，父组件也不用带验证码提交
+      if (j.ok && j.enabled === false) {
+        on.value = false;
+        id.value = '';
+        svg.value = '';
+        emit('enabled', false);
+        emit('update:modelValue', '');
+        return;
+      }
       if (!j.ok || !j.svg) {
         failed.value = true;
         return;
       }
       failed.value = false;
+      on.value = true;
+      emit('enabled', true);
       id.value = String(j.id || '');
       svg.value = String(j.svg);
       emit('update:modelValue', '');
@@ -51,11 +64,11 @@ function onInput(e: Event): void {
 watch(theme, refresh);
 onMounted(refresh);
 
-defineExpose({ getId: (): string => id.value, refresh });
+defineExpose({ getId: (): string => (on.value ? id.value : ''), refresh });
 </script>
 
 <template>
-  <div class="captcha-field flex items-stretch gap-2">
+  <div v-if="on" class="captcha-field flex items-stretch gap-2">
     <input
       :value="props.modelValue"
       type="text"

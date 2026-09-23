@@ -14,6 +14,26 @@
  * ============================================================ */
 import crypto from 'node:crypto';
 import svgCaptcha from 'svg-captcha';
+import { get as cfgGet, set as cfgSet } from './appconfig';
+
+/** 开关存在 app_config（整站级，管理员在管理面板改） */
+const CFG = { login: 'captcha.login', register: 'captcha.register' } as const;
+
+/** 需要人机验证的页面 */
+export type CaptchaScope = 'login' | 'register';
+
+/**
+ * 某页面是否开启人机验证。
+ * **只有明确存成 '0' 才算关**：这样老部署（没有这个配置项）升级后仍然是开启的，
+ * 不会因为加了个开关就把验证悄悄关掉。
+ */
+export function isEnabled(scope: CaptchaScope): boolean {
+  return cfgGet(CFG[scope]) !== '0';
+}
+
+export function setEnabled(scope: CaptchaScope, on: boolean): void {
+  cfgSet(CFG[scope], on ? '1' : '0');
+}
 
 const TTL_MS = 5 * 60 * 1000;
 const MAX_ENTRIES = 2000;

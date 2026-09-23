@@ -20,6 +20,8 @@ const err = ref('');
 // 图形验证码：值在父组件，id 在子组件里（提交时取）
 const captchaText = ref('');
 const captcha = ref<InstanceType<typeof CaptchaField> | null>(null);
+/** 管理面板里可以关掉登录页的人机验证：关掉后不校验、也不提交验证码字段 */
+const captchaOn = ref(true);
 /** 提交失败后换一张：验证码是一次性的，被消费掉的那个再用只会一直报「已过期」 */
 function refreshCaptcha(): void {
   captchaText.value = '';
@@ -58,18 +60,18 @@ async function submit(): Promise<void> {
     err.value = tr('login.err.empty');
     return;
   }
-  if (!captchaText.value.trim()) {
+  if (captchaOn.value && !captchaText.value.trim()) {
     err.value = tr('login.captcha.required');
     return;
   }
   err.value = '';
   loading.value = true;
-  post('/api/login', {
-    username: u,
-    password: pass.value,
-    captchaId: captcha.value ? captcha.value.getId() : '',
-    captcha: captchaText.value.trim()
-  })
+  const payload: Record<string, unknown> = { username: u, password: pass.value };
+  if (captchaOn.value) {
+    payload.captchaId = captcha.value ? captcha.value.getId() : '';
+    payload.captcha = captchaText.value.trim();
+  }
+  post('/api/login', payload)
     .then((j) => {
       if (j.ok) {
         // 已开启两步验证：先保存挑战，展示验证码输入
@@ -180,7 +182,7 @@ function backToLogin(): void {
       </button>
     </div>
 
-    <CaptchaField ref="captcha" v-model="captchaText" />
+    <CaptchaField ref="captcha" v-model="captchaText" scope="login" @enabled="captchaOn = $event" />
 
     <button
       type="submit"

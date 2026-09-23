@@ -735,7 +735,15 @@ const dict: Record<string, string> = {
   "login.captcha.required": "Please enter the captcha",
   "api.captcha.wrong": "Incorrect captcha, please try again",
   "api.captcha.expired": "Captcha expired, please get a new one",
-  "log.detail.login.fail.captcha": "Login failed: wrong captcha"
+  "log.detail.login.fail.captcha": "Login failed: wrong captcha",
+  "admin.tab.security": "Sign-in security",
+  "admin.captcha.title": "Human verification (image captcha)",
+  "admin.captcha.hint": "When enabled, the page requires the characters from the image before submitting.",
+  "admin.captcha.login": "Require captcha on the login page",
+  "admin.captcha.register": "Require captcha on the registration page",
+  "admin.captcha.risk": "Registration is open: with the captcha off, anyone can submit a request (still needs approval).",
+  "admin.captcha.saved": "Saved",
+  "log.detail.captcha": "Changed human verification: login {login}, register {register}"
 };
 
 export default dict;

@@ -735,7 +735,15 @@ const dict: Record<string, string> = {
   "login.captcha.required": "認証コードを入力してください",
   "api.captcha.wrong": "認証コードが正しくありません。もう一度入力してください",
   "api.captcha.expired": "認証コードの有効期限が切れました。再取得してください",
-  "log.detail.login.fail.captcha": "ログイン失敗：認証コードが違います"
+  "log.detail.login.fail.captcha": "ログイン失敗：認証コードが違います",
+  "admin.tab.security": "ログインセキュリティ",
+  "admin.captcha.title": "人機認証（画像認証コード）",
+  "admin.captcha.hint": "有効にすると、該当ページで画像の文字を入力しないと送信できません。",
+  "admin.captcha.login": "ログインページで認証コードを要求",
+  "admin.captcha.register": "登録ページで認証コードを要求",
+  "admin.captcha.risk": "登録は開放されています。オフにすると誰でも申請を送信できます（承認は必要）。",
+  "admin.captcha.saved": "保存しました",
+  "log.detail.captcha": "人機認証を変更：ログイン {login}、登録 {register}"
 };
 
 export default dict;

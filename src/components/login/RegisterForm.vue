@@ -20,6 +20,8 @@ const hint = ref('');
 // 图形验证码（同登录页：一次性，失败后要换一张）
 const captchaText = ref('');
 const captcha = ref<InstanceType<typeof CaptchaField> | null>(null);
+/** 管理面板里可以关掉注册页的人机验证 */
+const captchaOn = ref(true);
 
 // 简单邮箱格式校验
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -46,19 +48,18 @@ async function submit(): Promise<void> {
     hint.value = tr('reg.mismatch');
     return;
   }
-  if (!captchaText.value.trim()) {
+  if (captchaOn.value && !captchaText.value.trim()) {
     hint.value = tr('login.captcha.required');
     return;
   }
 
   loading.value = true;
-  post('/api/register', {
-    name: u,
-    email: em,
-    password: p,
-    captchaId: captcha.value ? captcha.value.getId() : '',
-    captcha: captchaText.value.trim()
-  })
+  const payload: Record<string, unknown> = { name: u, email: em, password: p };
+  if (captchaOn.value) {
+    payload.captchaId = captcha.value ? captcha.value.getId() : '';
+    payload.captcha = captchaText.value.trim();
+  }
+  post('/api/register', payload)
     .then((j) => {
       loading.value = false;
       if (j.ok) {
@@ -118,7 +119,7 @@ async function submit(): Promise<void> {
       :placeholder="tr('reg.pass2Placeholder')"
     >
 
-    <CaptchaField ref="captcha" v-model="captchaText" />
+    <CaptchaField ref="captcha" v-model="captchaText" scope="register" @enabled="captchaOn = $event" />
 
     <button
       type="submit"

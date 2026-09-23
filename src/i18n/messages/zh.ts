@@ -735,7 +735,15 @@ const dict: Record<string, string> = {
   "login.captcha.required": "请输入验证码",
   "api.captcha.wrong": "验证码不正确，请重新输入",
   "api.captcha.expired": "验证码已过期，请重新获取",
-  "log.detail.login.fail.captcha": "登录失败：验证码错误"
+  "log.detail.login.fail.captcha": "登录失败：验证码错误",
+  "admin.tab.security": "登录安全",
+  "admin.captcha.title": "人机验证（图形验证码）",
+  "admin.captcha.hint": "开启后，对应页面必须输入图片里的字符才能提交。",
+  "admin.captcha.login": "登录页需要人机验证",
+  "admin.captcha.register": "注册页需要人机验证",
+  "admin.captcha.risk": "注册页是开放接口，关闭后任何人都能直接提交注册申请（仍需审核）。",
+  "admin.captcha.saved": "已保存",
+  "log.detail.captcha": "修改人机验证开关：登录页 {login}、注册页 {register}"
 };
 
 export default dict;
