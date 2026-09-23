@@ -4,7 +4,8 @@
  * 展示 文件名 / 格式 · 大小 · 时长；未播放时也绘制静态音谱条，
  * 播放中切换为 Web Audio AnalyserNode 的实时频谱。
  * ============================================================ */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { chatState, setVolume, toggleMuteVolume } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import { fmtSize } from '../../core/format';
 import { extOf, fmtDur } from '../../core/media';
@@ -73,6 +74,51 @@ function onSeekEnd(e: PointerEvent): void {
   if (!a) return;
   if (resumeAfterSeek) a.play().catch(() => { /* 被策略拦下则保持暂停 */ });
   else current.value = a.currentTime;
+}
+
+/* ---------- 音量 ----------
+ * 音量是**全局设置**（chatState.volume，落库到用户设置），
+ * 所以调节一次，页面上所有音频消息都跟着变，刷新后也保留。
+ * 每个 <audio> 各自设一次 volume —— 音量是元素级属性，没有全局的。
+ * 注意本组件的音频还接了 Web Audio（AnalyserNode 画频谱），
+ * 但 createMediaElementSource 取的是**元素输出**，volume 依旧在它之前生效。 */
+const volOpen = ref(false);
+const volPct = computed(() => Math.round(chatState.volume * 100));
+const volMuted = computed(() => chatState.volume <= 0);
+const volEl = ref<HTMLElement | null>(null);
+let volDragging = false;
+
+function applyVolume(): void {
+  const a = audio.value;
+  if (a) a.volume = chatState.volume;
+}
+watch(() => chatState.volume, applyVolume);
+
+/** 指针位置 → 0~1 音量 */
+function applyVolFromEvent(e: PointerEvent): void {
+  const el = volEl.value;
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  if (!r.width) return;
+  setVolume((e.clientX - r.left) / r.width);
+}
+function onVolStart(e: PointerEvent): void {
+  e.preventDefault();
+  e.stopPropagation();
+  volDragging = true;
+  applyVolFromEvent(e);
+  window.addEventListener('pointermove', onVolMove);
+  window.addEventListener('pointerup', onVolEnd);
+}
+function onVolMove(e: PointerEvent): void {
+  if (volDragging) applyVolFromEvent(e);
+}
+function onVolEnd(e: PointerEvent): void {
+  if (!volDragging) return;
+  volDragging = false;
+  window.removeEventListener('pointermove', onVolMove);
+  window.removeEventListener('pointerup', onVolEnd);
+  applyVolFromEvent(e);
 }
 
 const tag = computed(() => {
@@ -194,10 +240,15 @@ function onLoaded(): void {
   if (a && isFinite(a.duration) && a.duration > 0) duration.value = a.duration;
 }
 
-onMounted(draw); // 关键：首帧就画出音谱条，别等播放才出现
+onMounted(() => {
+  draw();        // 关键：首帧就画出音谱条，别等播放才出现
+  applyVolume(); // 挂载时套用当前音量（设置是异步载入的，watch 会补后续变化）
+});
 onBeforeUnmount(() => {
   if (raf) cancelAnimationFrame(raf);
   if (actx) { try { void actx.close(); } catch { /* 忽略 */ } }
+  window.removeEventListener('pointermove', onVolMove);
+  window.removeEventListener('pointerup', onVolEnd);
 });
 </script>
 
@@ -213,6 +264,22 @@ onBeforeUnmount(() => {
 
     <div class="audio-body">
       <div class="media-line">
+        <button
+          type="button"
+          class="audio-vol-btn"
+          :class="{ off: volMuted, open: volOpen }"
+          :title="tr('chat.media.volume') + ' ' + volPct + '%'"
+          :aria-label="tr('chat.media.volume')"
+          :aria-expanded="volOpen"
+          @click.stop="volOpen = !volOpen"
+        >
+          <svg v-if="volMuted" class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 9v6h4l5 4V5L7 9H3zm13.6 3 2.7-2.7-1.4-1.4-2.7 2.7-2.7-2.7-1.4 1.4 2.7 2.7-2.7 2.7 1.4 1.4 2.7-2.7 2.7 2.7 1.4-1.4-2.7-2.7z" />
+          </svg>
+          <svg v-else class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
+          </svg>
+        </button>
         <span class="media-name" :title="name || ''">{{ name || tr('chat.file.defaultName') }}</span>
         <span v-if="tag" class="media-tag">{{ tag }}</span>
       </div>
@@ -224,6 +291,24 @@ onBeforeUnmount(() => {
         <b class="audio-seek-thumb" :style="{ left: pct + '%' }"></b>
         <span class="audio-time audio-time-cur">{{ fmtDur(current) }}</span>
         <span class="audio-time audio-time-dur">{{ fmtDur(duration) }}</span>
+      </div>
+
+      <!-- 音量条：点名字行左侧的喇叭展开；拖动即调音量（全局生效并落库） -->
+      <div v-if="volOpen" class="audio-volume" @click.stop>
+        <button
+          type="button"
+          class="audio-vol-mute"
+          :title="volMuted ? tr('chat.media.unmute') : tr('chat.media.mute')"
+          :aria-label="volMuted ? tr('chat.media.unmute') : tr('chat.media.mute')"
+          @pointerdown.stop
+          @click.stop="toggleMuteVolume"
+        >{{ volMuted ? '🔇' : '🔊' }}</button>
+        <span ref="volEl" class="audio-vol-slider" @pointerdown.stop="onVolStart">
+          <i class="audio-vol-track"></i>
+          <span class="audio-vol-fill" :style="{ width: volPct + '%' }"></span>
+          <b class="audio-vol-thumb" :style="{ left: volPct + '%' }"></b>
+        </span>
+        <span class="audio-vol-num">{{ volPct }}%</span>
       </div>
     </div>
 

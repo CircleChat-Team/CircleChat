@@ -116,6 +116,8 @@ export interface ChatState {
   videoView: { src: string; name: string } | null;
   /** 消息里 GitHub 链接的仓库详情弹窗（owner/name；见 components/chat/RepoModal.vue） */
   repoView: string | null;
+  /** 媒体播放音量 0~1（音频消息共用；见 components/chat/AudioPlayer.vue） */
+  volume: number;
   reactTargetIdx: number | null;
   muted: boolean;
   mutedUntil: number | null;
@@ -183,6 +185,7 @@ const state = reactive<ChatState>({
   fileView: null,
   videoView: null,
   repoView: null,
+  volume: 1,
   reactTargetIdx: null,
   muted: false,
   mutedUntil: null,
@@ -1394,6 +1397,33 @@ export function closeRepoView(): void {
   state.repoView = null;
 }
 
+// ---------------- 媒体播放音量 ----------------
+
+/** 上一次的非零音量：拖动到 0（静音）后再点喇叭能回到原来的大小，而不是直接满音量 */
+let lastVolume = 1;
+let volumeSaveTimer: number | undefined;
+
+/**
+ * 设置媒体播放音量（0~1）。
+ * 拖动滑块会连续调用，所以写库做了 500ms 防抖 —— 松手后只落一次设置。
+ */
+export function setVolume(v: number): void {
+  const n = Math.min(1, Math.max(0, Number(v) || 0));
+  state.volume = Math.round(n * 100) / 100;
+  if (state.volume > 0) lastVolume = state.volume;
+  clearTimeout(volumeSaveTimer);
+  volumeSaveTimer = window.setTimeout(() => {
+    void post('/api/settings', { volume: state.volume }).catch(() => {
+      /* 存不上不影响本次播放 */
+    });
+  }, 500);
+}
+
+/** 喇叭按钮的静音切换：0 ⇄ 上次的音量 */
+export function toggleMuteVolume(): void {
+  setVolume(state.volume > 0 ? 0 : lastVolume || 1);
+}
+
 /** 复制图片到剪贴板（失败返回 false，调用方可回退为复制地址） */
 export async function copyImage(src: string): Promise<boolean> {
   try {
@@ -1739,6 +1769,10 @@ export function initChat(): void {
         }
         if (typeof s.soundIn === 'boolean') state.soundIn = s.soundIn;
         if (typeof s.soundOut === 'boolean') state.soundOut = s.soundOut;
+        if (typeof s.volume === 'number' && s.volume >= 0 && s.volume <= 1) {
+          state.volume = s.volume;
+          if (s.volume > 0) lastVolume = s.volume;
+        }
       })
       .catch(() => {
         /* 忽略 */

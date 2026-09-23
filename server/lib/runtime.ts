@@ -2064,6 +2064,13 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
         return;
       }
+      // 媒体播放音量：0~1 的数（越界 / 非数一律拒绝，免得存进去一个把玩家静音的值）
+      if (patch.volume !== undefined &&
+          (typeof patch.volume !== 'number' || !Number.isFinite(patch.volume) ||
+           patch.volume < 0 || patch.volume > 1)) {
+        sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+        return;
+      }
       auth.setSettings(me.username, patch);
       audit.add({ actor: me.username, action: 'settings', detail: auditDetail('log.detail.settings', { json: JSON.stringify(patch) }), ip });
       sendJSON(res, 200, { ok: true, settings: auth.getSettings(me.username) });

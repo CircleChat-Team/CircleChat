@@ -726,7 +726,10 @@ const dict: Record<string, string> = {
   "github.contributorsHint": "Thanks to everyone who contributed",
   "github.noContributors": "No contributor data",
   "github.contributions": "{n} commits",
-  "github.sectionFailed": "Failed to load (possibly GitHub rate limit, try again later)"
+  "github.sectionFailed": "Failed to load (possibly GitHub rate limit, try again later)",
+  "chat.media.volume": "Volume",
+  "chat.media.mute": "Mute",
+  "chat.media.unmute": "Unmute"
 };
 
 export default dict;

@@ -726,7 +726,10 @@ const dict: Record<string, string> = {
   "github.contributorsHint": "感谢每一位提交代码的朋友",
   "github.noContributors": "暂无贡献者数据",
   "github.contributions": "{n} 次提交",
-  "github.sectionFailed": "获取失败（可能被 GitHub 限流，稍后再试）"
+  "github.sectionFailed": "获取失败（可能被 GitHub 限流，稍后再试）",
+  "chat.media.volume": "音量",
+  "chat.media.mute": "静音",
+  "chat.media.unmute": "取消静音"
 };
 
 export default dict;

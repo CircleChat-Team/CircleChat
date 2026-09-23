@@ -726,7 +726,10 @@ const dict: Record<string, string> = {
   "github.contributorsHint": "コードを寄せてくれた皆さんに感謝",
   "github.noContributors": "コントリビューターのデータがありません",
   "github.contributions": "{n} 回のコミット",
-  "github.sectionFailed": "取得に失敗しました（GitHub のレート制限の可能性、後でもう一度お試しください）"
+  "github.sectionFailed": "取得に失敗しました（GitHub のレート制限の可能性、後でもう一度お試しください）",
+  "chat.media.volume": "音量",
+  "chat.media.mute": "ミュート",
+  "chat.media.unmute": "ミュート解除"
 };
 
 export default dict;

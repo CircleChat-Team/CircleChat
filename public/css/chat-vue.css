@@ -2255,3 +2255,97 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 @media (max-width: 640px) {
   .repo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ---------- 音频消息的音量 ----------
+   喇叭按钮在文件名行左侧（右上角是下载按钮，别再挤过去），点开在进度条下方展开音量条。
+   音量是全局用户设置，调一次所有音频消息都跟着变。 */
+.audio-vol-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 1px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s var(--ease), background .15s var(--ease);
+}
+.audio-vol-btn .icon { width: 15px; height: 15px; }
+.audio-vol-btn:hover { color: var(--text); background: var(--fill); }
+.audio-vol-btn.open { color: var(--primary); }
+.audio-vol-btn.off { opacity: .75; }
+
+.audio-volume { display: flex; align-items: center; gap: 6px; height: 20px; margin-top: 2px; }
+.audio-vol-mute {
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.audio-vol-slider {
+  position: relative;
+  flex: 1 1 auto;
+  height: 20px;
+  cursor: pointer;
+  touch-action: none;   /* 横向拖动留给音量，不做页面滚动 */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.audio-vol-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+  background: var(--fill);
+  border-radius: 2px;
+}
+.audio-vol-fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 3px;
+  max-width: 100%;
+  transform: translateY(-50%);
+  background: var(--primary);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.audio-vol-thumb {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 2px solid var(--primary);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+  pointer-events: none;
+}
+.audio-vol-num {
+  flex: 0 0 auto;
+  min-width: 30px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+  text-align: right;
+}
+
+/* 自己发的气泡是主题色底：音量条整体换成浅色，否则填充条与底同色（上次踩过的坑） */
+.msg.self .audio-vol-btn { color: rgba(255, 255, 255, .85); }
+.msg.self .audio-vol-btn:hover { color: #fff; background: rgba(255, 255, 255, .18); }
+.msg.self .audio-vol-btn.open { color: #fff; }
+.msg.self .audio-vol-track { background: rgba(255, 255, 255, .28); }
+.msg.self .audio-vol-fill { background: rgba(255, 255, 255, .92); }
+.msg.self .audio-vol-thumb { border-color: rgba(255, 255, 255, .75); }
+.msg.self .audio-vol-num { color: rgba(255, 255, 255, .85); }
