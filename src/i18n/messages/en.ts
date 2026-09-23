@@ -743,7 +743,20 @@ const dict: Record<string, string> = {
   "admin.captcha.register": "Require captcha on the registration page",
   "admin.captcha.risk": "Registration is open: with the captcha off, anyone can submit a request (still needs approval).",
   "admin.captcha.saved": "Saved",
-  "log.detail.captcha": "Changed human verification: login {login}, register {register}"
+  "log.detail.captcha": "Changed human verification: login {login}, register {register}",
+  "admin.log.selectAll": "Select all",
+  "admin.log.clear": "Clear",
+  "admin.log.selectedN": "{n} selected",
+  "admin.logGroup.login": "Sign-in & account",
+  "admin.logGroup.twofa": "Two-factor",
+  "admin.logGroup.oauth": "Third-party sign-in",
+  "admin.logGroup.message": "Messages & files",
+  "admin.logGroup.friend": "Friends",
+  "admin.logGroup.group": "Groups",
+  "admin.logGroup.admin": "Admin actions",
+  "admin.logGroup.mod": "Moderation",
+  "admin.action.captcha": "Human verification changed",
+  "admin.action.fileDelBatch": "Files deleted in batch"
 };
 
 export default dict;

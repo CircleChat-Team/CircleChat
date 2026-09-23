@@ -9,7 +9,9 @@
     "build": "vite build && nitro build",
     "dev": "vite build --watch & nitro dev",
     "typecheck": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
-    "adduser": "node --experimental-strip-types tools/adduser.ts"
+    "adduser": "node --experimental-strip-types tools/adduser.ts",
+    "check:i18n": "node --experimental-strip-types tools/check-i18n.ts",
+    "check:actions": "node --experimental-strip-types tools/check-audit-groups.ts"
   },
   "engines": {
     "node": ">=16"

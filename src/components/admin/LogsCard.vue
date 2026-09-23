@@ -7,7 +7,9 @@ import { ref, computed, onMounted } from 'vue';
 import { get } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
 import { fmtDateTime } from '../../core/format';
-import { ACTION_KEYS, formatAuditDetail } from '../../core/auditActions';
+import { ACTION_KEYS, ACTION_GROUPS, formatAuditDetail } from '../../core/auditActions';
+import GroupedMultiSelect from '../common/GroupedMultiSelect.vue';
+import type { MsGroup } from '../common/GroupedMultiSelect.vue';
 import type { LogItem } from '../../types';
 
 /**
@@ -20,7 +22,8 @@ const PAGE = 50;
 const items = ref<LogItem[]>([]);
 const total = ref(0);
 const actor = ref('');
-const action = ref('');
+/** 已选中的动作（空 = 全部）。原来只能选一个，现在可整类 / 跨类多选 */
+const actions = ref<string[]>([]);
 const failed = ref('');
 const page = ref(0);
 
@@ -38,7 +41,7 @@ function load(reset = false): void {
   let path = '/api/admin/logs?limit=' + PAGE + '&offset=' + page.value * PAGE;
   const a = actor.value.trim();
   if (a) path += '&actor=' + encodeURIComponent(a);
-  if (action.value) path += '&action=' + encodeURIComponent(action.value);
+  if (actions.value.length) path += '&actions=' + encodeURIComponent(actions.value.join(','));
   get(path)
     .then((j) => {
       if (!j.ok) {
@@ -54,6 +57,21 @@ function load(reset = false): void {
       failed.value = 'common.loadFailed';
       items.value = [];
     });
+}
+
+/** 筛选器用的分组数据（组名与动作名都取当前语言） */
+const groups = computed<MsGroup[]>(() =>
+  ACTION_GROUPS.map((g) => ({
+    key: g.key,
+    label: tr(g.label),
+    options: g.actions.map((a) => ({ value: a, label: actionLabel(a) }))
+  }))
+);
+
+/** 选择变化即重查（回到第一页） */
+function onActions(v: string[]): void {
+  actions.value = v;
+  load(true);
 }
 
 function go(delta: number): void {
@@ -87,7 +105,7 @@ onMounted(load);
     <div class="mb-3 flex flex-wrap items-center gap-2">
       <h2 class="text-[13px] font-semibold text-muted">
         {{ tr('admin.log.title') }}
-        <span class="font-normal">{{ trn('admin.count.items', total) }}</span>
+        <span class="log-total font-normal">{{ trn('admin.count.items', total) }}</span>
       </h2>
 
       <div class="ml-auto flex items-center gap-1.5">
@@ -99,15 +117,17 @@ onMounted(load);
           :placeholder="tr('admin.log.actorPlaceholder')"
           @keydown.enter.prevent="load(true)"
         >
-        <select
-          v-model="action"
-          class="h-7.5 rounded-lg border border-line bg-fill px-1.5 text-xs outline-none transition-colors focus:border-primary"
-          :title="tr('admin.log.actionTitle')"
-          @change="load(true)"
-        >
-          <option value="">{{ tr('admin.log.all') }}</option>
-          <option v-for="(k, a) in ACTION_KEYS" :key="a" :value="a">{{ tr(k) }}</option>
-        </select>
+        <!-- 动作筛选：分组多选（可选整类、跨类多选、也可只挑单项） -->
+        <GroupedMultiSelect
+          :model-value="actions"
+          :groups="groups"
+          :all-label="tr('admin.log.all')"
+          :title-label="tr('admin.log.actionTitle')"
+          :select-all-label="tr('admin.log.selectAll')"
+          :clear-label="tr('admin.log.clear')"
+          :selected-text="(n: number) => tr('admin.log.selectedN', { n })"
+          @update:model-value="onActions"
+        />
         <button
           type="button"
           class="shrink-0 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
@@ -131,7 +151,7 @@ onMounted(load);
       >
         <span class="shrink-0 text-muted tabular-nums">{{ fmtDateTime(e.ts) }}</span>
         <span class="w-26 min-w-0 shrink-0 truncate font-semibold">{{ e.actor || '—' }}</span>
-        <span class="shrink-0 whitespace-nowrap rounded bg-primary/12 px-1.5 py-0.5 text-[11px] text-primary">{{ actionLabel(e.action) }}</span>
+        <span class="log-action shrink-0 whitespace-nowrap rounded bg-primary/12 px-1.5 py-0.5 text-[11px] text-primary">{{ actionLabel(e.action) }}</span>
         <span class="min-w-0 flex-1 truncate">{{ formatDetail(e.detail) }}</span>
       </div>
     </div>

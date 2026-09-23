@@ -90,6 +90,8 @@ export interface ListOpt {
   offset?: number;
   actor?: string;
   action?: string;
+  /** 精确匹配多个动作（管理面板的类别筛选：可同时选多个类别 / 多个动作） */
+  actions?: string[];
   /** 精确匹配 target（群日志按 gid 过滤用） */
   target?: string;
   /** action 前缀匹配（如 'group.' 只看群相关动作） */
@@ -112,7 +114,12 @@ export function list(opt: ListOpt): { total: number; logs: AuditRow[] } {
     where.push('actor LIKE ?');
     args.push('%' + String(o.actor).slice(0, 40) + '%');
   }
-  if (o.action) {
+  if (o.actions && o.actions.length) {
+    // 多选优先：给了列表就用 IN，否则退回老的单个 action
+    const list = o.actions.slice(0, 80).map((a) => String(a).slice(0, 40));
+    where.push('action IN (' + list.map(() => '?').join(',') + ')');
+    args.push(...list);
+  } else if (o.action) {
     where.push('action = ?');
     args.push(String(o.action).slice(0, 40));
   }

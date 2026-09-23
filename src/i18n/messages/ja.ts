@@ -743,7 +743,20 @@ const dict: Record<string, string> = {
   "admin.captcha.register": "登録ページで認証コードを要求",
   "admin.captcha.risk": "登録は開放されています。オフにすると誰でも申請を送信できます（承認は必要）。",
   "admin.captcha.saved": "保存しました",
-  "log.detail.captcha": "人機認証を変更：ログイン {login}、登録 {register}"
+  "log.detail.captcha": "人機認証を変更：ログイン {login}、登録 {register}",
+  "admin.log.selectAll": "すべて選択",
+  "admin.log.clear": "クリア",
+  "admin.log.selectedN": "{n} 件選択",
+  "admin.logGroup.login": "ログインとアカウント",
+  "admin.logGroup.twofa": "二段階認証",
+  "admin.logGroup.oauth": "外部ログイン",
+  "admin.logGroup.message": "メッセージとファイル",
+  "admin.logGroup.friend": "友だち",
+  "admin.logGroup.group": "グループ",
+  "admin.logGroup.admin": "管理操作",
+  "admin.logGroup.mod": "違反対応",
+  "admin.action.captcha": "人機認証の変更",
+  "admin.action.fileDelBatch": "ファイル一括削除"
 };
 
 export default dict;

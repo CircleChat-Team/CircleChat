@@ -2438,13 +2438,24 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     }
 
     // GET /api/admin/logs —— 审计日志（倒序，支持按用户 / 动作筛选与分页）
+    //   ?actions=a,b,c 可一次筛多个动作（管理面板的类别多选）；老的 ?action= 仍然支持
     if (pathname === '/api/admin/logs' && req.method === 'GET') {
       const q = urlObj.searchParams;
+      const rawActions: string[] = String(q.get('actions') || '')
+        .split(',')
+        .map((x: string) => x.trim())
+        .filter((x: string) => !!x);
+      if (rawActions.length > 100 || rawActions.some((a: string) => !/^[a-zA-Z0-9._]{1,40}$/.test(a))) {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
       const page = audit.list({
         limit: q.get('limit'),
         offset: q.get('offset'),
         actor: (q.get('actor') || '').trim() || undefined,
-        action: (q.get('action') || '').trim() || undefined
+        action: (q.get('action') || '').trim() || undefined,
+        actions: rawActions.length ? rawActions : undefined
       });
       sendJSON(res, 200, { ok: true, total: page.total, logs: page.logs, max: audit.MAX_LOGS });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });

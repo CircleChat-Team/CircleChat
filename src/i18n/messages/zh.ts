@@ -743,7 +743,20 @@ const dict: Record<string, string> = {
   "admin.captcha.register": "注册页需要人机验证",
   "admin.captcha.risk": "注册页是开放接口，关闭后任何人都能直接提交注册申请（仍需审核）。",
   "admin.captcha.saved": "已保存",
-  "log.detail.captcha": "修改人机验证开关：登录页 {login}、注册页 {register}"
+  "log.detail.captcha": "修改人机验证开关：登录页 {login}、注册页 {register}",
+  "admin.log.selectAll": "全选",
+  "admin.log.clear": "清空",
+  "admin.log.selectedN": "已选 {n} 项",
+  "admin.logGroup.login": "登录与账号",
+  "admin.logGroup.twofa": "两步验证",
+  "admin.logGroup.oauth": "第三方登录",
+  "admin.logGroup.message": "消息与文件",
+  "admin.logGroup.friend": "好友",
+  "admin.logGroup.group": "群组",
+  "admin.logGroup.admin": "管理操作",
+  "admin.logGroup.mod": "违规处置",
+  "admin.action.captcha": "修改人机验证",
+  "admin.action.fileDelBatch": "批量删除文件"
 };
 
 export default dict;
