@@ -22,9 +22,11 @@ import { tr } from '../../core/i18n';
 import { useOverlay } from '../../core/useOverlay';
 import { theme } from '../../core/theme';
 import {
-  MAX_PREVIEW_BYTES,
-  buildPreviewDoc,
+  buildHtmlDoc,
+  buildMarkdownDoc,
   detectPreview,
+  previewLimitFor,
+  renderMarkdown,
   sanitizeSvg,
   type PreviewKind
 } from '../../core/preview';
@@ -68,6 +70,11 @@ const previewDoc = ref('');
 const svgUrl = ref('');
 /** SVG 解析/清理失败 → 提示改看源码，而不是留一片空白 */
 const svgBroken = ref(false);
+/**
+ * 这个文件**能**预览、但超过了该类型的体积上限。
+ * 以前的表现是「预览按钮直接不出现」，用户只能猜是限制还是 bug —— 现在按钮置灰并写明原因。
+ */
+const previewTooLarge = ref(false);
 /** 媒体预览失败（服务端没按媒体类型下发、或浏览器不支持该编码） */
 const mediaFailed = ref(false);
 
@@ -171,6 +178,11 @@ const txRows = computed(() => {
 });
 /** 行号列宽度按最大行号算 */
 const noWidth = computed(() => Math.max(3, String(totalLines.value).length) + 'ch');
+
+/** 超限时给人看的说明（带上该类型的上限） */
+const previewLimitText = computed(() =>
+  tr('fileview.previewTooLarge', { size: fmtSize(previewKind.value ? previewLimitFor(previewKind.value) : 0) })
+);
 
 /** 顶部标签：媒体/hex/预览类型/纯文本/语言名 */
 const tag = computed(() => {
@@ -321,7 +333,34 @@ async function fetchHead(u: string, bytes = 4096): Promise<Uint8Array> {
  * - HTML / Markdown：拼一个带 CSP 的文档字符串，交给 iframe 的 srcdoc（不生成 DOM）
  * - SVG：清理后转成 blob URL，用 <img> 渲染（图片上下文里 SVG 不执行脚本）
  */
-function buildPreview(): void {
+/**
+ * 把围栏代码块交给 hljs 上色。
+ * 输入是我们自己 renderMarkdown 产出的 HTML（正文已转义），所以：
+ *   - textContent 取回的是**原文**，不会把标签当 HTML 读；
+ *   - hljs 的输出（.value）自己会转义，写回 innerHTML 是安全的；
+ *   - 就算哪一步漏了，渲染它的也是沙箱 iframe（无脚本 + CSP default-src 'none'）。
+ */
+async function highlightFences(html: string): Promise<string> {
+  if (html.indexOf('<pre data-lang=') === -1) return html;
+  const h = await ensureHljs();
+  if (!h) return html;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  for (const pre of Array.from(doc.querySelectorAll('pre[data-lang]'))) {
+    const code = pre.querySelector('code');
+    const l = String(pre.getAttribute('data-lang') || '').toLowerCase();
+    if (!code || !l || !h.getLanguage(l)) continue;
+    try {
+      code.innerHTML = h.highlight(code.textContent || '', { language: l, ignoreIllegals: true }).value;
+      code.classList.add('hljs');
+      pre.classList.add('hljs');
+    } catch (e) {
+      /* 高亮失败就保持纯文本，不影响预览 */
+    }
+  }
+  return doc.body.innerHTML;
+}
+
+async function buildPreview(): Promise<void> {
   const kind = previewKind.value;
   if (kind === 'svg') {
     const res = sanitizeSvg(text.value);
@@ -341,10 +380,15 @@ function buildPreview(): void {
   }
   // base 指向文件所在目录，文档里的相对路径按文件自身位置解析
   const dir = url.value.replace(/[^/]*$/, '');
-  previewDoc.value = buildPreviewDoc(kind === 'html' ? 'html' : 'markdown', text.value, {
-    base: dir,
-    theme: theme.value === 'dark' ? 'dark' : 'light'
-  });
+  const opts = { base: dir, theme: theme.value === 'dark' ? ('dark' as const) : ('light' as const) };
+  if (kind === 'html') {
+    previewDoc.value = buildHtmlDoc(text.value, opts);
+    return;
+  }
+  // markdown：先渲染，再把围栏代码块交给 hljs 上色，最后套进沙箱文档
+  const body = await highlightFences(renderMarkdown(text.value));
+  if (previewKind.value !== 'markdown') return; // 等 hljs 期间用户换了文件/关了窗
+  previewDoc.value = buildMarkdownDoc(body, opts);
 }
 
 /** 回收 SVG 的 blob URL（每次换文件/关窗都要做，否则一直占内存） */
@@ -380,7 +424,8 @@ async function load(): Promise<void> {
   hxPick.value = null;
   previewKind.value = null;
   previewDoc.value = '';
-   svgBroken.value = false;
+  svgBroken.value = false;
+  previewTooLarge.value = false;
   revokeSvg();
   viewMode.value = 'text';
   try {
@@ -413,13 +458,19 @@ async function load(): Promise<void> {
     const l = detectLanguage(text.value);
     lang.value = l;
     phase.value = 'text'; // 先按纯文本显示，高亮器到位后自动升级，不用一直等
-    // 能渲染预览的（SVG / HTML / Markdown）默认给预览；超上限就只给文本/Hex
-    if (buf.length <= MAX_PREVIEW_BYTES) {
-      previewKind.value = detectPreview(text.value);
-      if (previewKind.value) {
-        buildPreview();
+    // 能渲染预览的（SVG / HTML / Markdown）默认给预览。
+    // 类型判定与体积上限分开：超过了就只给文本/Hex，并在工具栏里说明原因
+    previewKind.value = detectPreview(text.value);
+    if (previewKind.value) {
+      const limit = previewLimitFor(previewKind.value);
+      previewTooLarge.value = buf.length > limit;
+      if (!previewTooLarge.value) {
+        void buildPreview();
         viewMode.value = 'preview';
       }
+      // 判成 markdown 就把语言定成 markdown：detectLanguage 会被代码块里的
+      // `const x = 1` / `def f():` 带偏，认成 javascript / python，源码视图的高亮就全错了
+      if (previewKind.value === 'markdown') lang.value = 'markdown';
     }
     // 高亮条件：认得出语言 + 语言在 hljs 的 common 打包里 + 体积/单行长度没过闸
     if (l && shouldHighlight(text.value, buf.length)) {
@@ -442,7 +493,7 @@ watch(view, (v) => {
 
 // 主题变了要重建文档：markdown 预览的配色是写进文档里的
 watch(theme, () => {
-  if (previewKind.value && previewKind.value !== 'svg' && previewDoc.value) buildPreview();
+  if (previewKind.value && previewKind.value !== 'svg' && previewDoc.value) void buildPreview();
 });
 
 useOverlay({
@@ -469,6 +520,8 @@ useOverlay({
               type="button"
               class="fv-btn"
               :class="{ on: viewMode === 'preview' }"
+              :disabled="previewTooLarge"
+              :title="previewTooLarge ? previewLimitText : ''"
               @click="viewMode = 'preview'"
             >{{ tr('fileview.previewMode') }}</button>
             <button
@@ -477,6 +530,8 @@ useOverlay({
               :class="{ on: viewMode === 'text' }"
               @click="viewMode = 'text'"
             >{{ tr('fileview.source') }}</button>
+            <!-- 为什么没有预览：把限制写出来，别让人以为是 bug -->
+            <span v-if="previewTooLarge" class="fv-note">{{ previewLimitText }}</span>
           </template>
           <!-- 大文本是虚拟滚动（固定行高），换行会让行高不定，所以只在整篇渲染时给 -->
           <button
@@ -592,15 +647,19 @@ useOverlay({
             @error="svgBroken = true"
           >
           <!-- HTML / Markdown：sandbox 里没有 allow-scripts / allow-same-origin，
-               文档内另有 CSP default-src 'none'，两层都挡脚本与外部请求 -->
+               文档内另有 CSP default-src 'none'，两层都挡脚本与外部请求。
+               ⚠️ 必须等 previewDoc 就绪后再渲染 iframe：Markdown 的文档要等 hljs
+               上色（异步），如果先建一个空 srcdoc 的 iframe 再更新属性，
+               Chromium 不会重新解析，预览会一直是一张白纸（实测踩过）。 -->
           <iframe
-            v-else
+            v-else-if="previewDoc"
             class="pv-frame"
             sandbox=""
             referrerpolicy="no-referrer"
             :srcdoc="previewDoc"
             :title="view.name || 'preview'"
           ></iframe>
+          <p v-else class="fileview-msg">{{ tr('fileview.loading') }}</p>
         </div>
 
         <!-- 文本：行号 + 内容；行数多时只渲染可视区（虚拟滚动） -->
@@ -608,7 +667,7 @@ useOverlay({
           <div ref="paneScroll" class="tx-scroll" @scroll="syncViewport">
             <div
               class="tx-spacer"
-              :class="{ fixed: virtualText }"
+              :class="{ fixed: virtualText, 'wrap-on': wrap && !virtualText }"
               :style="virtualText ? { height: totalLines * ROW_H + 'px' } : {}"
             >
               <div

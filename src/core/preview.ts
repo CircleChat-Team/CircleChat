@@ -26,8 +26,18 @@ import { detectLanguage } from './fileview';
 /** 可渲染预览的类型 */
 export type PreviewKind = 'svg' | 'html' | 'markdown';
 
-/** 预览的体积上限（比「可查看」更严：渲染比读文本重，超大文本不值得） */
-export const MAX_PREVIEW_BYTES = 1024 * 1024;
+/**
+ * 预览的体积上限。
+ * SVG / HTML 交给浏览器自己渲染（iframe / img），几 MB 也没问题，所以跟「可查看」
+ * 上限保持一致；Markdown 走的是我们自己的逐行渲染器，太大要卡主线程，单独收严。
+ */
+export const MAX_PREVIEW_BYTES = 2 * 1024 * 1024;
+export const MAX_MD_PREVIEW_BYTES = 1024 * 1024;
+
+/** 某个预览类型对应的体积上限 */
+export function previewLimitFor(kind: PreviewKind): number {
+  return kind === 'markdown' ? MAX_MD_PREVIEW_BYTES : MAX_PREVIEW_BYTES;
+}
 
 // ---------- 类型嗅探 ----------
 
@@ -81,9 +91,26 @@ const MD_MARKERS: RegExp[] = [
 function looksLikeMarkdown(text: string): boolean {
   const head = String(text || '').slice(0, 20000);
   if (head.split('\n').length < 4) return false;
+  // 「标题 + 任一结构（代码块 / 列表 / 引用）」就已经很像 markdown 了：
+  // 只靠计数会漏掉「标题 + 一堆列表项」这种最常见的笔记/文档（实测踩过）
+  const heading = /^#{1,6}\s+\S/m.test(head);
+  const fence = /^```/m.test(head) || /^~~~/m.test(head);
+  const list = /^\s*(?:[-*+]|\d+\.)\s+\S/m.test(head);
+  const quote = /^>\s+\S/m.test(head);
+  if (heading && (fence || list || quote)) return true;
   let hits = 0;
   for (const re of MD_MARKERS) if (re.test(head)) hits++;
   return hits >= 3;
+}
+
+/**
+ * 去掉围栏代码块，只留下「散文」部分。
+ * 判断 markdown 时必须先剥掉代码：里面的 `const x = 1`、`def f():` 会让
+ * detectLanguage 把整篇 md 认成 javascript / python（实测踩过），
+ * 结果既没预览也没 markdown 高亮。
+ */
+export function proseOf(text: string): string {
+  return String(text || '').replace(/```[\s\S]*?```/g, '\n').replace(/~~~[\s\S]*?~~~/g, '\n');
 }
 
 /**
@@ -107,9 +134,16 @@ export function detectPreview(text: string): PreviewKind | null {
     if (hits >= 3) return 'html';
   }
 
-  // 语言推断里那条 markdown 规则比较保守（要有围栏代码块或「标题+链接」），
-  // 预览可以稍宽一点：命中 3 类特征也认。
-  if (detectLanguage(raw) === 'markdown' || looksLikeMarkdown(raw)) return 'markdown';
+  // 1) 语言推断里那条 markdown 规则比较保守（要有围栏代码块或「标题+链接」）
+  if (detectLanguage(raw) === 'markdown') return 'markdown';
+  // 2) 判断一律基于**散文**（先剥掉围栏代码块）：
+  //    代码里的 `const x = 1` / `def f():` 会让整篇 md 被认成 javascript / python
+  const prose = proseOf(raw);
+  //    但散文本身就是某种代码（有 shebang、关键字…）时，别误判成 markdown
+  if (detectLanguage(prose)) return null;
+  //    「散文里有标题」+「任意处有围栏代码块」＝ 技术文档最常见的样子
+  if (/^\s*(```|~~~)/m.test(raw) && /^#{1,6}\s+\S/m.test(prose)) return 'markdown';
+  if (looksLikeMarkdown(prose)) return 'markdown';
   return null;
 }
 
@@ -409,15 +443,30 @@ function stripAutoNav(html: string): string {
     });
 }
 
-export function buildPreviewDoc(kind: Exclude<PreviewKind, 'svg'>, content: string, opts: PreviewDocOpts): string {
-  const theme = opts.theme === 'dark' ? 'dark' : 'light';
+/** 代码块高亮配色（hljs 的 token 类名）：浅色/深色各一套，只写进文档内部样式 */
+function hljsStyles(theme: PreviewTheme): string {
+  const dark = theme === 'dark';
+  const c = dark
+    ? { comment: '#8b949e', key: '#ff7b72', str: '#a5d6ff', num: '#79c0ff', title: '#d2a8ff', attr: '#7ee787' }
+    : { comment: '#6a737d', key: '#d73a49', str: '#032f62', num: '#005cc5', title: '#6f42c1', attr: '#22863a' };
+  return `<style>
+.hljs-comment, .hljs-quote { color: ${c.comment}; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-doctag, .hljs-type, .hljs-name, .hljs-strong { color: ${c.key}; }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta .hljs-string { color: ${c.str}; }
+.hljs-number, .hljs-built_in, .hljs-builtin-name, .hljs-variable, .hljs-template-variable, .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-meta { color: ${c.num}; }
+.hljs-title, .hljs-title.class_, .hljs-title.function_ { color: ${c.title}; }
+.hljs-attr, .hljs-attribute, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id, .hljs-selector-pseudo, .hljs-tag, .hljs-params { color: ${c.attr}; }
+.hljs-emphasis { font-style: italic; }
+pre.hljs, code.hljs { background: none; padding: 0; }
+</style>`;
+}
+
+/**
+ * HTML：原样作为文档，把 CSP 与 <base> 插到最前面（没有 <head> 就插到 <html> 后面）。
+ * 顺带做 stripAutoNav 的清理（去掉自动跳转与自带 base）。
+ */
+export function buildHtmlDoc(content: string, opts: PreviewDocOpts): string {
   const head = cspMeta() + (opts.base ? '<base href="' + esc(opts.base) + '">' : '');
-
-  if (kind === 'markdown') {
-    return '<!DOCTYPE html><html><head><meta charset="utf-8">' + head + mdStyles(theme) + '</head><body>' +
-      renderMarkdown(content) + '</body></html>';
-  }
-
   const src = stripAutoNav(content);
   // 已有 <head>：插到它后面；只有 <html>：插到它后面；只是片段：放到最前面
   const headOpen = /<head\b[^>]*>/i.exec(src);
@@ -431,4 +480,16 @@ export function buildPreviewDoc(kind: Exclude<PreviewKind, 'svg'>, content: stri
     return src.slice(0, at) + '<head>' + head + '</head>' + src.slice(at);
   }
   return '<!DOCTYPE html><html><head><meta charset="utf-8">' + head + '</head><body>' + src + '</body></html>';
+}
+
+/**
+ * Markdown：传入**已经渲染好**的正文 HTML。
+ * 单独一个函数是为了让调用方先把围栏代码块用 hljs 高亮（那步是异步的），
+ * 这里只负责套排版与代码配色。
+ */
+export function buildMarkdownDoc(bodyHtml: string, opts: PreviewDocOpts): string {
+  const theme = opts.theme === 'dark' ? 'dark' : 'light';
+  const head = cspMeta() + (opts.base ? '<base href="' + esc(opts.base) + '">' : '');
+  return '<!DOCTYPE html><html><head><meta charset="utf-8">' + head + mdStyles(theme) + hljsStyles(theme) +
+    '</head><body>' + bodyHtml + '</body></html>';
 }

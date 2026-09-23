@@ -228,6 +228,10 @@
   min-width: 100%;
 }
 .tx-spacer.fixed .tx-rows { position: absolute; top: 0; left: 0; right: 0; }
+/* 换行模式**不能**按内容撑宽：max-content 会让容器等于「最宽那行」的宽度，
+   pre-wrap 于是永远不折行 —— 换行开关看起来就没反应（这是它的历史 bug）。
+   宽度交回滚动容器（min-width: 100% 保证短文件也铺满），折行才会真的发生。 */
+.tx-spacer.wrap-on { width: auto; }
 .tx-row {
   display: flex;
   align-items: flex-start;
@@ -294,3 +298,11 @@
 }
 /* markdown 预览自己带配色（写进文档里），主题变化由组件重建文档 */
 html[data-theme='dark'] .pv-frame { background: #1c1c1e; }
+
+/* 工具栏里的小字说明（例如「文件较大，未生成渲染预览」） */
+.fv-note {
+  flex-shrink: 0;
+  color: #9aa4b2;
+  font-size: 11px;
+  white-space: nowrap;
+}

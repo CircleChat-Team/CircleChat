@@ -806,7 +806,8 @@ const dict: Record<string, string> = {
   "admin.action.modAppealApprove": "通过申诉",
   "admin.action.modAppealReject": "驳回申诉",
   "log.detail.mod.appeal": "申诉理由：{reason}",
-  "log.detail.mod.appealHandle": "申诉 #{id}，关联处罚 #{penalty}，备注：{note}"
+  "log.detail.mod.appealHandle": "申诉 #{id}，关联处罚 #{penalty}，备注：{note}",
+  "fileview.previewTooLarge": "文件较大（超过 {size}），未生成渲染预览"
 };
 
 export default dict;
