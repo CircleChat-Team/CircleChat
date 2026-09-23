@@ -31,6 +31,7 @@ import {
   type PreviewKind
 } from '../../core/preview';
 import {
+  HIGHLIGHT_LANGS,
   MAX_VIEW_BYTES,
   byteChar,
   byteHex,
@@ -61,6 +62,10 @@ const lang = ref<string | null>(null);
 const highlighted = ref(false);
 /** 内容字节数（高亮闸门按字节算，用它判断「是不是因为太大才没高亮」） */
 const byteLen = ref(0);
+/** 手动选的高亮语言：'' = 跟随自动识别，'off' = 不高亮 */
+const langPick = ref('');
+/** 自动识别出来的语言（切回「自动」时用它，也显示在选项里） */
+const autoLang = ref<string | null>(null);
 const wrap = ref(true);
 /** 渲染预览（SVG / HTML / Markdown）；null = 这个文件没有预览形态 */
 const previewKind = ref<PreviewKind | null>(null);
@@ -185,6 +190,38 @@ const noWidth = computed(() => Math.max(3, String(totalLines.value).length) + 'c
 const previewLimitText = computed(() =>
   tr('fileview.previewTooLarge', { size: fmtSize(previewKind.value ? previewLimitFor(previewKind.value) : 0) })
 );
+
+/** 「自动」这一项的文案：把识别结果也显示出来（自动（javascript）） */
+const autoLabel = computed(() =>
+  tr('fileview.langAuto') + (autoLang.value ? '（' + autoLang.value + '）' : '')
+);
+
+/**
+ * 手动切换高亮语言。
+ * 自动识别不是每次都对（认错、干脆认不出的情况都不少），所以给人一个手动的口子；
+ * 选择**只对当前文件生效**，换文件会回到「自动」。
+ */
+async function pickLang(v: string): Promise<void> {
+  langPick.value = v;
+  if (v === 'off') {
+    highlighted.value = false;
+    return;
+  }
+  const code = v === '' ? autoLang.value : v;
+  lang.value = code;
+  // 手动选了也要过体积/超长行闸门（hljs 在大文件上会卡住主线程），
+  // 被拦下的话标签的 title 会说明原因，不会让人以为是没生效
+  if (!code || !shouldHighlight(text.value, byteLen.value)) {
+    highlighted.value = false;
+    return;
+  }
+  const h = await ensureHljs();
+  highlighted.value = !!(h && h.getLanguage(code));
+}
+
+function onLangPick(e: Event): void {
+  void pickLang((e.target as HTMLSelectElement).value);
+}
 
 /** 顶部标签：媒体/hex/预览类型/纯文本/语言名 */
 const tag = computed(() => {
@@ -486,6 +523,9 @@ async function load(): Promise<void> {
       if (previewKind.value === 'markdown') lang.value = 'markdown';
       else if (previewKind.value === 'html' && !lang.value) lang.value = 'xml';
     }
+    // 换文件（或重新打开）时回到「自动」，别把上一个文件的手动选择带过来
+    autoLang.value = lang.value;
+    langPick.value = '';
     // 高亮条件：有语言（**含上面按预览类型补的**）+ 语言在 hljs 的 common 打包里 +
     // 体积/单行长度没过闸。必须用 lang.value：用原始推断结果的话，
     // 上面刚补好的语言会被这条闸门拦掉，源码依旧是纯文本
@@ -525,10 +565,21 @@ useOverlay({
     <div ref="box" class="fileview" role="dialog" tabindex="-1">
       <header class="fileview-head">
         <span class="fileview-name" :title="view.name || ''">{{ view.name }}</span>
+        <!-- 文本视图：语言可以手动选（自动识别认错/认不出时的退路） -->
+        <select
+          v-if="phase === 'text'"
+          class="fv-lang"
+          :value="langPick"
+          :title="tagTitle || tr('fileview.langAuto')"
+          @change="onLangPick"
+        >
+          <option value="">{{ autoLabel }}</option>
+          <option v-for="o in HIGHLIGHT_LANGS" :key="o.code" :value="o.code">{{ o.label }}</option>
+          <option value="off">{{ tr('fileview.langOff') }}</option>
+        </select>
         <span
-          v-if="phase !== 'loading' && phase !== 'error' && phase !== 'too-large'"
+          v-else-if="phase !== 'loading' && phase !== 'error' && phase !== 'too-large'"
           class="fileview-tag"
-          :title="tagTitle"
         >{{ tag }}</span>
         <span class="fileview-size">{{ fmtSize(view.size) }}</span>
         <div class="fileview-actions">

@@ -28,6 +28,45 @@ export const MAX_HIGHLIGHT_BYTES = 512 * 1024;
 /** 单行超过这么多字符不做高亮（长行会让高亮器退化，且高亮结果也没意义） */
 export const MAX_HIGHLIGHT_LINE = 5000;
 
+/**
+ * 手动选择高亮语言时的候选表（自动识别认错/认不出时用）。
+ * 只列 highlight.js common 打包里**确实有**的那些，显示名用大家认识的样子
+ * （xml 标成 HTML/XML 而不是 xml，否则没人知道那是什么）。
+ */
+export const HIGHLIGHT_LANGS: { code: string; label: string }[] = [
+  { code: 'bash', label: 'Bash' },
+  { code: 'c', label: 'C' },
+  { code: 'cpp', label: 'C++' },
+  { code: 'csharp', label: 'C#' },
+  { code: 'css', label: 'CSS' },
+  { code: 'diff', label: 'Diff' },
+  { code: 'go', label: 'Go' },
+  { code: 'graphql', label: 'GraphQL' },
+  { code: 'ini', label: 'INI' },
+  { code: 'java', label: 'Java' },
+  { code: 'javascript', label: 'JavaScript' },
+  { code: 'json', label: 'JSON' },
+  { code: 'kotlin', label: 'Kotlin' },
+  { code: 'less', label: 'Less' },
+  { code: 'lua', label: 'Lua' },
+  { code: 'makefile', label: 'Makefile' },
+  { code: 'markdown', label: 'Markdown' },
+  { code: 'objectivec', label: 'Objective-C' },
+  { code: 'perl', label: 'Perl' },
+  { code: 'php', label: 'PHP' },
+  { code: 'python', label: 'Python' },
+  { code: 'r', label: 'R' },
+  { code: 'ruby', label: 'Ruby' },
+  { code: 'rust', label: 'Rust' },
+  { code: 'scss', label: 'SCSS' },
+  { code: 'shell', label: 'Shell' },
+  { code: 'sql', label: 'SQL' },
+  { code: 'swift', label: 'Swift' },
+  { code: 'typescript', label: 'TypeScript' },
+  { code: 'xml', label: 'HTML/XML' },
+  { code: 'yaml', label: 'YAML' }
+];
+
 /** 体积是否在可查看范围内；size 未知（0/null）时按可查看处理，等读到内容再判 */
 export function canView(size?: number | null): boolean {
   const n = Number(size || 0);

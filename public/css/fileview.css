@@ -60,6 +60,20 @@
   background: var(--fill);
 }
 .fileview-size { flex-shrink: 0; font-size: 11px; color: var(--muted); }
+/* 手动选高亮语言：就摆在原来「语言标签」的位置，观感也照着它来 */
+.fv-lang {
+  flex-shrink: 0;
+  max-width: 150px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--fill);
+  outline: none;
+  cursor: pointer;
+}
+.fv-lang:hover, .fv-lang:focus { color: var(--text); }
 .fileview-actions { display: flex; flex-shrink: 0; gap: 6px; }
 .fv-btn {
   display: inline-flex;
