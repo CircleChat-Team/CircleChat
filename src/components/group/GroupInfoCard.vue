@@ -2,9 +2,10 @@
 /* ============================================================
  * 群信息（重命名 / 转让群主 / 解散群）
  * ============================================================ */
-import { inject } from 'vue';
+import { inject, ref } from 'vue';
 import { post, del } from '../../core/api';
 import { tr } from '../../core/i18n';
+import { uploadAvatar } from '../../core/chat';
 import { confirm, prompt } from '../../core/dialog';
 import { fmtDate } from '../../core/format';
 import type { GroupItem } from '../../types';
@@ -77,18 +78,23 @@ function remove(): void {
   });
 }
 
+// 头像统一走「上传」：与个人头像一致，服务端也只认本站上传路径
+const avatarInput = ref<HTMLInputElement | null>(null);
+const avatarBusy = ref(false);
+
 function setAvatar(): void {
-  prompt({
-    title: tr('group.avatarTitle'),
-    text: tr('group.avatarPrompt'),
-    placeholder: tr('group.avatarPlaceholder'),
-    okText: tr('group.avatarOk'),
-    input: { type: 'text', placeholder: tr('group.avatarPlaceholder'), maxLength: 1024 }
-  }).then((avatar) => {
-    if (avatar == null) return;
-    const v = avatar.trim();
-    if (v && !/^https?:\/\//i.test(v)) { toast(tr('group.avatarInvalid')); return; }
-    post('/api/groups/avatar', { gid: props.gid, avatar: v }).then((j) => {
+  avatarInput.value?.click();
+}
+function onAvatarPicked(e: Event): void {
+  const el = e.target as HTMLInputElement;
+  const file = el.files && el.files[0];
+  el.value = ''; // 同一个文件也能再次选中
+  if (!file) return;
+  avatarBusy.value = true;
+  uploadAvatar(file).then((url) => {
+    if (!url) { avatarBusy.value = false; return; }
+    post('/api/groups/avatar', { gid: props.gid, avatar: url }).then((j) => {
+      avatarBusy.value = false;
       toast(j.ok ? tr('group.avatarSet') : tr(j.error || 'common.opFailed'));
       if (j.ok) emit('refreshed');
     });
@@ -140,6 +146,9 @@ function copyGid(): void {
   <section class="rounded-card border border-line bg-panel p-4">
     <h2 class="mb-3 text-[13px] font-semibold text-muted">{{ tr('group.info') }}</h2>
 
+    <!-- 群头像：上传（与个人头像同一套流程） -->
+    <input ref="avatarInput" type="file" accept="image/*" class="hidden" @change="onAvatarPicked">
+
     <div class="flex items-center gap-3">
       <img v-if="group.avatar" class="h-14 w-14 shrink-0 rounded-full object-cover" :src="group.avatar" alt="" />
       <span v-else class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-fill text-xl font-semibold text-muted">
@@ -170,10 +179,11 @@ function copyGid(): void {
       <button
         v-if="isOwner"
         type="button"
-        class="rounded-lg border border-line bg-panel px-3 py-1.5 text-xs transition-colors hover:border-primary hover:text-primary"
+        class="rounded-lg border border-line bg-panel px-3 py-1.5 text-xs transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+        :disabled="avatarBusy"
         @click="setAvatar"
       >
-        {{ tr('group.setAvatar') }}
+        {{ avatarBusy ? tr('common.uploading') : tr('group.setAvatar') }}
       </button>
       <button
         v-if="isOwner && group.avatar"

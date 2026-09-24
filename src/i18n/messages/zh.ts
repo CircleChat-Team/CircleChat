@@ -487,6 +487,13 @@ const dict: Record<string, string> = {
   "admin.files.title": "文件管理",
   "admin.files.empty": "暂无上传文件",
   "admin.files.searchPlaceholder": "按文件名搜索",
+  "admin.files.filterAll": "全部类型",
+  "common.docs": "文档",
+  "avatar.crop.title": "调整头像",
+  "avatar.crop.hint": "拖动图片调整位置，滑动缩放后确认",
+  "avatar.crop.zoom": "缩放",
+  "avatar.crop.confirm": "确认",
+  "avatar.crop.cancel": "取消",
   "admin.count.files": " · {n} 个",
   "admin.count.files.one": " · {n} 个",
   "admin.count.files.other": " · {n} 个",
@@ -507,10 +514,6 @@ const dict: Record<string, string> = {
   "api.admin.fileNotFound": "文件不存在或已被删除",
   "admin.users.avatarSet": "设头像",
   "admin.users.avatarChange": "改头像",
-  "admin.users.avatarTitle": "设置头像",
-  "admin.users.avatarPrompt": "为「{name}」设置头像，输入图片地址（http/https），留空可清除：",
-  "admin.users.avatarPlaceholder": "https://…",
-  "admin.users.avatarOk": "保存",
   "admin.users.avatarUpdated": "已更新头像",
   "group.title": "群管理",
   "group.select": "选择要管理的群",
@@ -528,11 +531,7 @@ const dict: Record<string, string> = {
   "group.rename": "重命名",
   "group.setAvatar": "设置头像",
   "group.clearAvatar": "清除头像",
-  "group.avatarTitle": "设置群头像",
-  "group.avatarPrompt": "输入群头像图片地址（http/https），留空或填“清除头像”按钮。",
-  "group.avatarPlaceholder": "https:// 图片地址",
-  "group.avatarOk": "保存头像",
-  "group.avatarInvalid": "头像地址必须是 http(s) 链接",
+  "group.avatarInvalid": "头像只支持上传的图片",
   "group.avatarSet": "群头像已更新",
   "group.avatarCleared": "群头像已清除",
   "group.renameTitle": "重命名群聊",
@@ -825,7 +824,8 @@ const dict: Record<string, string> = {
   "admin.action.userRole": "修改权限",
   "log.detail.user.roleAdmin": "{name} 的权限改为管理员",
   "log.detail.user.roleUser": "{name} 的权限改为普通用户",
-  "common.loading": "加载中…"
+  "common.loading": "加载中…",
+  "common.uploading": "上传中…"
 };
 
 export default dict;

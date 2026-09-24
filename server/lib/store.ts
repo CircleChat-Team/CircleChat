@@ -602,7 +602,7 @@ export function removeGroupFile(idx: number, gid: string | null): boolean {
  */
 export function fileUsage(): Map<string, { count: number; name: string }> {
   const rows = open().prepare(
-    "SELECT content, name FROM messages WHERE type IN ('image', 'file')" +
+    "SELECT content, name FROM messages WHERE type IN ('image', 'file', 'audio', 'video')" +
     " AND (recalled IS NULL OR recalled = 0) AND (file_expired IS NULL OR file_expired = 0)"
   ).all() as { content: string | null; name: string | null }[];
   const map = new Map<string, { count: number; name: string }>();
@@ -629,7 +629,7 @@ export function fileUsage(): Map<string, { count: number; name: string }> {
  */
 export function expireByFile(base: string): number {
   const info = open().prepare(
-    "UPDATE messages SET file_expired = 1 WHERE type IN ('image', 'file')" +
+    "UPDATE messages SET file_expired = 1 WHERE type IN ('image', 'file', 'audio', 'video')" +
     " AND (recalled IS NULL OR recalled = 0) AND (file_expired IS NULL OR file_expired = 0)" +
     " AND content LIKE ?"
   ).run('%/' + String(base));

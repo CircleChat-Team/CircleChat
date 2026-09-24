@@ -152,6 +152,7 @@ onMounted(load);
         <span class="shrink-0 text-muted tabular-nums">{{ fmtDateTime(e.ts) }}</span>
         <span class="w-26 min-w-0 shrink-0 truncate font-semibold">{{ e.actor || '—' }}</span>
         <span class="log-action shrink-0 whitespace-nowrap rounded bg-primary/12 px-1.5 py-0.5 text-[11px] text-primary">{{ actionLabel(e.action) }}</span>
+        <span v-if="e.ip" class="shrink-0 font-mono text-[11px] text-muted">{{ e.ip }}</span>
         <span class="min-w-0 flex-1 truncate">{{ formatDetail(e.detail) }}</span>
       </div>
     </div>

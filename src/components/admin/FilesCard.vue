@@ -27,6 +27,17 @@ const totalSize = ref(0);
 const keyword = ref('');
 const failed = ref('');
 
+// 按文件类型筛选（列表已在内存中，前端过滤即可）
+const filterKind = ref('');
+const kindOptions = computed<string[]>(() => {
+  const set = new Set<string>();
+  for (const f of items.value) set.add(f.kind);
+  return Array.from(set).sort();
+});
+const view = computed<FileItem[]>(() =>
+  filterKind.value ? items.value.filter((f) => f.kind === filterKind.value) : items.value
+);
+
 function load(): void {
   let path = '/api/admin/files?limit=200';
   const kw = keyword.value.trim();
@@ -87,7 +98,7 @@ function remove(f: FileItem): void {
 /** 已勾选的文件（存存储名） */
 const selected = ref<string[]>([]);
 
-const allChecked = computed(() => items.value.length > 0 && selected.value.length === items.value.length);
+const allChecked = computed(() => view.value.length > 0 && selected.value.length === view.value.length);
 
 function isChecked(name: string): boolean {
   return selected.value.indexOf(name) !== -1;
@@ -100,7 +111,7 @@ function toggleOne(name: string): void {
 }
 
 function toggleAll(): void {
-  selected.value = allChecked.value ? [] : items.value.map((f) => f.name);
+  selected.value = allChecked.value ? [] : view.value.map((f) => f.name);
 }
 
 function clearSelection(): void {
@@ -151,13 +162,21 @@ onMounted(load);
       </h2>
 
       <div class="ml-auto flex items-center gap-1.5">
-        <!-- 全选当前列表（含搜索过滤后的结果） -->
+        <!-- 按文件类型筛选 -->
+        <select
+          v-model="filterKind"
+          class="h-[30px] rounded-lg border border-line bg-fill px-2 text-xs outline-none transition-colors focus:border-primary"
+        >
+          <option value="">{{ tr('admin.files.filterAll') }}</option>
+          <option v-for="k in kindOptions" :key="k" :value="k">{{ tr('file.type.' + k) }}</option>
+        </select>
+        <!-- 全选当前列表（含搜索 / 筛选后的结果） -->
         <label class="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted">
           <input
             type="checkbox"
             class="h-3.5 w-3.5 accent-primary"
             :checked="allChecked"
-            :disabled="!items.length"
+            :disabled="!view.length"
             @change="toggleAll"
           >
           <span>{{ tr('admin.files.selectAll') }}</span>
@@ -203,10 +222,10 @@ onMounted(load);
 
     <div class="flex flex-col gap-1.5">
       <p v-if="failed" class="py-2.5 text-center text-xs text-muted">{{ tr(failed) }}</p>
-      <p v-else-if="!items.length" class="py-2.5 text-center text-xs text-muted">{{ tr('admin.files.empty') }}</p>
+      <p v-else-if="!view.length" class="py-2.5 text-center text-xs text-muted">{{ tr('admin.files.empty') }}</p>
 
       <div
-        v-for="f in items"
+        v-for="f in view"
         :key="f.name"
         class="file-row flex items-center gap-2 rounded-xl bg-fill px-2.5 py-1.5 text-xs"
         :class="{ 'opacity-80': !f.used }"

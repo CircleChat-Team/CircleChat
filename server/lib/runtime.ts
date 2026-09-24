@@ -17,6 +17,7 @@ import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 
 import * as auth from './auth';
+import { isValidAvatar, safeAvatar } from './avatar';
 import * as store from './store';
 import * as groups from './groups';
 import * as friends from './friends';
@@ -1900,7 +1901,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       }
       if (obj && typeof obj.image === 'string') {
         const image = obj.image.trim();
-        if (image !== '' && !/^\/uploads\/[a-zA-Z0-9]+\.[a-zA-Z0-9]{1,8}$/.test(image)) {
+        if (!isValidAvatar(image)) {
           sendJSON(res, 400, { ok: false, error: 'api.user.imageInvalid' });
           logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
           return;
@@ -1998,7 +1999,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         return q === '' || String(name).toLowerCase().indexOf(q) !== -1;
       })
       .sort()
-      .map((name) => ({ name, image: raw[name].image || null, lastSeen: ensureLastSeen()[name] || null }));
+      .map((name) => ({ name, image: safeAvatar(raw[name].image), lastSeen: ensureLastSeen()[name] || null }));
     sendJSON(res, 200, { ok: true, users });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
@@ -2016,7 +2017,8 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         online: online.has(n),
         lastSeen: ensureLastSeen()[n] || null
       };
-      if (raw[n] && raw[n].image) o.image = raw[n].image;
+      const av = raw[n] ? safeAvatar(raw[n].image) : null;
+      if (av) o.image = av;
       return o;
     });
   }
@@ -2118,7 +2120,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       name,
       role: raw[name].role === 'admin' ? 'admin' : 'user',
       created: raw[name].created || null,
-      image: raw[name].image || null,
+      image: safeAvatar(raw[name].image),
       online: online.has(name),
       msgs: counts[name] || 0
     });
@@ -2500,7 +2502,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         role: raw[name].role === 'admin' ? 'admin' : 'user',
         status: raw[name].status || auth.STATUS.ACTIVE,
         created: raw[name].created || null,
-        image: raw[name].image || null,
+        image: safeAvatar(raw[name].image),
         online: online.has(name),
         platform: platforms[name] || null, // 连接来源：网页端 / 桌面客户端 / 两端（离线为 null）
         lastSeen: ensureLastSeen()[name] || null
@@ -2694,9 +2696,9 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         const image = o && typeof o.image === 'string' ? o.image.trim() : '';
         if (!name) { sendJSON(res, 400, { ok: false, error: '参数错误' }); return; }
-        // 仅接受 http(s) 图片地址或留空清除；拒绝 javascript: 等危险协议
-        if (image !== '' && !/^https?:\/\/[^\s"'<>]{1,2048}$/i.test(image)) {
-          sendJSON(res, 400, { ok: false, error: '头像须为 http(s) 图片地址，或留空清除' });
+        // 与本人改头像一致：只接受本站上传的图片路径（空串 = 清除）
+        if (!isValidAvatar(image)) {
+          sendJSON(res, 400, { ok: false, error: '头像须为上传的图片，或留空清除' });
           return;
         }
         if (!auth.setImage(name, image)) {

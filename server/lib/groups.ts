@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { isValidAvatar, safeAvatar } from './avatar';
 
 // 路径锚定到运行根目录（package.json 启动目录 = 项目根）
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -61,7 +62,8 @@ export function listGroupsOf(name: string): GroupInfo[] {
   return rows.map((r) => {
     const o: GroupInfo = { id: r.id, name: r.name, owner: r.owner };
     if (r.created != null) o.created = r.created;
-    if (r.avatar != null) o.avatar = r.avatar;
+    const av = safeAvatar(r.avatar);
+    if (av) o.avatar = av;
     if (r.announcement != null) o.announcement = r.announcement;
     return o;
   });
@@ -72,7 +74,12 @@ export function getGroup(id: string): GroupInfo | null {
   const r = open().prepare('SELECT id, name, owner, created, updated, avatar, announcement FROM groups WHERE id = ?').get(String(id)) as
     | (GroupInfo & { created: number | null })
     | undefined;
-  return r || null;
+  if (!r) return null;
+  const o = r as GroupInfo & { created: number | null };
+  const av = safeAvatar(r.avatar);
+  if (av) o.avatar = av;
+  else delete (o as { avatar?: string | null }).avatar;
+  return o;
 }
 
 /** 群成员列表 */
@@ -293,8 +300,8 @@ export function setGroupAvatar(gid: string, avatar: string): SetAvatarResult {
     return { ok: false, code: 'api.group.notFound' };
   }
   const v = avatar == null ? '' : String(avatar).trim().slice(0, 1024);
-  // 仅允许 http(s) 图片地址或清空
-  if (v && !/^https?:\/\//i.test(v)) {
+  // 与本人头像一致：只接受本站上传的图片路径（空串 = 清除）
+  if (!isValidAvatar(v)) {
     return { ok: false, code: 'group.avatarInvalid' };
   }
   d.prepare('UPDATE groups SET avatar = ?, updated = ? WHERE id = ?').run(v || null, Date.now(), gid);

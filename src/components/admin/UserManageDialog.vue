@@ -10,6 +10,7 @@ import { computed, inject, ref } from 'vue';
 import { post } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { confirm, prompt } from '../../core/dialog';
+import { uploadAvatar } from '../../core/chat';
 import { fmtDate } from '../../core/format';
 import { presenceText } from '../../core/presence';
 import { passwordOk } from '../../core/password';
@@ -81,18 +82,21 @@ function changePass(): void {
   });
 }
 
+// 与本人头像一致：只提供「上传」（服务端只认本站上传路径）
+const avatarInput = ref<HTMLInputElement | null>(null);
+
 function setAvatar(): void {
+  if (props.user) avatarInput.value?.click();
+}
+function onAvatarPicked(e: Event): void {
+  const el = e.target as HTMLInputElement;
+  const file = el.files && el.files[0];
+  el.value = '';
   const u = props.user;
-  if (!u) return;
-  prompt({
-    title: tr('admin.users.avatarTitle'),
-    text: tr('admin.users.avatarPrompt', { name: u.name }),
-    placeholder: tr('admin.users.avatarPlaceholder'),
-    okText: tr('admin.users.avatarOk'),
-    input: { type: 'text', placeholder: tr('admin.users.avatarPlaceholder'), maxLength: 2048 }
-  }).then((v) => {
-    if (v == null) return;
-    post('/api/admin/user/image', { name: u.name, image: v.trim() }).then((j) => {
+  if (!file || !u) return;
+  uploadAvatar(file).then((url) => {
+    if (!url) return;
+    post('/api/admin/user/image', { name: u.name, image: url }).then((j) => {
       toast(j.ok ? tr('admin.users.avatarUpdated') : tr(j.error || 'common.opFailed'));
       if (j.ok) emit('changed');
     });
@@ -175,6 +179,9 @@ const actions = computed(() => {
         role="dialog"
         aria-modal="true"
       >
+        <!-- 头像上传：与本人头像同一套流程（只接受上传，不接受外链） -->
+        <input ref="avatarInput" type="file" accept="image/*" class="hidden" @change="onAvatarPicked">
+
         <!-- 头部：身份信息 -->
         <div class="flex items-center gap-3 border-b border-line px-5 py-4">
           <img

@@ -13,6 +13,9 @@ const visible = computed(() => chatState.messages.slice(chatState.topIndex));
 let forceUntil = 0;
 /** 监听滚动容器高度变化（正在输入/上传占位层、软键盘等），贴底时自动重贴，保持最新消息可见 */
 let ro: ResizeObserver | null = null;
+/** 正在顶部插入老消息并重锚定滚动位置：期间拦截程序滚动，避免被 ResizeObserver 拉回底部 */
+let anchoring = false;
+let anchorUntil = 0;
 
 function scrollToBottom(): void {
   const el = listEl.value;
@@ -62,16 +65,38 @@ function onScroll(): void {
     pending.value = 0;
     return;
   }
+  // 正在把老消息插入顶部并重锚定：忽略本次（程序触发）滚动，避免递归触发 / 被拉回底部
+  if (anchoring) return;
   nearBottom.value = el.scrollTop + el.clientHeight >= el.scrollHeight - 60;
   if (nearBottom.value) pending.value = 0;
-  if (el.scrollTop < 80 && chatState.topIndex > 0) {
+  if (el.scrollTop < 80 && !nearBottom.value && chatState.topIndex > 0) {
     const prevH = el.scrollHeight;
     const prevTop = el.scrollTop;
+    anchoring = true;
+    anchorUntil = Date.now() + 600;
     loadOlder();
-    nextTick(() => {
-      const e2 = listEl.value;
-      if (e2) e2.scrollTop = prevTop + (e2.scrollHeight - prevH);
-    });
+    restoreAnchor(prevH, prevTop, 0);
+  }
+}
+
+/**
+ * 加载更早消息（在顶部插入）后，把视口锚定在「插入前看到的那条消息」上：
+ * 用 prevTop + 高度增量重设 scrollTop。老消息里的图片/音视频会异步增高，
+ * 这里在一段窗口内每帧重锚几次，等高度稳定；期间 ResizeObserver 与 onScroll 都被
+ * anchoring 拦住，不会把正在翻历史的人拽回底部。窗口结束后显式置 nearBottom=false。
+ */
+function restoreAnchor(prevH: number, prevTop: number, depth: number): void {
+  const el = listEl.value;
+  if (!el) {
+    anchoring = false;
+    return;
+  }
+  el.scrollTop = prevTop + (el.scrollHeight - prevH);
+  if (depth < 8 && Date.now() < anchorUntil) {
+    requestAnimationFrame(() => restoreAnchor(prevH, prevTop, depth + 1));
+  } else {
+    anchoring = false;
+    nearBottom.value = false; // 用户在翻历史，不应被视为「在底部」
   }
 }
 
@@ -82,6 +107,7 @@ onMounted(() => {
   const el = listEl.value;
   if (el && typeof ResizeObserver !== 'undefined') {
     ro = new ResizeObserver(() => {
+      if (anchoring) return;
       if (nearBottom.value) scrollToBottom();
     });
     ro.observe(el);

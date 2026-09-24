@@ -487,6 +487,13 @@ const dict: Record<string, string> = {
   "admin.files.title": "Files",
   "admin.files.empty": "No uploaded files",
   "admin.files.searchPlaceholder": "Search by file name",
+  "admin.files.filterAll": "All types",
+  "common.docs": "Docs",
+  "avatar.crop.title": "Adjust avatar",
+  "avatar.crop.hint": "Drag to reposition, zoom, then confirm",
+  "avatar.crop.zoom": "Zoom",
+  "avatar.crop.confirm": "Confirm",
+  "avatar.crop.cancel": "Cancel",
   "admin.count.files": " · {n}",
   "admin.count.files.one": " · 1 file",
   "admin.count.files.other": " · {n} files",
@@ -507,10 +514,6 @@ const dict: Record<string, string> = {
   "api.admin.fileNotFound": "File not found or already deleted",
   "admin.users.avatarSet": "Set avatar",
   "admin.users.avatarChange": "Change avatar",
-  "admin.users.avatarTitle": "Set avatar",
-  "admin.users.avatarPrompt": "Set avatar for \"{name}\": enter an image URL (http/https), leave empty to clear:",
-  "admin.users.avatarPlaceholder": "https://…",
-  "admin.users.avatarOk": "Save",
   "admin.users.avatarUpdated": "Avatar updated",
   "group.title": "Group management",
   "group.select": "Select a group to manage",
@@ -528,11 +531,7 @@ const dict: Record<string, string> = {
   "group.rename": "Rename",
   "group.setAvatar": "Set avatar",
   "group.clearAvatar": "Clear avatar",
-  "group.avatarTitle": "Set group avatar",
-  "group.avatarPrompt": "Enter the avatar image URL (http/https):",
-  "group.avatarPlaceholder": "https:// image URL",
-  "group.avatarOk": "Save avatar",
-  "group.avatarInvalid": "Avatar must be an http(s) URL",
+  "group.avatarInvalid": "Avatar must be an uploaded image",
   "group.avatarSet": "Group avatar updated",
   "group.avatarCleared": "Group avatar cleared",
   "group.renameTitle": "Rename group",
@@ -825,7 +824,8 @@ const dict: Record<string, string> = {
   "admin.action.userRole": "Role changed",
   "log.detail.user.roleAdmin": "{name} → admin",
   "log.detail.user.roleUser": "{name} → regular user",
-  "common.loading": "Loading…"
+  "common.loading": "Loading…",
+  "common.uploading": "Uploading…"
 };
 
 export default dict;

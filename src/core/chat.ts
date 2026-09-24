@@ -4,7 +4,8 @@
  * 所有组件 import 同一个实例，状态天然共享。
  * ============================================================ */
 
-import { reactive, ref } from 'vue';
+import { reactive, ref, createApp } from 'vue';
+import AvatarCropper from '../components/common/AvatarCropper.vue';
 import { asset, get, post, url } from './api';
 import { config } from './config';
 import { tr } from './i18n';
@@ -1533,20 +1534,69 @@ export function updateProfileName(name: string): Promise<{ ok: boolean; error?: 
 }
 
 /** 上传图片作为头像并更新本人资料；成功返回 true */
-export async function updateAvatar(file: File): Promise<boolean> {
+/**
+ * 上传一张图片，返回站内路径（/uploads/xxx.png）；失败返回 null 并已提示。
+ * 本人头像 / 群头像 / 管理员改他人头像三处都走这里 —— 服务端只认本站上传路径，
+ * 所以前端也必须只提供「上传」这一种方式，保持一致。
+ */
+/**
+ * 弹出头像裁剪框，返回裁剪后的 PNG Blob；用户取消则 reject。
+ * 通过一个临时挂到 body 的独立 Vue 应用实现，聊天页 / 管理页都能复用，无需各自挂载组件。
+ */
+export function cropAvatarImage(file: File): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      resolve(file);
+      return;
+    }
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const close = (): void => {
+      app.unmount();
+      host.remove();
+    };
+    const app = createApp(AvatarCropper, {
+      file,
+      onConfirm: (blob: Blob) => {
+        close();
+        resolve(blob);
+      },
+      onCancel: () => {
+        close();
+        reject(new Error('cancelled'));
+      }
+    });
+    app.mount(host);
+  });
+}
+
+export async function uploadAvatar(file: File): Promise<string | null> {
+  let payload: Blob = file;
+  try {
+    payload = await cropAvatarImage(file);
+  } catch {
+    return null; // 用户取消裁剪
+  }
   const fd = new FormData();
-  fd.append('file', file);
+  fd.append('file', payload, 'avatar.png');
   const res = await fetch(api('/api/upload'), { method: 'POST', body: fd, credentials: 'same-origin' });
   const body = await res.json();
   if (!body.ok || body.kind !== 'image') {
     notify(String(body.error || 'chat.upload.failed'));
-    return false;
+    return null;
   }
-  const j = await post('/api/profile', { image: body.url });
+  return String(body.url);
+}
+
+/** 上传并设为本人头像 */
+export async function updateAvatar(file: File): Promise<boolean> {
+  const url = await uploadAvatar(file);
+  if (!url) return false;
+  const j = await post('/api/profile', { image: url });
   if (j && j.ok) {
-    state.userImages[state.me] = body.url;
+    state.userImages[state.me] = url;
     const u = state.allUsers.find((x) => x.name === state.me);
-    if (u) u.image = body.url;
+    if (u) u.image = url;
   }
   return !!(j && j.ok);
 }

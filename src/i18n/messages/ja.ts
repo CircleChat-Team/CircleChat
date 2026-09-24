@@ -487,6 +487,13 @@ const dict: Record<string, string> = {
   "admin.files.title": "ファイル管理",
   "admin.files.empty": "アップロードされたファイルはありません",
   "admin.files.searchPlaceholder": "ファイル名で検索",
+  "admin.files.filterAll": "すべての種類",
+  "common.docs": "ドキュメント",
+  "avatar.crop.title": "アバターを調整",
+  "avatar.crop.hint": "ドラッグで位置を調整し、拡大縮小して確定",
+  "avatar.crop.zoom": "拡大",
+  "avatar.crop.confirm": "確定",
+  "avatar.crop.cancel": "キャンセル",
   "admin.count.files": " · {n}",
   "admin.count.files.one": " · 1ファイル",
   "admin.count.files.other": " · {n}ファイル",
@@ -507,10 +514,6 @@ const dict: Record<string, string> = {
   "api.admin.fileNotFound": "ファイルが存在しないか、すでに削除されています",
   "admin.users.avatarSet": "アバター設定",
   "admin.users.avatarChange": "アバター変更",
-  "admin.users.avatarTitle": "アバターを設定",
-  "admin.users.avatarPrompt": "「{name}」のアバターを設定します。画像URL（http/https）を入力してください。空にすると解除されます：",
-  "admin.users.avatarPlaceholder": "https://…",
-  "admin.users.avatarOk": "保存",
   "admin.users.avatarUpdated": "アバターを更新しました",
   "group.title": "グループ管理",
   "group.select": "管理するグループを選択",
@@ -528,11 +531,7 @@ const dict: Record<string, string> = {
   "group.rename": "名前を変更",
   "group.setAvatar": "アイコン設定",
   "group.clearAvatar": "アイコン解除",
-  "group.avatarTitle": "グループアイコン設定",
-  "group.avatarPrompt": "アイコン画像のURL（http/https）を入力：",
-  "group.avatarPlaceholder": "https:// 画像URL",
-  "group.avatarOk": "アイコン保存",
-  "group.avatarInvalid": "アイコンは http(s) URL である必要があります",
+  "group.avatarInvalid": "アバターはアップロードした画像のみです",
   "group.avatarSet": "グループアイコンを更新しました",
   "group.avatarCleared": "グループアイコンを解除しました",
   "group.renameTitle": "グループ名を変更",
@@ -825,7 +824,8 @@ const dict: Record<string, string> = {
   "admin.action.userRole": "権限を変更",
   "log.detail.user.roleAdmin": "{name} の権限を管理者に変更",
   "log.detail.user.roleUser": "{name} の権限を一般ユーザーに変更",
-  "common.loading": "読み込み中…"
+  "common.loading": "読み込み中…",
+  "common.uploading": "アップロード中…"
 };
 
 export default dict;
