@@ -4,7 +4,7 @@
  * 登录页底部与聊天页侧栏底部共用（样式走 Tailwind，两页都加载了 tailwind.css）。
  * align：侧栏里的内容都是左对齐的，页脚跟着左对齐才不突兀；登录页居中。
  * ============================================================ */
-import { tr } from '../core/i18n';
+import { tr } from '../../core/i18n';
 
 const year = new Date().getFullYear();
 const REPO = 'https://github.com/CircleChat-Team/CircleChat';
