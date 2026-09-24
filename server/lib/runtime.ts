@@ -2606,6 +2606,59 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       return;
     }
 
+    // POST /api/admin/user/role —— 改权限 {name, role: 'user'|'admin'}
+    //   角色是**每次请求都从库里读**的，改完立刻生效，不必踢下线。
+    //   唯一的硬约束：**至少要留一个管理员** —— 把最后一个管理员降权，
+    //   系统就变成谁也管不了（连改回来都没人能做），所以服务端直接拦。
+    if (pathname === '/api/admin/user/role' && req.method === 'POST') {
+      readBody(req, 2048).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+        const role = o && typeof o.role === 'string' ? o.role : '';
+        if (!name || (role !== 'user' && role !== 'admin')) {
+          sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        const users = auth.loadUsers() || {};
+        if (!Object.prototype.hasOwnProperty.call(users, name)) {
+          sendJSON(res, 404, { ok: false, error: 'api.user.notFound' });
+          logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        const cur = auth.getRole(name);
+        if (cur === role) {
+          // 已经是这个权限了：按成功返回但不写审计，免得刷出一堆无变化的记录
+          sendJSON(res, 200, { ok: true, changed: false });
+          logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        if (role !== 'admin' && cur === 'admin' && auth.countAdmins() <= 1) {
+          sendJSON(res, 400, { ok: false, error: 'api.admin.lastAdmin' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        if (!auth.setRole(name, role)) {
+          sendJSON(res, 404, { ok: false, error: 'api.user.notFound' });
+          logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        audit.add({
+          actor: me.username,
+          action: 'admin.user.role',
+          target: name,
+          detail: auditDetail(role === 'admin' ? 'log.detail.user.roleAdmin' : 'log.detail.user.roleUser', { name }),
+          ip
+        });
+        sendJSON(res, 200, { ok: true, changed: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
     // POST /api/admin/user/del —— 删除用户 {name}
     if (pathname === '/api/admin/user/del' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {

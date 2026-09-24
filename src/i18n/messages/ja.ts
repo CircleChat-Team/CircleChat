@@ -810,7 +810,21 @@ const dict: Record<string, string> = {
   "fileview.previewTooLarge": "ファイルが大きいため（{size} 超）、プレビューを生成していません",
   "fileview.noHighlight": "ファイルが大きいか長すぎる行があるため、構文ハイライトは行いません",
   "fileview.langAuto": "自動",
-  "fileview.langOff": "プレーンテキスト（ハイライトなし）"
+  "fileview.langOff": "プレーンテキスト（ハイライトなし）",
+  "admin.role.user": "一般ユーザー",
+  "admin.role.admin": "管理者",
+  "admin.add.role": "権限",
+  "admin.users.roleTitle": "権限を変更",
+  "admin.users.rolePromote": "管理者にする",
+  "admin.users.roleDemote": "一般ユーザーに戻す",
+  "admin.users.rolePromoteConfirm": "{name} を管理者にしますか？後でいつでも戻せます。",
+  "admin.users.roleDemoteConfirm": "{name} を一般ユーザーに戻しますか？",
+  "admin.users.rolePromoted": "管理者にしました",
+  "admin.users.roleDemoted": "一般ユーザーにしました",
+  "api.admin.lastAdmin": "管理者は最低 1 人必要です",
+  "admin.action.userRole": "権限を変更",
+  "log.detail.user.roleAdmin": "{name} の権限を管理者に変更",
+  "log.detail.user.roleUser": "{name} の権限を一般ユーザーに変更"
 };
 
 export default dict;

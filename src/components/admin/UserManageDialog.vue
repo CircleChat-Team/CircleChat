@@ -118,6 +118,28 @@ function remove(): void {
 }
 
 /** 操作项列表：模板里只遍历，增删一项不用改结构 */
+/**
+ * 改权限：普通用户 ⇄ 管理员。
+ * 角色是每次请求从库里读的，改完立即生效（不用踢下线）；
+ * 「至少保留一个管理员」由服务端拦（那里才知道还剩几个管理员）。
+ */
+function changeRole(): void {
+  const u = props.user;
+  if (!u) return;
+  const toAdmin = u.role !== 'admin';
+  confirm({
+    title: tr('admin.users.roleTitle'),
+    text: tr(toAdmin ? 'admin.users.rolePromoteConfirm' : 'admin.users.roleDemoteConfirm', { name: u.name }),
+    okText: tr(toAdmin ? 'admin.users.rolePromote' : 'admin.users.roleDemote')
+  }).then((ok) => {
+    if (!ok) return;
+    post('/api/admin/user/role', { name: u.name, role: toAdmin ? 'admin' : 'user' }).then((j) => {
+      toast(j.ok ? tr(toAdmin ? 'admin.users.rolePromoted' : 'admin.users.roleDemoted') : tr(j.error || 'common.opFailed'));
+      if (j.ok) emit('changed'); // 不关弹窗：头部徽标会立刻跟着变，看得见
+    });
+  });
+}
+
 const actions = computed(() => {
   const list = [
     { key: 'name', label: 'admin.users.changeName', danger: false, run: changeName },
@@ -127,6 +149,12 @@ const actions = computed(() => {
       label: props.user && props.user.image ? 'admin.users.avatarChange' : 'admin.users.avatarSet',
       danger: false,
       run: setAvatar
+    },
+    {
+      key: 'role',
+      label: props.user && props.user.role === 'admin' ? 'admin.users.roleDemote' : 'admin.users.rolePromote',
+      danger: !!(props.user && props.user.role === 'admin'),
+      run: changeRole
     }
   ];
   if (!isSelf.value) list.push({ key: 'del', label: 'admin.users.delBtn', danger: true, run: remove });

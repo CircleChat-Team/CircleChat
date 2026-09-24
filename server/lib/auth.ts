@@ -218,6 +218,27 @@ export function login(username: string, password: string): { username: string; s
 }
 
 /** 修改密码（管理员或本人）；成功后清除强制改密标志 */
+/**
+ * 设置角色（'admin' 或 'user'）。
+ * 「不能把自己降光、至少要留一个管理员」这类业务规则由调用方判断
+ * （它需要知道是谁在操作、还剩几个管理员），这里只做纯粹的落库。
+ */
+export function setRole(name: string, role: string): boolean {
+  const who = String(name || '').trim();
+  const r = String(role) === 'admin' ? 'admin' : 'user';
+  const d = open();
+  const got = d.prepare('SELECT name FROM users WHERE name = ?').get(who) as { name: string } | undefined;
+  if (!got) return false;
+  d.prepare('UPDATE users SET role = ?, updated = ? WHERE name = ?').run(r, Date.now(), who);
+  return true;
+}
+
+/** 管理员数量（role 显式为 'admin' 的；role 为 NULL 的按普通用户算） */
+export function countAdmins(): number {
+  const r = open().prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").get() as { c: number };
+  return Number(r.c) || 0;
+}
+
 export function setPassword(username: string, newPassword: string): boolean {
   const r = open().prepare('SELECT * FROM users WHERE name = ?').get(username) as UserRow | undefined;
   if (!r) return false;

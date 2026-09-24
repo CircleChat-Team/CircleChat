@@ -810,7 +810,21 @@ const dict: Record<string, string> = {
   "fileview.previewTooLarge": "File is too large (over {size}) — rendered preview skipped",
   "fileview.noHighlight": "File is large or has very long lines — syntax highlighting skipped",
   "fileview.langAuto": "Auto",
-  "fileview.langOff": "Plain text (no highlight)"
+  "fileview.langOff": "Plain text (no highlight)",
+  "admin.role.user": "Regular user",
+  "admin.role.admin": "Admin",
+  "admin.add.role": "Role",
+  "admin.users.roleTitle": "Change role",
+  "admin.users.rolePromote": "Make admin",
+  "admin.users.roleDemote": "Make regular user",
+  "admin.users.rolePromoteConfirm": "Make {name} an admin? You can change it back anytime.",
+  "admin.users.roleDemoteConfirm": "Demote {name} to a regular user?",
+  "admin.users.rolePromoted": "Now an admin",
+  "admin.users.roleDemoted": "Now a regular user",
+  "api.admin.lastAdmin": "At least one admin must remain",
+  "admin.action.userRole": "Role changed",
+  "log.detail.user.roleAdmin": "{name} → admin",
+  "log.detail.user.roleUser": "{name} → regular user"
 };
 
 export default dict;

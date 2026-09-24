@@ -810,7 +810,21 @@ const dict: Record<string, string> = {
   "fileview.previewTooLarge": "文件较大（超过 {size}），未生成渲染预览",
   "fileview.noHighlight": "文件较大或含超长行，未做语法高亮",
   "fileview.langAuto": "自动",
-  "fileview.langOff": "纯文本（不高亮）"
+  "fileview.langOff": "纯文本（不高亮）",
+  "admin.role.user": "普通用户",
+  "admin.role.admin": "管理员",
+  "admin.add.role": "权限组",
+  "admin.users.roleTitle": "改权限",
+  "admin.users.rolePromote": "设为管理员",
+  "admin.users.roleDemote": "降为普通用户",
+  "admin.users.rolePromoteConfirm": "把 {name} 设为管理员？之后可以随时改回。",
+  "admin.users.roleDemoteConfirm": "把 {name} 降为普通用户？",
+  "admin.users.rolePromoted": "已设为管理员",
+  "admin.users.roleDemoted": "已改为普通用户",
+  "api.admin.lastAdmin": "至少要保留一个管理员",
+  "admin.action.userRole": "修改权限",
+  "log.detail.user.roleAdmin": "{name} 的权限改为管理员",
+  "log.detail.user.roleUser": "{name} 的权限改为普通用户"
 };
 
 export default dict;

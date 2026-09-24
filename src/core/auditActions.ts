@@ -24,6 +24,7 @@ export const ACTION_KEYS: Record<string, string> = {
   'admin.user.add': 'admin.action.userAdd',
   'admin.user.del': 'admin.action.userDel',
   'admin.user.pass': 'admin.action.userPass',
+  'admin.user.role': 'admin.action.userRole',
   'admin.file.del': 'admin.action.fileDel',
   'group.create': 'admin.action.groupCreate',
   'group.dissolve': 'admin.action.groupDissolve',
@@ -115,7 +116,7 @@ export const ACTION_GROUPS: ActionGroup[] = [
     label: 'admin.logGroup.admin',
     actions: [
       'admin.review.approve', 'admin.review.reject', 'admin.user.add', 'admin.user.del',
-      'admin.user.pass', 'admin.user.image', 'admin.user.rename',
+      'admin.user.pass', 'admin.user.role', 'admin.user.image', 'admin.user.rename',
       'admin.file.del', 'admin.file.delBatch', 'admin.captcha'
     ]
   },
