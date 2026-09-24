@@ -23,6 +23,7 @@ import type {
   FriendSent,
   ChatGroup,
   GroupMember,
+  GroupInvite,
   ProfileData,
   MergeData,
   MergeItem,
@@ -65,9 +66,19 @@ export interface ChatState {
   myFriends: Friend[];
   friendRequests: FriendRequest[];
   friendSent: FriendSent[];
+  /** 好友备注（我给别人起的备注，仅自己可见）：用户名 -> 备注 */
+  friendRemarks: Record<string, string>;
   activeGroupMembers: GroupMember[];
   activeGid: string | null;
   activeDmPeer: string | null;
+  /** 当前群内：我是否为管理者（群主或管理员） */
+  activeGroupIsManager?: boolean;
+  /** 当前群内：我是否为群主 */
+  activeGroupIsOwner?: boolean;
+  /** 当前群是否处于「全员禁言」 */
+  activeGroupMuteAll?: boolean;
+  /** 我收到的、待我同意的群邀请 */
+  myInvites: GroupInvite[];
   messages: ChatMessage[];
   renderedIdx: Record<string, boolean>;
   topIndex: number;
@@ -78,6 +89,8 @@ export interface ChatState {
   notifySound: string;
   /** 接收消息提示音开关 */
   soundIn: boolean;
+  /** 允许任何人邀请我入群（无需我同意） */
+  allowInvite: boolean;
   /** 发送消息提示音开关 */
   soundOut: boolean;
   replyTo: ChatMessage | null;
@@ -124,6 +137,8 @@ export interface ChatState {
   reactTargetIdx: number | null;
   muted: boolean;
   mutedUntil: number | null;
+  /** 所在群处于「群禁言」（仅管理员/群主可发言） */
+  groupMuted?: boolean;
   lastTs: Record<string, number>;
   unread: Record<string, number>;
   /** 上传任务队列（输入栏上方的进度指示器读取） */
@@ -145,9 +160,14 @@ const state = reactive<ChatState>({
   myFriends: [],
   friendRequests: [],
   friendSent: [],
+  friendRemarks: {},
   activeGroupMembers: [],
   activeGid: null,
   activeDmPeer: null,
+  activeGroupIsManager: false,
+  activeGroupIsOwner: false,
+  activeGroupMuteAll: false,
+  myInvites: [],
   messages: [],
   renderedIdx: {},
   topIndex: 0,
@@ -155,6 +175,7 @@ const state = reactive<ChatState>({
   typingWho: null,
   notifyOn: true,
   sendKey: 'enter',
+  allowInvite: false,
   notifySound: DEFAULT_NOTIFY_SOUND,
   soundIn: true,
   soundOut: true,
@@ -193,6 +214,7 @@ const state = reactive<ChatState>({
   reactTargetIdx: null,
   muted: false,
   mutedUntil: null,
+  groupMuted: false,
   lastTs: {},
   unread: {},
   uploads: []
@@ -287,6 +309,7 @@ function connectWs(): void {
     }, 30000);
     loadHistory();
     pushStatus();
+    loadMyInvites();
   };
 
   sock.onmessage = (ev: MessageEvent) => {
@@ -354,6 +377,9 @@ function connectWs(): void {
         break;
       case 'friends.changed':
         loadFriends();
+        break;
+      case 'group.invites':
+        loadMyInvites();
         break;
       case 'logged.out':
         // 会话已被服务端销毁（如改密）：回到登录页重新登录
@@ -648,6 +674,7 @@ function loadFriends(): Promise<void> {
       state.myFriends.forEach((f) => {
         if (f.lastSeen) state.lastSeen[f.name] = Number(f.lastSeen);
       });
+      state.friendRemarks = (j.remarks as Record<string, string>) || {};
       state.friendRequests = (j.requests as FriendRequest[]) || [];
       state.friendSent = (j.sent as FriendSent[]) || [];
     })
@@ -656,7 +683,7 @@ function loadFriends(): Promise<void> {
     });
 }
 
-function loadGroups(): Promise<void> {
+export function loadGroups(): Promise<void> {
   return get('/api/groups')
     .then((j) => {
       if (j.ok) state.myGroups = (j.groups as ChatGroup[]) || [];
@@ -1670,6 +1697,7 @@ export function reportMessage(idx: number, reason: string): Promise<boolean> {
 function handlePenalty(data: any): void {
   state.muted = !!data.muted;
   state.mutedUntil = typeof data.mutedUntil === 'number' ? data.mutedUntil : null;
+  state.groupMuted = !!data.groupMuted && !data.banned;
   if (data.banned) {
     logout();
     return;
@@ -1702,6 +1730,14 @@ export function setNotifySound(file: string): void {
   state.notifySound = file;
   soundSetNotify(file);
   void post('/api/settings', { notifySound: file }).catch(() => {
+    /* 忽略 */
+  });
+}
+
+/** 设置「允许任何人邀请我入群（无需我同意）」：保存后即时生效 */
+export function setAllowInvite(on: boolean): void {
+  state.allowInvite = on;
+  void post('/api/settings', { allowInvite: on }).catch(() => {
     /* 忽略 */
   });
 }
@@ -1822,6 +1858,7 @@ export function initChat(): void {
           soundSetNotify(s.notifySound);
         }
         if (typeof s.soundIn === 'boolean') state.soundIn = s.soundIn;
+        if (typeof s.allowInvite === 'boolean') state.allowInvite = s.allowInvite;
         if (typeof s.soundOut === 'boolean') state.soundOut = s.soundOut;
         if (typeof s.volume === 'number' && s.volume >= 0 && s.volume <= 1) {
           state.volume = s.volume;
@@ -2073,6 +2110,9 @@ export function loadGroupMembers(gid: string): void {
       if (!j || !j.ok) return;
       const list = (j.members as GroupMember[]) || [];
       state.activeGroupMembers = list;
+      state.activeGroupIsManager = !!j.isManager;
+      state.activeGroupIsOwner = !!j.isOwner;
+      state.activeGroupMuteAll = !!j.muteAll;
       list.forEach((m) => {
         if (m.lastSeen) state.lastSeen[m.name] = Number(m.lastSeen);
       });
@@ -2080,6 +2120,56 @@ export function loadGroupMembers(gid: string): void {
     .catch(() => {
       /* 忽略 */
     });
+}
+
+/** 拉取我收到的、待我同意的群邀请 */
+export function loadMyInvites(): void {
+  get('/api/groups/invites')
+    .then((j) => {
+      if (j && j.ok) state.myInvites = (j.invites as GroupInvite[]) || [];
+    })
+    .catch(() => {
+      /* 忽略 */
+    });
+}
+
+// ---------- 群管理：角色 / 禁言 / 昵称 / 备注 / 邀请 ----------
+
+export function setMemberRole(gid: string, name: string, role: 'admin' | 'member'): Promise<ApiResult> {
+  return post('/api/groups/member/role', { gid, name, role });
+}
+export function muteMember(gid: string, name: string, muted: boolean): Promise<ApiResult> {
+  return post('/api/groups/member/mute', { gid, name, muted });
+}
+export function setMuteAll(gid: string, val: boolean): Promise<ApiResult> {
+  return post('/api/groups/muteall', { gid, val });
+}
+export function setMemberInviteApprove(gid: string, val: boolean): Promise<ApiResult> {
+  return post('/api/groups/invite/setting', { gid, memberInviteApprove: val });
+}
+export function setNickname(gid: string, nickname: string): Promise<ApiResult> {
+  return post('/api/groups/member/nickname', { gid, nickname });
+}
+export function setGroupRemark(gid: string, remark: string): Promise<ApiResult> {
+  return post('/api/groups/remark', { gid, remark });
+}
+export function fetchGroupRemark(gid: string): Promise<ApiResult> {
+  return get('/api/groups/remark?gid=' + encodeURIComponent(gid));
+}
+export function inviteToGroup(gid: string, invitee: string): Promise<ApiResult> {
+  return post('/api/groups/invite', { gid, invitee });
+}
+export function approveInvite(id: number): Promise<ApiResult> {
+  return post('/api/groups/invite/approve', { id });
+}
+export function rejectInvite(id: number): Promise<ApiResult> {
+  return post('/api/groups/invite/reject', { id });
+}
+export function acceptInvite(id: number): Promise<ApiResult> {
+  return post('/api/groups/invite/accept', { id });
+}
+export function setFriendRemark(to: string, remark: string): Promise<ApiResult> {
+  return post('/api/friends/remark', { to, remark });
 }
 
 export { asset, clock, fmtSize, tr };

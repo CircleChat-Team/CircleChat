@@ -33,10 +33,17 @@ const replyText = computed(() => {
   return String(r.content || '').replace(/\s+/g, ' ').trim();
 });
 
+/** 当前群处于群禁言且我不是管理者：不允许发言 */
+const groupMuted = computed(() =>
+  chatState.activeGid != null && !!chatState.activeGroupMuteAll && !chatState.activeGroupIsManager
+);
 const mutedText = computed(() => {
-  if (!chatState.muted) return '';
-  return tr('chat.muted.banner');
+  if (chatState.muted) return tr('chat.muted.banner');
+  if (groupMuted.value) return tr('group.muteAll');
+  return '';
 });
+/** 只有「账号被禁言」才显示申诉入口；群禁言无需申诉 */
+const showAppeal = computed(() => !!chatState.muted);
 
 // @提及候选：检测光标前未完成的 @词
 const mention = computed(() => {
@@ -234,6 +241,7 @@ function onShake(): void {
       <span class="reply-text">{{ mutedText }}</span>
       <!-- 被禁言的人最想知道「怎么办」：直接给申诉入口（打开资料的处罚页签） -->
       <button
+        v-if="showAppeal"
         type="button"
         class="muted-appeal shrink-0 text-xs underline transition-opacity hover:opacity-80"
         @click="openMyProfile('penalty')"

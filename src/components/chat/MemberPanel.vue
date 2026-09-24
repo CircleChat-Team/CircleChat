@@ -1,14 +1,10 @@
 <script setup lang="ts">
 /* ============================================================
- * 群成员面板（右侧抽屉）
- *
- * 面向**所有群成员**开放——以前只有群主/系统管理员能从侧栏齿轮进群管理页
- * 看成员，普通成员没有任何入口。这里直接读 /api/groups/members（服务端本来就
- * 只要求「是本群成员」），点成员打开资料卡。
- *
- * 排序：群主 → 在线（离开也算在线）→ 离线（按最后在线时间新的在前）。
+ * 群成员面板（右侧抽屉）—— 面向所有群成员
+ * 群主可设/取消管理员；管理员可禁言、移除普通成员；所有人可编辑自己的群昵称、
+ * 群备注、邀请成员、退出群聊。
  * ============================================================ */
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
   chatState,
   avatarColor,
@@ -18,17 +14,30 @@ import {
   statusText,
   getProfile,
   loadGroupMembers,
-  lastSeenOf
+  lastSeenOf,
+  setMemberRole,
+  muteMember,
+  setNickname,
+  setGroupRemark,
+  notify,
+  switchRoom,
+  loadGroups
 } from '../../core/chat';
 import { tr } from '../../core/i18n';
+import { confirm, prompt } from '../../core/dialog';
+import { post } from '../../core/api';
 import type { GroupMember } from '../../types';
+import InviteDialog from '../group/InviteDialog.vue';
 
 const open = defineModel<boolean>({ default: false });
+const showInvite = ref(false);
 
 function initial(name: string): string {
   return (name || '?').slice(0, 1);
 }
 
+const me = computed(() => chatState.me);
+const isManager = computed(() => !!chatState.activeGroupIsManager);
 const owner = computed(() => {
   const g = chatState.myGroups.find((x) => x.id === chatState.activeGid);
   return g ? g.owner : '';
@@ -46,7 +55,6 @@ const members = computed<GroupMember[]>(() => {
     const rb = rank(b);
     if (ra !== rb) return ra - rb;
     if (ra === 2) {
-      // 离线：越近上线的排越前；都没记录时按名字排
       const ta = lastSeenOf(a.name) || 0;
       const tb = lastSeenOf(b.name) || 0;
       if (tb !== ta) return tb - ta;
@@ -57,16 +65,107 @@ const members = computed<GroupMember[]>(() => {
 
 const onlineCount = computed(() => chatState.activeGroupMembers.filter((m) => isOnline(m.name)).length);
 
-/** 每次打开都重新拉一遍，免得看到过期的成员（加人/退群不会实时推送） */
+/** 可管理对象：管理者、非群主、非自己、非管理员 */
+function manageable(m: GroupMember): boolean {
+  return isManager.value && !m.owner && m.name !== me.value && m.role !== 'admin';
+}
+
+function toggleAdmin(m: GroupMember): void {
+  const role = m.role === 'admin' ? 'member' : 'admin';
+  setMemberRole(chatState.activeGid!, m.name, role).then((j) => {
+    if (j.ok) loadGroupMembers(chatState.activeGid!);
+    else toast(j.error || 'common.opFailed');
+  });
+}
+function toggleMute(m: GroupMember): void {
+  muteMember(chatState.activeGid!, m.name, !m.muted).then((j) => {
+    if (j.ok) loadGroupMembers(chatState.activeGid!);
+    else toast(j.error || 'common.opFailed');
+  });
+}
+function removeMember(m: GroupMember): void {
+  confirm({
+    title: tr('group.removeTitle'),
+    text: tr('group.removeConfirm', { name: m.name }),
+    okText: tr('group.remove')
+  }).then((ok) => {
+    if (!ok) return;
+    post('/api/groups/members/remove', { gid: chatState.activeGid, name: m.name }).then((j) => {
+      toast(j.ok ? tr('group.removed', { name: m.name }) : tr(j.error || 'common.opFailed'));
+      if (j.ok) loadGroupMembers(chatState.activeGid!);
+    });
+  });
+}
+
+function editNickname(): void {
+  const cur = (chatState.activeGroupMembers.find((m) => m.name === me.value) || {}).nickname || '';
+  prompt({
+    title: tr('group.nickname'),
+    text: tr('group.nicknamePlaceholder'),
+    input: { type: 'text', placeholder: tr('group.nicknamePlaceholder'), maxLength: 24, value: cur }
+  }).then((v) => {
+    if (v == null) return;
+    setNickname(chatState.activeGid!, v.trim()).then((j) => {
+      toast(j.ok ? tr('group.nicknameSaved') : tr(j.error || 'common.opFailed'));
+      if (j.ok) loadGroupMembers(chatState.activeGid!);
+    });
+  });
+}
+
+function editRemark(): void {
+  fetch('/api/groups/remark?gid=' + encodeURIComponent(chatState.activeGid!), { credentials: 'same-origin' })
+    .then((r) => r.json())
+    .then((j) => {
+      prompt({
+        title: tr('group.remark'),
+        text: tr('group.remarkPlaceholder'),
+        input: { type: 'text', placeholder: tr('group.remarkPlaceholder'), maxLength: 500, value: (j && j.remark) || '' }
+      }).then((v) => {
+        if (v == null) return;
+        setGroupRemark(chatState.activeGid!, v.trim()).then((jj) => {
+          toast(jj.ok ? tr('group.remarkSaved') : tr(jj.error || 'common.opFailed'));
+        });
+      });
+    });
+}
+
+function leave(): void {
+  const gid = chatState.activeGid;
+  confirm({
+    title: tr('group.leave'),
+    text: tr('group.leaveConfirm'),
+    okText: tr('group.leave')
+  }).then((ok) => {
+    if (!ok) return;
+    post('/api/groups/leave', { gid }).then((j) => {
+      toast(j.ok ? tr('group.left') : tr(j.error || 'common.opFailed'));
+      if (j.ok) {
+        open.value = false;
+        loadGroups();
+        // 退群后该群会从我的群列表移除，若当前正停在该群则切回公共频道
+        if (chatState.activeGid === gid) switchRoom(null);
+      }
+    });
+  });
+}
+
+function onInvited(): void {
+  showInvite.value = false;
+}
+
+function toast(msg: string): void {
+  notify(msg);
+}
+
 watch(open, (v) => {
   if (v && chatState.activeGid != null) loadGroupMembers(chatState.activeGid);
 });
 
-// 切会话时收起：成员面板是「这个群」的信息，跟着会话走
 watch(
   () => chatState.activeGid,
   () => {
     open.value = false;
+    showInvite.value = false;
   }
 );
 </script>
@@ -86,32 +185,65 @@ watch(
     </header>
 
     <div class="mp-body">
-      <button
+      <div
         v-for="m in members"
         :key="m.name"
-        type="button"
         class="mp-item"
         :class="{ away: isAway(m.name) }"
-        @click="getProfile(m.name)"
       >
-        <!-- 状态点不能放在 .user-avatar 里：它有 overflow:hidden，会把角上的点裁掉 -->
-        <span class="mp-avatar-wrap">
+        <span class="mp-avatar-wrap" @click="getProfile(m.name)">
           <span class="user-avatar mp-avatar">
             <img v-if="avatarFor(m.name)" :src="avatarFor(m.name)!" :alt="m.name" />
             <span v-else class="avatar-letter" :style="{ background: avatarColor(m.name) }">{{ initial(m.name) }}</span>
           </span>
           <i class="mp-dot" :class="isOnline(m.name) ? (isAway(m.name) ? 'is-away' : 'is-on') : 'is-off'"></i>
         </span>
-        <span class="mp-meta">
+        <span class="mp-meta" @click="getProfile(m.name)">
           <span class="mp-name">
-            {{ m.name }}<i v-if="m.name === chatState.me" class="mp-me">{{ tr('common.me') }}</i>
+            {{ m.nickname || m.name }}<span v-if="m.nickname" class="mp-nick">（{{ m.name }}）</span>
+            <i v-if="m.name === me" class="mp-me">{{ tr('common.me') }}</i>
           </span>
           <span class="mp-status">{{ statusText(m.name) }}</span>
         </span>
         <span v-if="m.name === owner" class="owner-tag">{{ tr('chat.members.owner') }}</span>
-      </button>
+        <span v-else-if="m.role === 'admin'" class="admin-tag">{{ tr('group.roleAdmin') }}</span>
+        <span v-if="m.muted" class="muted-tag">{{ tr('group.memberMuted') }}</span>
+
+        <span v-if="manageable(m)" class="mp-actions">
+          <button
+            v-if="owner === me"
+            type="button"
+            class="mp-act"
+            :title="m.role === 'admin' ? tr('group.removeAdmin') : tr('group.setAdmin')"
+            @click="toggleAdmin(m)"
+          >{{ m.role === 'admin' ? tr('group.removeAdmin') : tr('group.setAdmin') }}</button>
+          <button
+            v-if="m.role !== 'admin'"
+            type="button"
+            class="mp-act"
+            :title="m.muted ? tr('group.unmuteMember') : tr('group.muteMember')"
+            @click="toggleMute(m)"
+          >{{ m.muted ? tr('group.unmuteMember') : tr('group.muteMember') }}</button>
+          <button
+            v-if="m.role !== 'admin'"
+            type="button"
+            class="mp-act danger"
+            :title="tr('group.remove')"
+            @click="removeMember(m)"
+          >{{ tr('group.remove') }}</button>
+        </span>
+      </div>
 
       <p v-if="!members.length" class="mp-empty">{{ tr('chat.members.empty') }}</p>
     </div>
+
+    <footer class="mp-foot">
+      <button type="button" class="mp-foot-btn" @click="editNickname">{{ tr('group.nickname') }}</button>
+      <button type="button" class="mp-foot-btn" @click="editRemark">{{ tr('group.remark') }}</button>
+      <button type="button" class="mp-foot-btn primary" @click="showInvite = true">{{ tr('group.invite') }}</button>
+      <button type="button" class="mp-foot-btn danger" @click="leave">{{ tr('group.leave') }}</button>
+    </footer>
+
+    <InviteDialog v-if="showInvite" :gid="chatState.activeGid!" @close="onInvited" />
   </aside>
 </template>

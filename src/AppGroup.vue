@@ -11,10 +11,11 @@ import ThemeToggle from './components/common/ThemeToggle.vue';
 import GroupInfoCard from './components/group/GroupInfoCard.vue';
 import JoinRequestsCard from './components/group/JoinRequestsCard.vue';
 import MembersCard from './components/group/MembersCard.vue';
+import InviteApprovalCard from './components/group/InviteApprovalCard.vue';
 import GroupFilesCard from './components/group/GroupFilesCard.vue';
 import GroupLogsCard from './components/group/GroupLogsCard.vue';
 import Dialog from './components/common/Dialog.vue';
-import type { GroupItem, GroupDetail, GroupMember, JoinRequest, GroupFile } from './types';
+import type { GroupItem, GroupDetail, GroupMember, JoinRequest, GroupFile, GroupInvite } from './types';
 import type { PresencePlatforms } from './core/presence';
 
 const props = defineProps<{
@@ -47,6 +48,7 @@ const tabs = [
   { id: 'info', label: 'group.tab.info' },
   { id: 'members', label: 'group.tab.members' },
   { id: 'requests', label: 'group.tab.requests' },
+  { id: 'invites', label: 'group.inviteApprovals' },
   { id: 'files', label: 'group.tab.files' },
   { id: 'logs', label: 'group.tab.logs' }
 ];
@@ -54,6 +56,11 @@ const tab = ref('info');
 
 /** 待审核条数：在页签上直接显示，免得还要点进去才发现有人申请 */
 const pendingCount = computed(() => (detail.value ? detail.value.requests.length : 0));
+/** 待群主/管理员审批的邀请数 */
+const inviteCount = computed(() => {
+  const inv = detail.value && detail.value.invites ? detail.value.invites : [];
+  return inv.filter((i) => i.status === 'needs_approval').length;
+});
 
 // 在线列表：初始取 /api/me 快照，随后由 WebSocket presence 实时更新
 const online = ref<string[]>(props.online || []);
@@ -179,9 +186,11 @@ function loadDetail(): void {
       detail.value = {
         group: j.group as GroupItem,
         isOwner: !!j.isOwner,
+        isManager: !!j.isManager,
         requests: (j.requests as JoinRequest[]) || [],
         members: (j.members as GroupMember[]) || [],
-        files: (j.files as GroupFile[]) || []
+        files: (j.files as GroupFile[]) || [],
+        invites: (j.invites as GroupInvite[]) || []
       };
     })
     .catch(() => {
@@ -320,9 +329,9 @@ onBeforeUnmount(() => {
       >
         {{ tr(t.label) }}
         <span
-          v-if="t.id === 'requests' && pendingCount"
+          v-if="(t.id === 'requests' && pendingCount) || (t.id === 'invites' && inviteCount)"
           class="rounded-full bg-danger/15 px-1.5 text-[10px] text-danger tabular-nums"
-        >{{ pendingCount }}</span>
+        >{{ t.id === 'invites' ? inviteCount : pendingCount }}</span>
       </button>
     </nav>
 
@@ -335,7 +344,8 @@ onBeforeUnmount(() => {
           v-if="tab === 'info'"
           :gid="gid"
           :group="detail.group"
-          :is-owner="detail.isOwner"
+          :is-owner="!!detail.isOwner"
+          :is-manager="!!detail.isManager"
           @refreshed="refresh"
           @deleted="onDeleted"
         />
@@ -345,12 +355,21 @@ onBeforeUnmount(() => {
           :members="detail.members"
           :online="online"
           :platforms="platforms"
+          :is-owner="!!detail.isOwner"
+          :is-manager="!!detail.isManager"
+          :me="me"
           @refreshed="refresh"
         />
         <JoinRequestsCard
           v-else-if="tab === 'requests'"
           :gid="gid"
           :requests="detail.requests"
+          @refreshed="refresh"
+        />
+        <InviteApprovalCard
+          v-else-if="tab === 'invites'"
+          :gid="gid"
+          :invites="detail.invites || []"
           @refreshed="refresh"
         />
         <GroupFilesCard v-else-if="tab === 'files'" :gid="gid" :files="detail.files" @refreshed="refresh" />

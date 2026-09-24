@@ -267,6 +267,24 @@ export function getSettings(username: string): Record<string, unknown> {
   try { return JSON.parse(r.settings); } catch { return {}; }
 }
 
+/** 收集所有用户头像（users.image 与 settings.avatar）的上传文件名 basename，用于文件保护 */
+export function avatarFiles(): Set<string> {
+  const set = new Set<string>();
+  const rows = open().prepare('SELECT image, settings FROM users').all() as { image: string | null; settings: string | null }[];
+  const add = (v: unknown): void => {
+    if (typeof v !== 'string' || !v) return;
+    const b = v.split(/[\\/]/).pop() || '';
+    if (b && b !== v) set.add(b);
+  };
+  for (const r of rows) {
+    add(r.image);
+    if (r.settings) {
+      try { add((JSON.parse(r.settings) || {}).avatar); } catch { /* 忽略非法设置 */ }
+    }
+  }
+  return set;
+}
+
 /** 合并保存用户设置（白名单字段由接口层校验） */
 export function setSettings(username: string, patch: Record<string, unknown>): boolean {
   const r = open().prepare('SELECT * FROM users WHERE name = ?').get(username) as UserRow | undefined;

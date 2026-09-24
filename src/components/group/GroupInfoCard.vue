@@ -5,7 +5,7 @@
 import { inject, ref } from 'vue';
 import { post, del } from '../../core/api';
 import { tr } from '../../core/i18n';
-import { uploadAvatar } from '../../core/chat';
+import { uploadAvatar, setMuteAll, setMemberInviteApprove } from '../../core/chat';
 import { confirm, prompt } from '../../core/dialog';
 import { fmtDate } from '../../core/format';
 import type { GroupItem } from '../../types';
@@ -14,6 +14,7 @@ const props = defineProps<{
   gid: string;
   group: GroupItem;
   isOwner?: boolean;
+  isManager?: boolean;
 }>();
 
 const emit = defineEmits<{ refreshed: []; deleted: [] }>();
@@ -122,6 +123,22 @@ function clearAvatar(): void {
   });
 }
 
+function toggleMuteAll(): void {
+  const val = !props.group.muteAll;
+  setMuteAll(props.gid, val).then((j) => {
+    toast(j.ok ? tr(val ? 'group.muteAllOn' : 'group.muteAllOff') : tr(j.error || 'common.opFailed'));
+    if (j.ok) emit('refreshed');
+  });
+}
+
+function toggleInviteApprove(): void {
+  const val = !props.group.memberInviteApprove;
+  setMemberInviteApprove(props.gid, val).then((j) => {
+    toast(j.ok ? tr('common.saved') : tr(j.error || 'common.opFailed'));
+    if (j.ok) emit('refreshed');
+  });
+}
+
 function copyGid(): void {
   const done = (): void => toast(tr('group.gidCopied'));
   const fallback = (): void => {
@@ -172,6 +189,26 @@ function copyGid(): void {
         @click="copyGid"
       >
         {{ tr('group.copyGid') }}
+      </button>
+    </div>
+
+    <!-- 群设置：仅管理者可见 -->
+    <div v-if="isManager" class="mt-3 flex flex-col gap-2">
+      <button
+        type="button"
+        class="flex items-center justify-between rounded-lg bg-fill px-2.5 py-2 text-xs transition-colors hover:bg-fill/70"
+        @click="toggleMuteAll"
+      >
+        <span class="text-ink">{{ tr('group.muteAll') }}</span>
+        <span class="font-medium" :class="group.muteAll ? 'text-primary' : 'text-muted'">{{ group.muteAll ? 'ON' : 'OFF' }}</span>
+      </button>
+      <button
+        type="button"
+        class="flex items-center justify-between rounded-lg bg-fill px-2.5 py-2 text-xs transition-colors hover:bg-fill/70"
+        @click="toggleInviteApprove"
+      >
+        <span class="text-ink">{{ tr('group.memberInviteApprove') }}</span>
+        <span class="font-medium" :class="group.memberInviteApprove ? 'text-primary' : 'text-muted'">{{ group.memberInviteApprove ? 'ON' : 'OFF' }}</span>
       </button>
     </div>
 

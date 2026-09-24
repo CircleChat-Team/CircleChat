@@ -78,6 +78,11 @@ function kindLabel(f: FileItem): string {
 }
 
 function remove(f: FileItem): void {
+  // 用户/群头像受保护：不能在文件管理中删除，提示改用头像移除功能
+  if (f.avatar) {
+    toast(tr('api.admin.fileIsAvatar'));
+    return;
+  }
   const label = f.origin || f.name;
   confirm({
     title: tr('admin.files.delTitle'),
@@ -111,7 +116,8 @@ function toggleOne(name: string): void {
 }
 
 function toggleAll(): void {
-  selected.value = allChecked.value ? [] : view.value.map((f) => f.name);
+  // 受保护的头像文件不参与勾选
+  selected.value = allChecked.value ? [] : view.value.filter((f) => !f.avatar).map((f) => f.name);
 }
 
 function clearSelection(): void {
@@ -120,7 +126,11 @@ function clearSelection(): void {
 
 /** 批量删除：走服务端的批量接口（一次请求 + 一条审计），逐个报告失败项 */
 function batchRemove(): void {
-  const names = selected.value.slice();
+  // 过滤掉受保护的头像文件，避免误删
+  const names = selected.value.filter((n) => {
+    const f = items.value.find((x) => x.name === n);
+    return f && !f.avatar;
+  });
   if (!names.length) return;
   const usedCount = items.value.filter((f) => names.indexOf(f.name) !== -1 && f.used > 0).length;
   confirm({
@@ -232,8 +242,9 @@ onMounted(load);
       >
         <input
           type="checkbox"
-          class="h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary"
+          class="h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-40"
           :checked="isChecked(f.name)"
+          :disabled="f.avatar"
           :aria-label="f.origin || f.name"
           @change="toggleOne(f.name)"
         >
@@ -250,7 +261,10 @@ onMounted(load);
         </span>
         <span class="shrink-0 text-muted tabular-nums">{{ fmtSize(f.size) }}</span>
         <span class="hidden shrink-0 text-muted tabular-nums sm:inline">{{ fmtDateTime(f.ts) }}</span>
-        <span class="shrink-0 text-[11px]" :class="f.used ? 'text-primary' : 'text-muted'">
+        <span v-if="f.avatar" class="shrink-0 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] text-warn">
+          {{ tr('admin.files.avatar') }}
+        </span>
+        <span v-else class="shrink-0 text-[11px]" :class="f.used ? 'text-primary' : 'text-muted'">
           {{ f.used ? trn('admin.files.used', f.used) : tr('admin.files.orphan') }}
         </span>
 
@@ -267,12 +281,14 @@ onMounted(load);
           :download="f.origin || f.name"
         >{{ tr('admin.files.download') }}</a>
         <button
+          v-if="!f.avatar"
           type="button"
           class="shrink-0 rounded-lg border border-line bg-panel px-2 py-1 text-xs transition-colors hover:border-danger hover:text-danger"
           @click="remove(f)"
         >
           {{ tr('admin.files.delBtn') }}
         </button>
+        <span v-else class="shrink-0 text-[11px] text-muted">{{ tr('admin.files.avatar') }}</span>
       </div>
     </div>
 

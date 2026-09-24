@@ -46,6 +46,8 @@ export interface FileItem {
   ts: number;
   kind: FileKind;
   used: number;
+  /** 该文件是用户/群头像：受保护，不可在此删除 */
+  avatar?: boolean;
 }
 
 /** 审计日志条目（GET /api/admin/logs） */
@@ -65,7 +67,7 @@ export interface LangItem {
   name: string;
 }
 
-/** 群（GET /api/groups、/api/groups/all） */
+/** 群（GET /api/groups、/api/groups/all、/api/groups/manage） */
 export interface GroupItem {
   id: string;
   name: string;
@@ -74,15 +76,33 @@ export interface GroupItem {
   members?: number;
   avatar?: string | null;
   announcement?: string | null;
+  /** 全员禁言（仅管理员/群主可发言） */
+  muteAll?: boolean;
+  /** 普通成员邀请是否需要群主/管理员审批 */
+  memberInviteApprove?: boolean;
 }
 
-/** 群成员（/api/groups/manage） */
+/** 群成员（/api/groups/manage、/api/groups/members） */
 export interface GroupMember {
   name: string;
   owner?: boolean;
+  role?: 'member' | 'admin';
+  nickname?: string | null;
+  muted?: boolean;
   joined?: number | null;
   /** 最后在线时间（ms），离线时用于显示「最后在线 x」 */
   lastSeen?: number | null;
+}
+
+/** 群邀请 */
+export interface GroupInvite {
+  id: number;
+  gid: string;
+  inviter: string;
+  invitee: string;
+  created?: number;
+  status: string;
+  note?: string | null;
 }
 
 /** 入群申请（/api/groups/manage） */
@@ -105,9 +125,12 @@ export interface GroupFile {
 export interface GroupDetail {
   group: GroupItem;
   isOwner?: boolean;
+  isManager?: boolean;
   requests: JoinRequest[];
   members: GroupMember[];
   files: GroupFile[];
+  /** 群内未完成邀请（待审批 + 待接受），供管理者查看 */
+  invites?: GroupInvite[];
 }
 
 /** 消息举报（GET /api/admin/reports） */

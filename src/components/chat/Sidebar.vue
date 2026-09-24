@@ -17,18 +17,44 @@ import {
   openMyProfile,
   openStyle,
   logout,
-  openSearch
+  openSearch,
+  setFriendRemark
 } from '../../core/chat';
 import { tr } from '../../core/i18n';
+import { prompt } from '../../core/dialog';
 import AppFooter from '../common/AppFooter.vue';
 import LangMenu from '../common/LangMenu.vue';
 import ThemeToggle from '../common/ThemeToggle.vue';
+import MyInvitesDialog from '../group/MyInvitesDialog.vue';
 
 const friends = computed(() => chatState.myFriends);
 const requests = computed(() => chatState.friendRequests);
 const groups = computed(() => chatState.myGroups);
 const activeGid = computed(() => chatState.activeGid);
 const activeDmPeer = computed(() => chatState.activeDmPeer);
+
+// 我的群邀请（待我同意）弹窗 + 角标
+const invitesOpen = ref(false);
+const inviteCount = computed(() => (chatState.myInvites || []).length);
+
+/** 好友显示名：有备注显示备注，否则用户名 */
+function friendLabel(name: string): string {
+  return chatState.friendRemarks[name] || name;
+}
+
+/** 设置/编辑好友备注（仅自己可见） */
+function editRemark(name: string): void {
+  prompt({
+    title: tr('friend.remark'),
+    text: tr('friend.remarkPlaceholder'),
+    input: { type: 'text', placeholder: tr('friend.remarkPlaceholder'), maxLength: 500, value: chatState.friendRemarks[name] || '' }
+  }).then((v) => {
+    if (v == null) return;
+    setFriendRemark(name, v.trim()).then((j) => {
+      if (j.ok) chatState.friendRemarks[name] = v.trim();
+    });
+  });
+}
 
 // 顶部搜索框关键词：本地过滤合并列表
 const q = ref('');
@@ -134,6 +160,20 @@ function openHistorySearch(): void {
           <path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z" />
         </svg>
       </button>
+      <!-- 我的群邀请（待我同意） -->
+      <button
+        type="button"
+        class="sidebar-search-history"
+        style="position: relative"
+        :title="tr('group.myInvites')"
+        :aria-label="tr('group.myInvites')"
+        @click="invitesOpen = true"
+      >
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
+        </svg>
+        <span v-if="inviteCount" class="unread-dot">{{ unreadText(inviteCount) }}</span>
+      </button>
     </div>
 
     <!-- 顶部工具：搜索框 + 功能“+” -->
@@ -199,9 +239,17 @@ function openHistorySearch(): void {
             <span v-else class="avatar-letter" :style="{ background: avatarColor(item.ref.name) }">{{ initial(item.ref.name) }}</span>
           </div>
           <div class="user-meta">
-            <div class="user-name">{{ item.ref.name }}</div>
+            <div class="user-name">
+              {{ friendLabel(item.ref.name) }}<i v-if="chatState.friendRemarks[item.ref.name]" class="remark-real">（{{ item.ref.name }}）</i>
+            </div>
             <div class="user-status">{{ statusText(item.ref.name) }}</div>
           </div>
+          <button
+            type="button"
+            class="mini-btn remark-btn"
+            :title="tr('friend.remark')"
+            @click.stop="editRemark(item.ref.name)"
+          >✎</button>
           <span v-if="chatState.unread['d:' + item.ref.name]" class="unread-dot">{{ unreadText(chatState.unread['d:' + item.ref.name]) }}</span>
         </div>
       </div>
@@ -244,6 +292,9 @@ function openHistorySearch(): void {
         </button>
       </div>
     </div>
+
+    <!-- 我的群邀请（待我同意） -->
+    <MyInvitesDialog v-if="invitesOpen" @close="invitesOpen = false" />
 
     <!-- 版权与项目地址：侧栏最底部独立一行，与侧栏内容同为左对齐 -->
     <AppFooter align="left" class="px-3 pb-2" />

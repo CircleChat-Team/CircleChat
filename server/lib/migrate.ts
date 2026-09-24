@@ -126,26 +126,31 @@ const SCHEMA: Record<string, TableDef> = {
         created INTEGER,
         updated INTEGER,
         avatar  TEXT,
-        announcement TEXT
+        announcement TEXT,
+        mute_all INTEGER DEFAULT 0,
+        member_invite_approve INTEGER DEFAULT 0
       );
     `,
     columns: {
       id: 'TEXT', name: 'TEXT', owner: 'TEXT', created: 'INTEGER', updated: 'INTEGER',
-      avatar: 'TEXT', announcement: 'TEXT'
+      avatar: 'TEXT', announcement: 'TEXT', mute_all: 'INTEGER', member_invite_approve: 'INTEGER'
     }
   },
   group_members: {
     create: `
       CREATE TABLE IF NOT EXISTS group_members (
-        gid    TEXT NOT NULL,
-        name   TEXT NOT NULL,
-        joined INTEGER,
+        gid      TEXT NOT NULL,
+        name     TEXT NOT NULL,
+        joined   INTEGER,
+        role     TEXT DEFAULT 'member',
+        nickname TEXT,
+        muted    INTEGER DEFAULT 0,
         PRIMARY KEY (gid, name)
       );
       CREATE INDEX IF NOT EXISTS idx_gm_name ON group_members(name);
     `,
     columns: {
-      gid: 'TEXT', name: 'TEXT', joined: 'INTEGER'
+      gid: 'TEXT', name: 'TEXT', joined: 'INTEGER', role: 'TEXT', nickname: 'TEXT', muted: 'INTEGER'
     }
   },
   friends: {
@@ -194,6 +199,49 @@ const SCHEMA: Record<string, TableDef> = {
     columns: {
       id: 'INTEGER', gid: 'TEXT', name: 'TEXT', created: 'INTEGER', status: 'TEXT'
     }
+  },
+  group_invites: {
+    create: `
+      CREATE TABLE IF NOT EXISTS group_invites (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        gid      TEXT NOT NULL,
+        inviter  TEXT NOT NULL,
+        invitee  TEXT NOT NULL,
+        created  INTEGER NOT NULL,
+        status   TEXT DEFAULT 'pending',
+        note     TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_gi_gid      ON group_invites(gid);
+      CREATE INDEX IF NOT EXISTS idx_gi_invitee  ON group_invites(invitee);
+      CREATE INDEX IF NOT EXISTS idx_gi_gid_status ON group_invites(gid, status);
+    `,
+    columns: {
+      id: 'INTEGER', gid: 'TEXT', inviter: 'TEXT', invitee: 'TEXT', created: 'INTEGER', status: 'TEXT', note: 'TEXT'
+    }
+  },
+  group_remarks: {
+    create: `
+      CREATE TABLE IF NOT EXISTS group_remarks (
+        u       TEXT NOT NULL,
+        gid     TEXT NOT NULL,
+        remark  TEXT,
+        updated INTEGER,
+        PRIMARY KEY (u, gid)
+      );
+    `,
+    columns: { u: 'TEXT', gid: 'TEXT', remark: 'TEXT', updated: 'INTEGER' }
+  },
+  friend_remarks: {
+    create: `
+      CREATE TABLE IF NOT EXISTS friend_remarks (
+        u1      TEXT NOT NULL,
+        u2      TEXT NOT NULL,
+        remark  TEXT,
+        updated INTEGER,
+        PRIMARY KEY (u1, u2)
+      );
+    `,
+    columns: { u1: 'TEXT', u2: 'TEXT', remark: 'TEXT', updated: 'INTEGER' }
   }
 };
 

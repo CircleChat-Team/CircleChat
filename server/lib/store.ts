@@ -112,13 +112,28 @@ function referencedFiles(): Set<string> {
   return set;
 }
 
-/** 删除不再被引用且属于本服务器上传目录的文件 */
+/** 受保护文件提供者（如用户/群头像）：这类文件即使不被消息引用，也不得清理 */
+let protectProvider: (() => Set<string>) | null = null;
+/** 注入受保护文件提供者（由运行时设置，实时读取头像等） */
+export function setProtectProvider(fn: (() => Set<string>) | null): void {
+  protectProvider = fn;
+}
+function protectedFiles(): Set<string> {
+  try {
+    return protectProvider ? protectProvider() : new Set<string>();
+  } catch {
+    return new Set<string>();
+  }
+}
+
+/** 删除不再被引用且属于本服务器上传目录的文件（受保护文件会被跳过） */
 function cleanupFiles(removedRows: { type: string; content: string | null }[]): void {
   const keep = referencedFiles();
+  const prot = protectedFiles();
   for (const m of removedRows) {
     if ((m.type === 'image' || m.type === 'file') && m.content) {
       const base = path.basename(String(m.content));
-      if (keep.has(base)) continue;
+      if (keep.has(base) || prot.has(base)) continue;
       const fp = path.join(UPLOAD_DIR, base);
       try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch { /* 忽略 */ }
       dropUpload(base); // 物理文件已删，去重记录一并清掉，避免残留指向空文件
@@ -523,7 +538,7 @@ export function recall(idx: number, by: string): boolean {
  * @param ttlDays 保留天数（默认 15）
  * @returns 本次处理（置为过期）的消息条数
  */
-export function cleanupExpired(ttlDays: number): number {
+export function cleanupExpired(ttlDays: number, protect?: Set<string>): number {
   const d = open();
   const days = Number(ttlDays) > 0 ? Number(ttlDays) : 15;
   const cutoff = Date.now() - days * 24 * 3600 * 1000;
@@ -545,10 +560,11 @@ export function cleanupExpired(ttlDays: number): number {
   }
 
   const keep = referencedFiles();
+  const prot = protect || protectedFiles();
   for (const r of rows) {
     if (!r.content) continue;
     const base = path.basename(String(r.content));
-    if (!base || keep.has(base)) continue;
+    if (!base || keep.has(base) || prot.has(base)) continue;
     const fp = path.join(UPLOAD_DIR, base);
     try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch { /* 忽略 */ }
     dropUpload(base);

@@ -9,6 +9,7 @@ import {
   setNotifySound,
   setSoundIn,
   setSoundOut,
+  setAllowInvite,
   clearNotice,
   uploadFiles,
   openSearch,
@@ -97,6 +98,10 @@ function onSoundOut(e: Event): void {
   const on = (e.target as HTMLInputElement).checked;
   setSoundOut(on);
   if (on) playOutgoingPreview();
+}
+
+function onAllowInvite(e: Event): void {
+  setAllowInvite((e.target as HTMLInputElement).checked);
 }
 
 // 标签页标题跟随当前会话（与登录页/群管理页的做法一致）
@@ -365,6 +370,13 @@ onMounted(refreshMailboxBadge);
             <button type="button" :class="{ on: chatState.sendKey === 'enter' }" @click="onSendKey('enter')">{{ tr('chat.settings.sendKey.enter') }}</button>
             <button type="button" :class="{ on: chatState.sendKey === 'ctrl' }" @click="onSendKey('ctrl')">{{ tr('chat.settings.sendKey.ctrl') }}</button>
           </div>
+        </div>
+        <div class="settings-row">
+          <span>{{ tr('group.allowInviteMe') }}</span>
+          <label class="switch">
+            <input type="checkbox" :checked="chatState.allowInvite" @change="onAllowInvite" />
+            <span class="slider"></span>
+          </label>
         </div>
         <div class="settings-row">
           <span>{{ tr('chat.settings.notifySound') }}</span>
