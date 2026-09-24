@@ -72,7 +72,7 @@ function submit(): void {
         maxlength="64"
         autocomplete="username"
         class="appeal-input h-9 rounded-lg border border-line bg-fill px-2.5 text-[13px] outline-none transition-colors focus:border-primary"
-        :placeholder="tr('login.username')"
+        :placeholder="tr('login.userPlaceholder')"
       >
       <input
         v-model="password"
@@ -80,7 +80,7 @@ function submit(): void {
         maxlength="128"
         autocomplete="current-password"
         class="appeal-input h-9 rounded-lg border border-line bg-fill px-2.5 text-[13px] outline-none transition-colors focus:border-primary"
-        :placeholder="tr('login.password')"
+        :placeholder="tr('login.passPlaceholder')"
       >
     </template>
 

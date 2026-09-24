@@ -824,7 +824,8 @@ const dict: Record<string, string> = {
   "api.admin.lastAdmin": "管理者は最低 1 人必要です",
   "admin.action.userRole": "権限を変更",
   "log.detail.user.roleAdmin": "{name} の権限を管理者に変更",
-  "log.detail.user.roleUser": "{name} の権限を一般ユーザーに変更"
+  "log.detail.user.roleUser": "{name} の権限を一般ユーザーに変更",
+  "common.loading": "読み込み中…"
 };
 
 export default dict;

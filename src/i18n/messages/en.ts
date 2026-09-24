@@ -824,7 +824,8 @@ const dict: Record<string, string> = {
   "api.admin.lastAdmin": "At least one admin must remain",
   "admin.action.userRole": "Role changed",
   "log.detail.user.roleAdmin": "{name} → admin",
-  "log.detail.user.roleUser": "{name} → regular user"
+  "log.detail.user.roleUser": "{name} → regular user",
+  "common.loading": "Loading…"
 };
 
 export default dict;

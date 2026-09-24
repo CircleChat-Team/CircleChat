@@ -824,7 +824,8 @@ const dict: Record<string, string> = {
   "api.admin.lastAdmin": "至少要保留一个管理员",
   "admin.action.userRole": "修改权限",
   "log.detail.user.roleAdmin": "{name} 的权限改为管理员",
-  "log.detail.user.roleUser": "{name} 的权限改为普通用户"
+  "log.detail.user.roleUser": "{name} 的权限改为普通用户",
+  "common.loading": "加载中…"
 };
 
 export default dict;
