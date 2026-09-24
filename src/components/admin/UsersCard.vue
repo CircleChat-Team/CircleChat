@@ -17,7 +17,12 @@ type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
 
 /** 状态文案（网页端 / 客户端 / 两端同时在线；离线时显示最后在线） */
-function statusKey(u: UserItem): string {
+/**
+ * 状态文案。**返回的是翻译好的文本**（presenceText 内部已经 tr 过），
+ * 调用方直接显示即可 —— 以前这里叫 statusKey 并写成 tr('common.' + ...)，
+ * 等于翻了两次，tr 找不到键就把 `common.离线` 这样的键名原样显示出来了。
+ */
+function statusText(u: UserItem): string {
   return presenceText(!!u.online, false, u.platform, u.lastSeen);
 }
 
@@ -138,7 +143,7 @@ onMounted(load);
         </span>
         <span v-if="u.role === 'admin'" class="shrink-0 text-[11px] text-primary">{{ tr('common.admin') }}</span>
         <span class="shrink-0 text-[11px]" :class="u.online ? 'text-primary' : 'text-muted'">
-          {{ tr('common.' + statusKey(u)) }}
+          {{ statusText(u) }}
         </span>
         <span class="shrink-0 text-[11px] text-muted">{{ fmtDate(u.created) }}</span>
 

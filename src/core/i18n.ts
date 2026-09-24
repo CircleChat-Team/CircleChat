@@ -42,10 +42,28 @@ function pluralCategory(n: number): string {
   return n === 1 ? 'one' : 'other';
 }
 
+/**
+ * 看起来像「翻译好的文本」而不像键名：真正的键只有 [a-z0-9.] 这类字符，
+ * 不会出现空格或中日文。用来拦截 `tr('common.' + 已翻译文本)` 这种双重翻译
+ * —— 那会让界面直接显示 `common.离线` 这样的键名（踩过两次）。
+ */
+function looksLikeText(key: string): boolean {
+  return /[\s\u3000-\u9fff\uff00-\uffef]/.test(key);
+}
+
+/** 已经警告过的键：同一条只提醒一次，别刷控制台 */
+const warnedKeys = new Set<string>();
+
 /** 取文案（回退链：当前语言 → zh → key 本身） */
 export function tr(key: string, vars?: Vars): string {
   void langState.tick; // 建立响应式依赖
-  return vt(key, vars as Record<string, unknown>);
+  const out = vt(key, vars as Record<string, unknown>);
+  if (out === key && looksLikeText(key) && !warnedKeys.has(key)) {
+    warnedKeys.add(key);
+    console.warn('[i18n] 疑似把“已经翻译好的文本”当成键传给了 tr()：' + key +
+      '（presenceText / statusText 返回的就是文本，直接显示，不要再套 tr）');
+  }
+  return out;
 }
 
 /** 带复数的取文案：优先 key.<one|other> */

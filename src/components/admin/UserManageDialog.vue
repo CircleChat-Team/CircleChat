@@ -19,7 +19,8 @@ import type { UserItem } from '../../types';
 const props = defineProps<{ user: UserItem | null; me: string }>();
 
 /** 状态文案（网页端 / 客户端 / 两端同时在线；离线时显示最后在线） */
-function statusKey(u: UserItem | null): string {
+/** 状态文案（已翻译）；别再套 tr('common.' + ...) —— 那会把键名显示出来 */
+function statusText(u: UserItem | null): string {
   return presenceText(!!(u && u.online), false, u ? u.platform : null, u ? u.lastSeen : null);
 }
 const emit = defineEmits<{ close: []; changed: [] }>();
@@ -168,7 +169,7 @@ const actions = computed(() => {
             </div>
             <div class="mt-0.5 flex items-center gap-2 text-[11px]">
               <span :class="user.online ? 'text-primary' : 'text-muted'">
-                {{ tr('common.' + statusKey(user)) }}
+                {{ statusText(user) }}
               </span>
               <span v-if="created" class="text-muted">{{ created }}</span>
             </div>
