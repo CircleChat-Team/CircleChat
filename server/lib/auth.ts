@@ -11,9 +11,7 @@ const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'chatplus.db');
 
 const SESSION_TTL = 7 * 24 * 3600 * 1000; // 会话有效期 7 天
 
-// ---------- 密码哈希 ----------
 
-/** SHA256 摘要（hex） */
 export function sha256(str: string): string {
   return crypto.createHash('sha256').update(str, 'utf8').digest('hex');
 }
@@ -24,7 +22,6 @@ export function hashPassword(password: string): string {
   return salt + '$' + sha256(salt + password);
 }
 
-/** 校验密码 */
 export function verifyPassword(password: string, stored: string): boolean {
   const idx = stored.indexOf('$');
   if (idx <= 0) return false;
@@ -33,7 +30,6 @@ export function verifyPassword(password: string, stored: string): boolean {
   return sha256(salt + password) === hash;
 }
 
-// ---------- 数据库 ----------
 
 let db: DatabaseSync | null = null;
 
@@ -52,7 +48,9 @@ function open(): DatabaseSync {
       updated INTEGER,
       status  TEXT,
       totp_secret TEXT,
-      totp_enabled INTEGER
+      totp_enabled INTEGER,
+      github_id    TEXT,
+      github_login TEXT
     );
   `);
   return db;
@@ -69,6 +67,8 @@ export interface StoredUser {
   status?: string;
   settings?: Record<string, unknown>;
   updated?: number;
+  /** 最后一次在线时间（ms）；在线状态由 WS 连接决定，这里只记「离线时最后一次见到」 */
+  lastSeen?: number;
 }
 
 interface UserRow {
@@ -81,6 +81,7 @@ interface UserRow {
   updated: number | null;
   status?: string | null;
   mustChange?: number | null;
+  last_seen?: number | null;
 }
 
 function rowToUser(r: UserRow | null): StoredUser | null {
@@ -92,7 +93,18 @@ function rowToUser(r: UserRow | null): StoredUser | null {
   if (r.status != null) u.status = r.status;
   try { u.settings = r.settings ? JSON.parse(r.settings) : {}; } catch { u.settings = {}; }
   if (r.updated != null) u.updated = r.updated;
+  if (r.last_seen != null) u.lastSeen = Number(r.last_seen);
   return u;
+}
+
+/** 记录「最后在线时间」。写库是同步的（node:sqlite），调用方负责节流 */
+export function touchLastSeen(name: string, ts: number = Date.now()): void {
+  if (!name) return;
+  try {
+    open().prepare('UPDATE users SET last_seen = ? WHERE name = ?').run(Number(ts) || Date.now(), String(name));
+  } catch (e) {
+    /* 写失败不影响主流程（例如库被锁） */
+  }
 }
 
 /** 从已有 users.json 迁移（仅首次、表为空时） */
@@ -128,17 +140,15 @@ function migrateFromJson(): void {
   }
 }
 
-// ---------- 用户存储 ----------
 
 /** 返回 { name: StoredUser } 供接口层使用 */
 export function loadUsers(): Record<string, StoredUser> {
-  const rows = open().prepare('SELECT name, pass, created, role, image, settings, updated FROM users').all() as unknown as UserRow[];
+  const rows = open().prepare('SELECT name, pass, created, role, image, settings, updated, last_seen FROM users').all() as unknown as UserRow[];
   const map: Record<string, StoredUser> = {};
   for (const r of rows) map[r.name] = rowToUser(r) as StoredUser;
   return map;
 }
 
-// ---------- 内置账号 ----------
 
 /** 内置管理员账号（role=admin：可管理用户、可撤回任意人的消息） */
 const BUILTIN_ADMIN = { name: 'admin', pass: 'Admin1234', role: 'admin', mustChange: true };
@@ -202,6 +212,27 @@ export function login(username: string, password: string): { username: string; s
 }
 
 /** 修改密码（管理员或本人）；成功后清除强制改密标志 */
+/**
+ * 设置角色（'admin' 或 'user'）。
+ * 「不能把自己降光、至少要留一个管理员」这类业务规则由调用方判断
+ * （它需要知道是谁在操作、还剩几个管理员），这里只做纯粹的落库。
+ */
+export function setRole(name: string, role: string): boolean {
+  const who = String(name || '').trim();
+  const r = String(role) === 'admin' ? 'admin' : 'user';
+  const d = open();
+  const got = d.prepare('SELECT name FROM users WHERE name = ?').get(who) as { name: string } | undefined;
+  if (!got) return false;
+  d.prepare('UPDATE users SET role = ?, updated = ? WHERE name = ?').run(r, Date.now(), who);
+  return true;
+}
+
+/** 管理员数量（role 显式为 'admin' 的；role 为 NULL 的按普通用户算） */
+export function countAdmins(): number {
+  const r = open().prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").get() as { c: number };
+  return Number(r.c) || 0;
+}
+
 export function setPassword(username: string, newPassword: string): boolean {
   const r = open().prepare('SELECT * FROM users WHERE name = ?').get(username) as UserRow | undefined;
   if (!r) return false;
@@ -210,7 +241,6 @@ export function setPassword(username: string, newPassword: string): boolean {
   return true;
 }
 
-/** 该账号是否仍需强制改密 */
 export function mustChange(name: string): boolean {
   const r = open().prepare('SELECT mustChange FROM users WHERE name = ?').get(name) as { mustChange: number | null } | undefined;
   return !!(r && r.mustChange);
@@ -223,11 +253,28 @@ export function defaultAdminPassword(): string | null {
   return verifyPassword(BUILTIN_ADMIN.pass, r.pass) ? BUILTIN_ADMIN.pass : null;
 }
 
-/** 读取用户设置 */
 export function getSettings(username: string): Record<string, unknown> {
   const r = open().prepare('SELECT settings FROM users WHERE name = ?').get(username) as { settings: string | null } | undefined;
   if (!r || !r.settings) return {};
   try { return JSON.parse(r.settings); } catch { return {}; }
+}
+
+/** 收集所有用户头像（users.image 与 settings.avatar）的上传文件名 basename，用于文件保护 */
+export function avatarFiles(): Set<string> {
+  const set = new Set<string>();
+  const rows = open().prepare('SELECT image, settings FROM users').all() as { image: string | null; settings: string | null }[];
+  const add = (v: unknown): void => {
+    if (typeof v !== 'string' || !v) return;
+    const b = v.split(/[\\/]/).pop() || '';
+    if (b && b !== v) set.add(b);
+  };
+  for (const r of rows) {
+    add(r.image);
+    if (r.settings) {
+      try { add((JSON.parse(r.settings) || {}).avatar); } catch {  }
+    }
+  }
+  return set;
 }
 
 /** 合并保存用户设置（白名单字段由接口层校验） */
@@ -242,7 +289,6 @@ export function setSettings(username: string, patch: Record<string, unknown>): b
   return true;
 }
 
-// ---------- 角色与用户管理 ----------
 
 /** 读取角色（默认 user） */
 export function getRole(username: string): string {
@@ -250,7 +296,6 @@ export function getRole(username: string): string {
   return r && r.role ? String(r.role) : 'user';
 }
 
-/** 是否管理员 */
 export function isAdmin(username: string): boolean {
   return getRole(username) === 'admin';
 }
@@ -279,7 +324,28 @@ export function setImage(name: string, image: string | null): boolean {
   return true;
 }
 
-// ---------- 两步验证（TOTP，RFC6238 / HMAC-SHA1） ----------
+
+/**
+ * 设置/清除某账号的 GitHub 绑定：id 传 null 表示解绑。
+ * 「一个 GitHub 账号只能绑一个本地账号」由调用方先用 findByGithubId 检查。
+ */
+export function setGithubLink(name: string, id: string | null, login: string | null): void {
+  open().prepare('UPDATE users SET github_id = ?, github_login = ?, updated = ? WHERE name = ?')
+    .run(id ? String(id) : null, id ? String(login || '') : null, Date.now(), name);
+}
+
+/** 按 GitHub 用户 id 反查本地账号名；未绑定返回 null */
+export function findByGithubId(id: string): string | null {
+  const r = open().prepare('SELECT name FROM users WHERE github_id = ? LIMIT 1').get(String(id)) as { name: string } | undefined;
+  return r && r.name ? String(r.name) : null;
+}
+
+/** 取某账号绑定的 GitHub 登录名；未绑定返回 null */
+export function getGithubLogin(name: string): string | null {
+  const r = open().prepare('SELECT github_login FROM users WHERE name = ?').get(String(name)) as { github_login: string | null } | undefined;
+  return r && r.github_login ? String(r.github_login) : null;
+}
+
 
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
@@ -371,7 +437,6 @@ export function setTotpEnabled(name: string, enabled: boolean, secret: string | 
   return true;
 }
 
-// ---------- 用户改名（全局引用一次性事务更新） ----------
 
 /** 将用户 oldName 改名为 newName，并同步所有关联表中的引用；成功返回 true */
 export function renameUser(oldName: string, newName: string): boolean {
@@ -379,7 +444,7 @@ export function renameUser(oldName: string, newName: string): boolean {
   const neu = String(newName);
   if (!old || !neu || old === neu) return false;
   const d = open();
-  if (d.prepare('SELECT 1 AS x FROM users WHERE name = ?').get(neu)) return false; // 新名已被占用
+  if (d.prepare('SELECT 1 AS x FROM users WHERE name = ?').get(neu)) return false; 
   if (!d.prepare('SELECT 1 AS x FROM users WHERE name = ?').get(old)) return false;
   const now = Date.now();
   d.prepare('BEGIN').run();
@@ -422,7 +487,6 @@ export function renameSession(oldName: string, newName: string): void {
   }
 }
 
-// ---------- 开放注册（需管理员审核） ----------
 
 /** 提交注册申请：创建 status=pending 的账号；用户名已存在返回 false（邮箱存于 settings） */
 export function submitRegistration(name: string, password: string, email?: string): boolean {
@@ -472,7 +536,6 @@ export function reviewReject(name: string): boolean {
   return true;
 }
 
-// ---------- 会话管理（内存存储） ----------
 
 const sessions = new Map<string, { username: string; ip: string; expires: number }>();
 
@@ -525,7 +588,252 @@ export function authByCookie(cookieHeader: string | undefined): { username: stri
   return s ? { username: s.username, ip: s.ip, token: token as string } : null;
 }
 
-// ---------- 登录限速（防暴力破解） ----------
+// ---------- API Key（对外接口凭据；仅存哈希，明文只在创建时展示一次） ----------
+
+/**
+ * 可授予的 scope 分组（按「功能 + 读/写/管理」细分）。
+ * 'admin' 仅管理员账号可授（接口层校验）。顺序即前端展示顺序。
+ */
+export const API_SCOPES = [
+  'profile.read', 'profile.write', 'security',
+  'users.read',
+  'friends.read', 'friends.write',
+  'messages.read', 'messages.send',
+  'groups.read', 'groups.write', 'groups.manage',
+  'files.upload',
+  'admin'
+] as const;
+export type ApiScope = (typeof API_SCOPES)[number];
+
+export interface ApiKeyInfo {
+  id: number;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  rateLimit: number | null;
+  created: number;
+  lastUsed: number | null;
+  expires: number | null;
+  revoked: boolean;
+}
+
+interface ApiKeyRow {
+  id: number;
+  username: string;
+  name: string;
+  key_hash: string;
+  prefix: string;
+  scopes: string | null;
+  rate_limit: number | null;
+  created: number | null;
+  last_used: number | null;
+  expires: number | null;
+  revoked: number | null;
+}
+
+function parseScopes(s: string | null): string[] {
+  if (!s) return [];
+  try {
+    const a = JSON.parse(s);
+    return Array.isArray(a) ? a.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 过滤出合法 scope，并按固定顺序返回（去重） */
+function sanitizeScopes(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const set = new Set<string>();
+  for (const x of input) if (typeof x === 'string' && (API_SCOPES as readonly string[]).indexOf(x) !== -1) set.add(x);
+  return API_SCOPES.filter((s) => set.has(s));
+}
+
+function rowToKeyInfo(r: ApiKeyRow): ApiKeyInfo {
+  return {
+    id: r.id,
+    name: r.name,
+    prefix: r.prefix,
+    scopes: parseScopes(r.scopes),
+    rateLimit: r.rate_limit != null ? Number(r.rate_limit) : null,
+    created: r.created != null ? Number(r.created) : 0,
+    lastUsed: r.last_used != null ? Number(r.last_used) : null,
+    expires: r.expires != null ? Number(r.expires) : null,
+    revoked: !!r.revoked
+  };
+}
+
+function getApiKeyRow(id: number): ApiKeyRow | undefined {
+  return open().prepare('SELECT * FROM api_keys WHERE id = ?').get(Number(id)) as ApiKeyRow | undefined;
+}
+
+/** 创建 API Key，返回明文（仅此一次）与信息；参数非法返回 null */
+export function createApiKey(
+  username: string,
+  opts: { name: unknown; scopes: unknown; rateLimit?: unknown; expiresDays?: unknown }
+): { plaintext: string; info: ApiKeyInfo } | null {
+  const name = String(opts.name == null ? '' : opts.name).trim().slice(0, 40);
+  if (!name) return null;
+  const scopes = sanitizeScopes(opts.scopes);
+  if (!scopes.length) return null;
+  const rl = Number(opts.rateLimit);
+  const rateLimit = Number.isFinite(rl) && rl > 0 ? Math.min(Math.floor(rl), 6000) : null;
+  const days = Number(opts.expiresDays);
+  const expires = Number.isFinite(days) && days > 0 ? Date.now() + Math.floor(days) * 86400000 : null;
+  const prefix = crypto.randomBytes(4).toString('hex'); // 8 位，便于识别
+  const secret = crypto.randomBytes(24).toString('hex');
+  const plaintext = 'cc_' + prefix + '_' + secret;
+  const res = open().prepare(
+    'INSERT INTO api_keys (username, name, key_hash, prefix, scopes, rate_limit, created, expires, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)'
+  ).run(String(username), name, sha256(plaintext), prefix, JSON.stringify(scopes), rateLimit, Date.now(), expires);
+  const row = getApiKeyRow(Number(res.lastInsertRowid));
+  return row ? { plaintext, info: rowToKeyInfo(row) } : null;
+}
+
+export function listApiKeys(username: string): ApiKeyInfo[] {
+  const rows = open().prepare('SELECT * FROM api_keys WHERE username = ? ORDER BY created DESC').all(String(username)) as unknown as ApiKeyRow[];
+  return rows.map(rowToKeyInfo);
+}
+
+/** 修改：改名 / 改 scope / 改限速 / 改过期 / 吊销 */
+export function updateApiKey(
+  username: string,
+  id: number,
+  patch: { name?: unknown; scopes?: unknown; rateLimit?: unknown; expiresDays?: unknown; revoked?: unknown }
+): boolean {
+  const row = getApiKeyRow(id);
+  if (!row || row.username !== String(username)) return false;
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  if (patch.name !== undefined) {
+    const name = String(patch.name == null ? '' : patch.name).trim().slice(0, 40);
+    if (!name) return false;
+    sets.push('name = ?');
+    vals.push(name);
+  }
+  if (patch.scopes !== undefined) {
+    const scopes = sanitizeScopes(patch.scopes);
+    if (!scopes.length) return false;
+    sets.push('scopes = ?');
+    vals.push(JSON.stringify(scopes));
+  }
+  if (patch.rateLimit !== undefined) {
+    const rl = Number(patch.rateLimit);
+    sets.push('rate_limit = ?');
+    vals.push(Number.isFinite(rl) && rl > 0 ? Math.min(Math.floor(rl), 6000) : null);
+  }
+  if (patch.expiresDays !== undefined) {
+    const days = Number(patch.expiresDays);
+    sets.push('expires = ?');
+    vals.push(Number.isFinite(days) && days > 0 ? Date.now() + Math.floor(days) * 86400000 : null);
+  }
+  if (patch.revoked !== undefined) {
+    sets.push('revoked = ?');
+    vals.push(patch.revoked ? 1 : 0);
+  }
+  if (!sets.length) return false;
+  vals.push(Number(id), String(username));
+  open().prepare('UPDATE api_keys SET ' + sets.join(', ') + ' WHERE id = ? AND username = ?').run(...(vals as (string | number | null)[]));
+  return true;
+}
+
+export function deleteApiKey(username: string, id: number): boolean {
+  const res = open().prepare('DELETE FROM api_keys WHERE id = ? AND username = ?').run(Number(id), String(username));
+  return Number(res.changes) > 0;
+}
+
+/** 用户被删除时清理其全部 API Key */
+export function removeUserApiKeys(username: string): void {
+  open().prepare('DELETE FROM api_keys WHERE username = ?').run(String(username));
+}
+
+export interface ApiKeyAuth {
+  username: string;
+  ip: string;
+  token: string;
+  viaKey: true;
+  keyId: number;
+  scopes: string[];
+  rateLimit: number | null;
+}
+
+/** 用明文 key 鉴权（哈希比对；吊销/过期/账号异常一律失效） */
+export function authByApiKey(raw: string, ip: string): ApiKeyAuth | null {
+  const key = (raw || '').trim();
+  if (!key) return null;
+  const row = open().prepare('SELECT * FROM api_keys WHERE key_hash = ?').get(sha256(key)) as ApiKeyRow | undefined;
+  if (!row || row.revoked) return null;
+  if (row.expires != null && Date.now() > Number(row.expires)) return null;
+  const now = Date.now();
+  // last_used 节流写：每 60s 至多一次，避免每条请求都写库
+  if (row.last_used == null || now - Number(row.last_used) > 60000) {
+    try { open().prepare('UPDATE api_keys SET last_used = ? WHERE id = ?').run(now, row.id); } catch {  }
+  }
+  const u = loadUsers()[row.username];
+  if (!u) return null;
+  const st = u.status != null ? u.status : STATUS.ACTIVE;
+  if (st !== STATUS.ACTIVE) return null; // 封禁 / 未激活账号的 key 立即失效
+  return {
+    username: row.username,
+    ip,
+    token: '',
+    viaKey: true,
+    keyId: row.id,
+    scopes: parseScopes(row.scopes),
+    rateLimit: row.rate_limit != null ? Number(row.rate_limit) : null
+  };
+}
+
+/** 从请求头解析 API Key：Authorization: Bearer xxx 或 X-API-Key: xxx */
+export function apiKeyFromHeaders(headers: Record<string, unknown>): string | null {
+  const authz = headers['authorization'];
+  if (typeof authz === 'string') {
+    const m = /^Bearer\s+(.+)$/i.exec(authz.trim());
+    if (m) return m[1].trim();
+  }
+  const xk = headers['x-api-key'];
+  if (typeof xk === 'string' && xk.trim()) return xk.trim();
+  return null;
+}
+
+export interface RequestAuth {
+  username: string;
+  ip: string;
+  token: string;
+  viaKey: boolean;
+  keyId?: number;
+  /** null = 会话（全权）；数组 = API Key 的 scope 集合 */
+  scopes: string[] | null;
+  rateLimit?: number | null;
+}
+
+/** 统一鉴权：先会话 Cookie，再 API Key */
+export function authByRequest(req: { headers: Record<string, unknown> }, ip: string): RequestAuth | null {
+  const byCookie = authByCookie(req.headers['cookie'] as string | undefined);
+  if (byCookie) return { ...byCookie, viaKey: false, scopes: null };
+  const raw = apiKeyFromHeaders(req.headers);
+  if (!raw) return null;
+  return authByApiKey(raw, ip);
+}
+
+// ---------- API Key 限速（按 key 的固定窗口，超限返 429） ----------
+const keyRate = new Map<number, { windowStart: number; count: number }>();
+const KEY_RATE_WINDOW = 60000; // 1 分钟窗口
+export const API_KEY_DEFAULT_RATE = 60; // 默认每分钟请求数
+
+/** 该 key 本次请求是否已超限（超限返回 true，且不再累加） */
+export function apiKeyRateLimited(keyId: number, limit: number | null | undefined): boolean {
+  const perMin = limit != null && Number(limit) > 0 ? Math.floor(Number(limit)) : API_KEY_DEFAULT_RATE;
+  const now = Date.now();
+  const rec = keyRate.get(keyId);
+  if (!rec || now - rec.windowStart >= KEY_RATE_WINDOW) {
+    keyRate.set(keyId, { windowStart: now, count: 1 });
+    return false;
+  }
+  rec.count++;
+  return rec.count > perMin;
+}
+
 
 const failMap = new Map<string, { count: number; until: number }>(); // ip -> {count, until}
 const MAX_FAILS = 5;
@@ -534,6 +842,10 @@ const LOCK_MS = 10 * 60 * 1000; // 锁定 10 分钟
 export function isLocked(ip: string): boolean {
   const rec = failMap.get(ip);
   if (!rec) return false;
+  // 还没锁上（until 还是 0）时**不能**当过期删掉：以前这里写成 `Date.now() > rec.until`，
+  // 而每次请求开头都会调 isLocked，于是计数每次都被清零 → 攒够 5 次永远不可能，
+  // 失败锁定等于没生效。只有「真的锁过、且已经过期」才清除记录。
+  if (!rec.until) return false;
   if (Date.now() > rec.until) { failMap.delete(ip); return false; }
   return true;
 }

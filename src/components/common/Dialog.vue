@@ -1,8 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 通用确认 / 输入弹窗视图（对应 src/core/dialog.ts 的状态）
- * 在根组件挂载一次即可：<Dialog />
- * ============================================================ */
+// 通用确认 / 输入弹窗视图（对应 src/core/dialog.ts 的状态） 在根组件挂载一次即可：<Dialog />
 import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { dialogState, resolveDialog } from '../../core/dialog';
 import { tr } from '../../core/i18n';

@@ -6,7 +6,8 @@ import { DatabaseSync } from 'node:sqlite';
 
 // 路径锚定到运行根目录（package.json 启动目录 = 项目根）
 const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'chatplus.db');
+// 与 auth / migrate / groups / mini 等模块保持一致：允许用 DB_FILE 换库，否则会一半模块写 A 库、一半写 B 库
+const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'chatplus.db');
 const UPLOAD_DIR = path.join(process.cwd(), 'public/uploads');
 
 const MAX_MESSAGES = 500; // 仅保留最近 500 条
@@ -34,7 +35,8 @@ function open(): DatabaseSync {
       reply_to     INTEGER,
       gid          TEXT,
       dm           TEXT,
-      md           INTEGER
+      md           INTEGER,
+      via_app      TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_messages_idx ON messages(idx);
     CREATE TABLE IF NOT EXISTS reactions (
@@ -112,15 +114,30 @@ function referencedFiles(): Set<string> {
   return set;
 }
 
-/** 删除不再被引用且属于本服务器上传目录的文件 */
+/** 受保护文件提供者（如用户/群头像）：这类文件即使不被消息引用，也不得清理 */
+let protectProvider: (() => Set<string>) | null = null;
+/** 注入受保护文件提供者（由运行时设置，实时读取头像等） */
+export function setProtectProvider(fn: (() => Set<string>) | null): void {
+  protectProvider = fn;
+}
+function protectedFiles(): Set<string> {
+  try {
+    return protectProvider ? protectProvider() : new Set<string>();
+  } catch {
+    return new Set<string>();
+  }
+}
+
+/** 删除不再被引用且属于本服务器上传目录的文件（受保护文件会被跳过） */
 function cleanupFiles(removedRows: { type: string; content: string | null }[]): void {
   const keep = referencedFiles();
+  const prot = protectedFiles();
   for (const m of removedRows) {
     if ((m.type === 'image' || m.type === 'file') && m.content) {
       const base = path.basename(String(m.content));
-      if (keep.has(base)) continue;
+      if (keep.has(base) || prot.has(base)) continue;
       const fp = path.join(UPLOAD_DIR, base);
-      try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch { /* 忽略 */ }
+      try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {  }
       dropUpload(base); // 物理文件已删，去重记录一并清掉，避免残留指向空文件
     }
   }
@@ -139,7 +156,6 @@ function trim(): void {
   pruneReactions();
 }
 
-// ---------- 表情回应 ----------
 
 export interface ReactionSummary {
   emoji: string;
@@ -220,6 +236,8 @@ export interface MsgInput {
   dm?: string | null;
   replyTo?: number;
   md?: number;
+  /** 由哪个小程序代发（小程序 app id）；人工发送为 undefined */
+  viaApp?: string;
 }
 
 export interface StoredMessage {
@@ -241,6 +259,8 @@ export interface StoredMessage {
   reactions?: ReactionSummary[];
   reply?: { idx: number; from: string; snippet: string };
   md?: number;
+  /** 由哪个小程序代发 */
+  viaApp?: string;
 }
 
 interface MsgRow {
@@ -260,6 +280,7 @@ interface MsgRow {
   gid: string | null;
   dm: string | null;
   md: number | null;
+  via_app: string | null;
 }
 
 /**
@@ -285,13 +306,15 @@ export function add(msg: MsgInput): StoredMessage {
   if (msg.size) record.size = Number(msg.size);
   if (msg.replyTo) record.reply_to = Number(msg.replyTo);
   if (msg.md != null) record.md = msg.md ? 1 : 0;
-  d.prepare('INSERT INTO messages (idx, id, "from", type, content, ts, name, size, reply_to, gid, dm, md) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  if (msg.viaApp) record.viaApp = String(msg.viaApp).slice(0, 64);
+  d.prepare('INSERT INTO messages (idx, id, "from", type, content, ts, name, size, reply_to, gid, dm, md, via_app) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(record.idx, record.id, String(record.from), String(record.type), String(record.content), record.ts,
       record.name != null ? record.name : null, record.size != null ? record.size : null,
       record.reply_to != null ? record.reply_to : null,
       record.gid != null ? record.gid : null,
       record.dm != null ? record.dm : null,
-      record.md != null ? record.md : 0);
+      record.md != null ? record.md : 0,
+      record.viaApp != null ? record.viaApp : null);
   // 按房间裁剪到上限（公共 / 各群 / 各私聊独立保留最近 MAX_MESSAGES 条）
   trimRoom(gid, dm);
   // 广播用的记录也带上引用摘要，其他客户端无需再查一次
@@ -346,6 +369,7 @@ function rowToMsg(r: MsgRow): StoredMessage {
   }
   if (r.reply_to != null) o.reply_to = r.reply_to;
   if (r.md) o.md = r.md;
+  if (r.via_app) o.viaApp = r.via_app;
   return o;
 }
 
@@ -363,7 +387,7 @@ function replySnippet(m: StoredMessage): string {
   return t.length > 60 ? t.slice(0, 60) + '…' : t;
 }
 
-const SELECT_COLS = 'idx, id, "from", type, content, ts, name, size, recalled, recalled_by, recalled_at, file_expired, reply_to, gid, dm';
+const SELECT_COLS = 'idx, id, "from", type, content, ts, name, size, recalled, recalled_by, recalled_at, file_expired, reply_to, gid, dm, md, via_app';
 
 /**
  * 获取指定房间的全部消息（按 idx 正序）；gid 为 null 且 dm 为 null 取公共房间；
@@ -393,6 +417,109 @@ export function all(gid: string | null, dm: string | null): StoredMessage[] {
   return list;
 }
 
+/** 搜索命中的一条消息（只带展示需要的字段） */
+export interface SearchHit {
+  idx: number;
+  gid: string | null;
+  dm: string | null;
+  from: string;
+  ts: number;
+  /** 命中片段（含关键词，必要时向两侧截断；不是完整正文） */
+  content: string;
+}
+
+/** 搜索范围：单个房间，或「我的全部会话」 */
+export type SearchScope =
+  | { kind: 'room'; gid: string | null; dm: string | null }
+  | { kind: 'rooms'; gids: string[]; dms: string[] };
+
+/**
+ * 与某人相关的全部私聊房间。
+ * dm 列存的是排序后的 pair key（`小:大`），所以按分隔符判断是否含自己即可；
+ * 用户名规则里不含冒号，不会歧义。
+ */
+export function dmRoomsOf(name: string): string[] {
+  const who = String(name || '');
+  if (!who) return [];
+  const rows = open().prepare('SELECT DISTINCT dm FROM messages WHERE dm IS NOT NULL').all() as unknown as { dm: string }[];
+  return rows.map((r) => String(r.dm)).filter((k) => k.split(':').indexOf(who) !== -1);
+}
+
+/** 把命中位置附近截出来，别把整条长消息都塞进响应 */
+function searchSnippet(content: string, q: string, max = 240): string {
+  const text = String(content || '');
+  if (text.length <= max) return text;
+  const at = text.toLowerCase().indexOf(String(q).toLowerCase());
+  const start = at <= 0 ? 0 : Math.max(0, at - Math.floor((max - q.length) / 2));
+  const cut = text.slice(start, start + max);
+  return (start > 0 ? '…' : '') + cut + (start + max < text.length ? '…' : '');
+}
+
+/**
+ * 搜索聊天记录（只搜文本消息，跳过已撤回 / 已过期）。
+ * LIKE 在 SQLite 里对 ASCII 是大小写不敏感的；对中文按字节比，正合需要。
+ * 关键词里的 % 和 _ 要转义，否则用户输入 % 会匹配到所有消息。
+ */
+export function searchMessages(
+  q: string,
+  scope: SearchScope,
+  limit = 30,
+  offset = 0
+): { hits: SearchHit[]; total: number } {
+  const kw = String(q || '').trim();
+  if (!kw) return { hits: [], total: 0 };
+  const d = open();
+  const like = '%' + kw.replace(/[\\%_]/g, (m) => '\\' + m) + '%';
+  const where: string[] = [
+    "type = 'text'",
+    '(recalled IS NULL OR recalled = 0)',
+    "content LIKE ? ESCAPE '\\'"
+  ];
+  const params: (string | number)[] = [like];
+
+  if (scope.kind === 'room') {
+    if (scope.dm != null) {
+      where.push('dm = ? AND gid IS NULL');
+      params.push(String(scope.dm));
+    } else if (scope.gid != null) {
+      where.push('gid = ? AND dm IS NULL');
+      params.push(String(scope.gid));
+    } else {
+      where.push('gid IS NULL AND dm IS NULL');
+    }
+  } else {
+    // 全局：我的群 + 我的私聊。公共频道已移除，不再纳入。
+    const or: string[] = [];
+    if (scope.gids.length) {
+      or.push('(gid IN (' + scope.gids.map(() => '?').join(',') + ') AND dm IS NULL)');
+      params.push(...scope.gids.map(String));
+    }
+    if (scope.dms.length) {
+      or.push('(dm IN (' + scope.dms.map(() => '?').join(',') + ') AND gid IS NULL)');
+      params.push(...scope.dms.map(String));
+    }
+    if (!or.length) return { hits: [], total: 0 }; // 一个会话都没有，不必查库
+    where.push('(' + or.join(' OR ') + ')');
+  }
+
+  const clause = ' WHERE ' + where.join(' AND ');
+  const total = (d.prepare('SELECT COUNT(*) AS c FROM messages' + clause).get(...params) as { c: number }).c;
+  const rows = d
+    .prepare('SELECT idx, gid, dm, "from", ts, content FROM messages' + clause + ' ORDER BY idx DESC LIMIT ? OFFSET ?')
+    .all(...params, Math.max(1, Math.floor(limit) || 30), Math.max(0, Math.floor(offset) || 0)) as unknown as SearchHit[];
+  return {
+    hits: rows.map((r) => ({
+      idx: Number(r.idx),
+      gid: r.gid == null ? null : String(r.gid),
+      dm: r.dm == null ? null : String(r.dm),
+      from: String(r.from),
+      ts: Number(r.ts),
+      content: searchSnippet(String(r.content), kw)
+    })),
+    total: Number(total) || 0
+  };
+}
+
 /** 按 idx 取单条消息（撤回前校验归属） */
 export function get(idx: number): StoredMessage | null {
   const row = open().prepare('SELECT ' + SELECT_COLS + ' FROM messages WHERE idx = ?').get(idx) as MsgRow | undefined;
@@ -420,7 +547,7 @@ export function recall(idx: number, by: string): boolean {
  * @param ttlDays 保留天数（默认 15）
  * @returns 本次处理（置为过期）的消息条数
  */
-export function cleanupExpired(ttlDays: number): number {
+export function cleanupExpired(ttlDays: number, protect?: Set<string>): number {
   const d = open();
   const days = Number(ttlDays) > 0 ? Number(ttlDays) : 15;
   const cutoff = Date.now() - days * 24 * 3600 * 1000;
@@ -442,12 +569,13 @@ export function cleanupExpired(ttlDays: number): number {
   }
 
   const keep = referencedFiles();
+  const prot = protect || protectedFiles();
   for (const r of rows) {
     if (!r.content) continue;
     const base = path.basename(String(r.content));
-    if (!base || keep.has(base)) continue;
+    if (!base || keep.has(base) || prot.has(base)) continue;
     const fp = path.join(UPLOAD_DIR, base);
-    try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch { /* 忽略 */ }
+    try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {  }
     dropUpload(base);
   }
   return rows.length;
@@ -460,7 +588,6 @@ export function dissolveMessages(gid: string | null): void {
   const removed = d.prepare('SELECT * FROM messages WHERE gid = ? AND dm IS NULL').all(String(gid)) as unknown as MsgRow[];
   d.prepare('DELETE FROM messages WHERE gid = ? AND dm IS NULL').run(String(gid));
   cleanupFiles(removed);
-  // 同步清理该群消息上的表情回应
   for (const r of removed) {
     d.prepare('DELETE FROM reactions WHERE msg_idx = ?').run(r.idx);
   }
@@ -499,7 +626,7 @@ export function removeGroupFile(idx: number, gid: string | null): boolean {
  */
 export function fileUsage(): Map<string, { count: number; name: string }> {
   const rows = open().prepare(
-    "SELECT content, name FROM messages WHERE type IN ('image', 'file')" +
+    "SELECT content, name FROM messages WHERE type IN ('image', 'file', 'audio', 'video')" +
     " AND (recalled IS NULL OR recalled = 0) AND (file_expired IS NULL OR file_expired = 0)"
   ).all() as { content: string | null; name: string | null }[];
   const map = new Map<string, { count: number; name: string }>();
@@ -526,7 +653,7 @@ export function fileUsage(): Map<string, { count: number; name: string }> {
  */
 export function expireByFile(base: string): number {
   const info = open().prepare(
-    "UPDATE messages SET file_expired = 1 WHERE type IN ('image', 'file')" +
+    "UPDATE messages SET file_expired = 1 WHERE type IN ('image', 'file', 'audio', 'video')" +
     " AND (recalled IS NULL OR recalled = 0) AND (file_expired IS NULL OR file_expired = 0)" +
     " AND content LIKE ?"
   ).run('%/' + String(base));

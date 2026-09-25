@@ -13,7 +13,6 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'read'): void }>();
 type Tab = 'announce' | 'notify' | 'penalty';
 const tab = ref<Tab>('announce');
 
-// ---- 系统公告 ----
 interface Announcement { id: number; title: string; content?: string | null; actor?: string | null; created?: number | null }
 const announcements = ref<Announcement[]>([]);
 
@@ -77,7 +76,6 @@ function markRead(): void {
         {{ tr('mailbox.title') }}
       </div>
 
-      <!-- 标签页 -->
       <div class="flex border-b border-line">
         <button
           type="button"
@@ -105,7 +103,6 @@ function markRead(): void {
       </div>
 
       <div class="max-h-[60vh] overflow-y-auto px-5 py-4">
-        <!-- 系统公告 -->
         <div v-if="tab === 'announce'">
           <div v-if="loading" class="py-6 text-center text-xs text-muted">…</div>
           <div v-else-if="!announcements.length" class="py-6 text-center text-xs text-muted">{{ tr('mailbox.announce.empty') }}</div>

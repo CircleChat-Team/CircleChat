@@ -1,0 +1,322 @@
+/* ============================================================
+ * 文件查看器（文本 / Hex）
+ *
+ * 单独一个文件、三个页面都引用（chat / group / admin）：
+ * 聊天页有 chat-vue.css，另外两页只加载 tailwind.css，
+ * 样式留在这里才能共用，不然群页与管理页的查看器是没样式的。
+ * 依赖的 CSS 变量（--panel/--border/--muted/--mono…）来自 style.css，
+ * 而 style.css 已被打包进 tailwind.css，所以三页都有。
+ * ============================================================ */
+
+/* ---------- 文件查看器（文本 / Hex） ----------
+   代码区沿用代码块那套深色底 + .code-pre 的 hljs 配色（配色本身就是为深色底设计的），
+   纯文本与 hex 也一起放深色底，视觉上与消息里的代码块一致 */
+.fileview-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4vh 3vw;
+  background: rgba(0, 0, 0, .5);
+}
+.fileview {
+  /* 行高：文本视图与 Hex 视图共用；组件里的虚拟滚动按同一个值换算可视行，
+     两边必须一致（组件里是 ROW_H = 22） */
+  --row-h: 22px;
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, 94vw);
+  height: min(760px, 88vh);
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  outline: none;
+}
+.fileview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.fileview-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 600;
+}
+.fileview-tag {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--fill);
+}
+.fileview-size { flex-shrink: 0; font-size: 11px; color: var(--muted); }
+/* 手动选高亮语言：就摆在原来「语言标签」的位置，观感也照着它来 */
+.fv-lang {
+  flex-shrink: 0;
+  max-width: 150px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--fill);
+  outline: none;
+  cursor: pointer;
+}
+.fv-lang:hover, .fv-lang:focus { color: var(--text); }
+.fileview-actions { display: flex; flex-shrink: 0; gap: 6px; }
+.fv-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color .15s var(--ease), color .15s var(--ease);
+}
+.fv-btn:hover { border-color: var(--primary); color: var(--primary); }
+.fv-btn.on { border-color: var(--primary); color: var(--primary); }
+.fv-btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.fileview-body { flex: 1; min-height: 0; overflow: auto; background: #0f1419; }
+.fileview-msg { padding: 44px 16px; text-align: center; font-size: 13px; color: #9aa4b2; }
+.fileview-msg .fv-btn { margin-top: 14px; background: transparent; border-color: rgba(255, 255, 255, .25); color: #e5e7eb; }
+/* ---------- Hex 视图：偏移 | 十六进制 | 文本 三列 ----------
+   逐字节渲染（不是一坨文本），所以能逐字节做高亮与光标；
+   行高用共用变量 --row-h（见 .fileview） */
+.hx-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: #e6edf3;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+/* 列头在滚动容器内 sticky：横向滚动时列头跟着走（否则一右滚，标签就和列错位），
+   纵向滚动时钉在顶上；底色必须不透明，不然行会从它下面透出来 */
+.hx-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: #0f1419;
+  border-bottom: 1px solid rgba(255, 255, 255, .07);
+  font-size: 11px;
+  color: #6b7280;
+}
+.hx-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .22) transparent;
+}
+/* 内容比视口宽时让整块按内容宽度撑开，滚动条才会真正出现（绝对定位的中间层不会裁切） */
+.hx-spacer {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+}
+.hx-rows { position: absolute; top: 0; left: 0; right: 0; }
+.hx-row {
+  display: flex;
+  align-items: center;
+  height: var(--row-h);
+  padding: 0 12px;
+  line-height: var(--row-h);
+  white-space: pre;
+}
+/* 隔行底色按「绝对行号」给（组件里算的 r.row % 2），
+   不能用 :nth-child —— 虚拟滚动每次只渲染一段，奇偶会跟着窗口漂 */
+.hx-row.alt { background: rgba(255, 255, 255, .018); }
+.hx-row:hover { background: rgba(255, 255, 255, .045); }
+.hx-off { flex: 0 0 auto; width: 74px; color: #6b7280; }
+.hx-bytes { flex: 0 0 auto; display: flex; }
+.hx-txt {
+  flex: 0 0 auto;
+  display: flex;
+  margin-left: 14px;
+  padding-left: 14px;
+  border-left: 1px solid rgba(255, 255, 255, .08);
+}
+.hx-head .hx-txt { border-left-color: transparent; }
+/* 字节/字符都是 <i>：
+   ① 默认斜体，按回正常；
+   ② flex:0 0 auto —— flex 子项默认可被压缩，窄屏下格子会被挤扁、列立刻错位，宁可横向滚动；
+   ③ 宽度用 ch 定死（字体是等宽的 ch 才准）。字节格子是「两位十六进制 + 一个空格」= 3ch，
+      顺带保证即使浏览器把行尾空格吞了，列宽也不会变；ASCII 格子 1ch */
+.hx-b,
+.hx-c {
+  flex: 0 0 auto;
+  font-style: normal;
+}
+.hx-b { width: 3ch; color: #79c0ff; }
+.hx-b.dim { color: #3a4351; }
+.hx-b.gap { margin-right: 6px; }
+.hx-c { width: 1ch; color: #dbe4ee; }
+.hx-c.dim { color: #3a4351; }
+.hx-b.on,
+.hx-c.on {
+  background: var(--primary);
+  color: #04120b;
+  border-radius: 3px;
+}
+.hx-status {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  overflow: hidden;
+  border-top: 1px solid rgba(255, 255, 255, .07);
+  color: #9aa4b2;
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 媒体预览（图片 / 视频 / 音频） ----------
+   内容不进内存：<img>/<audio>/<video> 自己流式加载，服务端对媒体支持 Range，
+   所以多大都能看，也不受 2MB 限制 */
+.media-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 16px;
+}
+.media-wrap img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.media-wrap video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  background: #000;
+}
+.media-audio { flex-direction: column; gap: 14px; }
+.media-audio audio { width: min(560px, 100%); }
+.media-note {
+  max-width: 100%;
+  overflow: hidden;
+  color: #9aa4b2;
+  font-size: 12px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-fail { color: #9aa4b2; font-size: 13px; text-align: center; }
+
+/* ---------- 文本视图 ----------
+   行数多时虚拟滚动：只挂可视区的行，所以每行高度必须固定（--row-h），
+   换行会让行高不定 → 大文本不提供换行开关 */
+.tx-wrap { height: 100%; min-height: 0; }
+.tx-scroll {
+  height: 100%;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .22) transparent;
+}
+/* 行比视口宽时按内容撑开，横向滚动条才会出现（绝对定位的中间层不裁切） */
+.tx-spacer {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+}
+.tx-spacer.fixed .tx-rows { position: absolute; top: 0; left: 0; right: 0; }
+/* 换行模式**不能**按内容撑宽：max-content 会让容器等于「最宽那行」的宽度，
+   pre-wrap 于是永远不折行 —— 换行开关看起来就没反应（这是它的历史 bug）。
+   宽度交回滚动容器（min-width: 100% 保证短文件也铺满），折行才会真的发生。 */
+.tx-spacer.wrap-on { width: auto; }
+.tx-row {
+  display: flex;
+  align-items: flex-start;
+  height: var(--row-h);
+  line-height: var(--row-h);
+  color: #e6edf3;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.tx-row.alt { background: rgba(255, 255, 255, .018); }
+.tx-row.wrap { height: auto; }
+.tx-no {
+  flex: 0 0 auto;
+  width: var(--no-w, 4ch);
+  padding-right: 12px;
+  color: #4b5563;
+  text-align: right;
+  user-select: none;
+}
+.tx-line {
+  flex: 0 0 auto;
+  padding-right: 14px;
+  white-space: pre;
+}
+.tx-row.wrap .tx-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 渲染预览（SVG / HTML / Markdown） ----------
+   内容要么在沙箱 iframe 里（HTML / Markdown），要么是清理后的 SVG 图片，
+   都是独立文档/资源，所以这里只管「摆好位置」，不参与它们的样式。 */
+.pv-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  overflow: hidden;
+  /* 文本/Hex 视图是深色代码底，预览要跟面板同色（内容自己带背景） */
+  background: var(--panel);
+}
+/* HTML / Markdown：让文档铺满整个内容区，不要挤成一列 */
+.pv-wrap-frame {
+  display: block;
+  padding: 0;
+}
+/* SVG 按图片渲染：底色跟面板一致，透明背景的图标也能看清 */
+.pv-svg {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+/* 沙箱文档：给个白底（light）免得没有背景的 HTML 看着像空页 */
+.pv-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+/* markdown 预览自己带配色（写进文档里），主题变化由组件重建文档 */
+html[data-theme='dark'] .pv-frame { background: #1c1c1e; }
+
+/* 工具栏里的小字说明（例如「文件较大，未生成渲染预览」） */
+.fv-note {
+  flex-shrink: 0;
+  color: #9aa4b2;
+  font-size: 11px;
+  white-space: nowrap;
+}

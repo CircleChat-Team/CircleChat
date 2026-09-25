@@ -1,12 +1,11 @@
-/* ============================================================
+/*
  * CircleChat 前端 — 确认 / 输入弹窗（Vue 版，替代旧 public/js/ui.js）
- *
  * 用法（组合式）：
  *   import { confirm, prompt } from '../core/dialog';
  *   const ok = await confirm({ title, text, okText, danger });
  *   const v  = await prompt({ title, text, placeholder, okText, input: {...} });
  * 视图由 components/common/Dialog.vue 渲染（需在根组件挂载一次）。
- * ============================================================ */
+ */
 
 import { reactive } from 'vue';
 

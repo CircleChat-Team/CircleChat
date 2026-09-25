@@ -24,6 +24,7 @@ export const ACTION_KEYS: Record<string, string> = {
   'admin.user.add': 'admin.action.userAdd',
   'admin.user.del': 'admin.action.userDel',
   'admin.user.pass': 'admin.action.userPass',
+  'admin.user.role': 'admin.action.userRole',
   'admin.file.del': 'admin.action.fileDel',
   'group.create': 'admin.action.groupCreate',
   'group.dissolve': 'admin.action.groupDissolve',
@@ -48,10 +49,101 @@ export const ACTION_KEYS: Record<string, string> = {
   'mod.dismiss': 'admin.action.modDismiss',
   'mod.punish': 'admin.action.modPunish',
   'mod.revoke': 'admin.action.modRevoke',
+  'mod.appeal': 'admin.action.modAppeal',
+  'mod.appeal.approve': 'admin.action.modAppealApprove',
+  'mod.appeal.reject': 'admin.action.modAppealReject',
   'twofa.setup': 'admin.action.twofaSetup',
   'twofa.enable': 'admin.action.twofaEnable',
-  'twofa.disable': 'admin.action.twofaDisable'
+  'twofa.disable': 'admin.action.twofaDisable',
+  'oauth.login': 'admin.action.oauthLogin',
+  'oauth.bind': 'admin.action.oauthBind',
+  'oauth.unbind': 'admin.action.oauthUnbind',
+  'oauth.config': 'admin.action.oauthConfig',
+  'admin.captcha': 'admin.action.captcha',
+  'admin.file.delBatch': 'admin.action.fileDelBatch',
+  'key.create': 'admin.action.keyCreate',
+  'key.update': 'admin.action.keyUpdate',
+  'key.delete': 'admin.action.keyDelete',
+  'mini.install': 'admin.action.mini.install',
+  'mini.uninstall': 'admin.action.mini.uninstall',
+  'mini.regrant': 'admin.action.mini.regrant',
+  'mini.invoke': 'admin.action.mini.invoke',
+  'mini.msg': 'admin.action.mini.msg',
+  'mini.sourceConfig': 'admin.action.mini.sourceConfig'
 };
+
+/**
+ * 动作分组：管理面板的筛选器按类别展示（可整类勾选，也可单项勾选）。
+ * 分类只影响「筛选器的呈现」，不改变任何存储结构。
+ * ⚠️ 每个 ACTION_KEYS 里的动作必须**恰好**落在一个组里，
+ *    `tools/check-audit-groups.ts` 会校验（漏了就会被筛不出来）。
+ */
+export interface ActionGroup {
+  key: string;
+  label: string;
+  actions: string[];
+}
+
+export const ACTION_GROUPS: ActionGroup[] = [
+  {
+    key: 'login',
+    label: 'admin.logGroup.login',
+    actions: ['login', 'login.fail', 'logout', 'login.2fa', 'login.blocked', 'register', 'self.pass', 'settings', 'user.image', 'user.rename']
+  },
+  {
+    key: 'twofa',
+    label: 'admin.logGroup.twofa',
+    actions: ['twofa.setup', 'twofa.enable', 'twofa.disable']
+  },
+  {
+    key: 'oauth',
+    label: 'admin.logGroup.oauth',
+    actions: ['oauth.login', 'oauth.bind', 'oauth.unbind', 'oauth.config']
+  },
+  {
+    key: 'message',
+    label: 'admin.logGroup.message',
+    actions: ['msg', 'group.msg', 'dm.msg', 'recall', 'group.recall', 'dm.recall', 'upload', 'msg.report']
+  },
+  {
+    key: 'friend',
+    label: 'admin.logGroup.friend',
+    actions: ['friend.request', 'friend.accept']
+  },
+  {
+    key: 'group',
+    label: 'admin.logGroup.group',
+    actions: [
+      'group.create', 'group.dissolve', 'group.join', 'group.leave', 'group.rename',
+      'group.request', 'group.request.approve', 'group.request.reject', 'group.announce',
+      'group.avatar', 'group.file.del', 'group.member.remove', 'group.transfer'
+    ]
+  },
+  {
+    key: 'admin',
+    label: 'admin.logGroup.admin',
+    actions: [
+      'admin.review.approve', 'admin.review.reject', 'admin.user.add', 'admin.user.del',
+      'admin.user.pass', 'admin.user.role', 'admin.user.image', 'admin.user.rename',
+      'admin.file.del', 'admin.file.delBatch', 'admin.captcha'
+    ]
+  },
+  {
+    key: 'mod',
+    label: 'admin.logGroup.mod',
+    actions: ['mod.dismiss', 'mod.punish', 'mod.revoke', 'mod.appeal', 'mod.appeal.approve', 'mod.appeal.reject']
+  },
+  {
+    key: 'key',
+    label: 'admin.logGroup.key',
+    actions: ['key.create', 'key.update', 'key.delete']
+  },
+  {
+    key: 'mini',
+    label: 'admin.logGroup.mini',
+    actions: ['mini.install', 'mini.uninstall', 'mini.regrant', 'mini.invoke', 'mini.msg', 'mini.sourceConfig']
+  }
+];
 
 /** 审计详情：新格式为 JSON {k: i18n 键, v: 变量}；旧版写死的中文原样显示 */
 export function formatAuditDetail(
@@ -63,7 +155,6 @@ export function formatAuditDetail(
     const o = JSON.parse(d) as { k?: string; v?: Record<string, string | number> };
     if (o && typeof o === 'object' && typeof o.k === 'string') return t(o.k, o.v || {});
   } catch {
-    /* 旧版详情，原样显示 */
   }
   return d;
 }

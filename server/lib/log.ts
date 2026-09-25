@@ -7,12 +7,10 @@ import path from 'node:path';
 const LOG_DIR = path.join(process.cwd(), 'data');
 const LOG_FILE = path.join(LOG_DIR, 'access.log');
 
-// 确保日志目录存在
 function ensureDir(): void {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
   } catch {
-    /* 忽略 */
   }
 }
 

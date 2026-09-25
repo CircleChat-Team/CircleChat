@@ -10,12 +10,20 @@ import { computed, inject, ref } from 'vue';
 import { post } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { confirm, prompt } from '../../core/dialog';
+import { uploadAvatar } from '../../core/chat';
 import { fmtDate } from '../../core/format';
+import { presenceText } from '../../core/presence';
 import { passwordOk } from '../../core/password';
 import { useOverlay } from '../../core/useOverlay';
 import type { UserItem } from '../../types';
 
 const props = defineProps<{ user: UserItem | null; me: string }>();
+
+/** 状态文案（网页端 / 客户端 / 两端同时在线；离线时显示最后在线） */
+/** 状态文案（已翻译）；别再套 tr('common.' + ...) —— 那会把键名显示出来 */
+function statusText(u: UserItem | null): string {
+  return presenceText(!!(u && u.online), false, u ? u.platform : null, u ? u.lastSeen : null);
+}
 const emit = defineEmits<{ close: []; changed: [] }>();
 
 type ToastFn = (msg: string, ms?: number) => void;
@@ -74,18 +82,21 @@ function changePass(): void {
   });
 }
 
+// 与本人头像一致：只提供「上传」（服务端只认本站上传路径）
+const avatarInput = ref<HTMLInputElement | null>(null);
+
 function setAvatar(): void {
+  if (props.user) avatarInput.value?.click();
+}
+function onAvatarPicked(e: Event): void {
+  const el = e.target as HTMLInputElement;
+  const file = el.files && el.files[0];
+  el.value = '';
   const u = props.user;
-  if (!u) return;
-  prompt({
-    title: tr('admin.users.avatarTitle'),
-    text: tr('admin.users.avatarPrompt', { name: u.name }),
-    placeholder: tr('admin.users.avatarPlaceholder'),
-    okText: tr('admin.users.avatarOk'),
-    input: { type: 'text', placeholder: tr('admin.users.avatarPlaceholder'), maxLength: 2048 }
-  }).then((v) => {
-    if (v == null) return;
-    post('/api/admin/user/image', { name: u.name, image: v.trim() }).then((j) => {
+  if (!file || !u) return;
+  uploadAvatar(file).then((url) => {
+    if (!url) return;
+    post('/api/admin/user/image', { name: u.name, image: url }).then((j) => {
       toast(j.ok ? tr('admin.users.avatarUpdated') : tr(j.error || 'common.opFailed'));
       if (j.ok) emit('changed');
     });
@@ -111,6 +122,28 @@ function remove(): void {
 }
 
 /** 操作项列表：模板里只遍历，增删一项不用改结构 */
+/**
+ * 改权限：普通用户 ⇄ 管理员。
+ * 角色是每次请求从库里读的，改完立即生效（不用踢下线）；
+ * 「至少保留一个管理员」由服务端拦（那里才知道还剩几个管理员）。
+ */
+function changeRole(): void {
+  const u = props.user;
+  if (!u) return;
+  const toAdmin = u.role !== 'admin';
+  confirm({
+    title: tr('admin.users.roleTitle'),
+    text: tr(toAdmin ? 'admin.users.rolePromoteConfirm' : 'admin.users.roleDemoteConfirm', { name: u.name }),
+    okText: tr(toAdmin ? 'admin.users.rolePromote' : 'admin.users.roleDemote')
+  }).then((ok) => {
+    if (!ok) return;
+    post('/api/admin/user/role', { name: u.name, role: toAdmin ? 'admin' : 'user' }).then((j) => {
+      toast(j.ok ? tr(toAdmin ? 'admin.users.rolePromoted' : 'admin.users.roleDemoted') : tr(j.error || 'common.opFailed'));
+      if (j.ok) emit('changed'); // 不关弹窗：头部徽标会立刻跟着变，看得见
+    });
+  });
+}
+
 const actions = computed(() => {
   const list = [
     { key: 'name', label: 'admin.users.changeName', danger: false, run: changeName },
@@ -120,6 +153,12 @@ const actions = computed(() => {
       label: props.user && props.user.image ? 'admin.users.avatarChange' : 'admin.users.avatarSet',
       danger: false,
       run: setAvatar
+    },
+    {
+      key: 'role',
+      label: props.user && props.user.role === 'admin' ? 'admin.users.roleDemote' : 'admin.users.rolePromote',
+      danger: !!(props.user && props.user.role === 'admin'),
+      run: changeRole
     }
   ];
   if (!isSelf.value) list.push({ key: 'del', label: 'admin.users.delBtn', danger: true, run: remove });
@@ -140,7 +179,9 @@ const actions = computed(() => {
         role="dialog"
         aria-modal="true"
       >
-        <!-- 头部：身份信息 -->
+        <!-- 头像上传：与本人头像同一套流程（只接受上传，不接受外链） -->
+        <input ref="avatarInput" type="file" accept="image/*" class="hidden" @change="onAvatarPicked">
+
         <div class="flex items-center gap-3 border-b border-line px-5 py-4">
           <img
             v-if="user.image"
@@ -162,7 +203,7 @@ const actions = computed(() => {
             </div>
             <div class="mt-0.5 flex items-center gap-2 text-[11px]">
               <span :class="user.online ? 'text-primary' : 'text-muted'">
-                {{ user.online ? tr('common.online') : tr('common.offline') }}
+                {{ statusText(user) }}
               </span>
               <span v-if="created" class="text-muted">{{ created }}</span>
             </div>

@@ -1,9 +1,4 @@
-/* ============================================================
- * 自研 QR Code 编码器（QR 2005 / ISO/IEC 18004）
- * 支持 Byte 模式、版本 1-16、纠错级别 L/M/Q/H。
- * 零第三方依赖：含 Reed-Solomon 纠错、掩码与惩罚评分、
- * 格式信息 / 版本信息、模块矩阵生成。
- * ============================================================ */
+// 自研 QR Code 编码器（ISO/IEC 18004）：Byte 模式、版本 1-16、纠错级别 L/M/Q/H，零第三方依赖。
 export type ECLevel = 'L' | 'M' | 'Q' | 'H';
 
 export interface QrResult {
@@ -11,7 +6,6 @@ export interface QrResult {
   modules: boolean[][];    // modules[r][c]：true 为深色模块
 }
 
-// -------- Galois 域 GF(256)（本原多项式 0x11D）--------
 const GF_EXP = new Uint8Array(512);
 const GF_LOG = new Uint8Array(256);
 (() => {
@@ -30,7 +24,6 @@ function gfMul(a: number, b: number): number {
   return GF_EXP[(GF_LOG[a] + GF_LOG[b]) % 255];
 }
 
-// -------- Reed-Solomon --------
 function rsDivisor(degree: number): number[] {
   const result = new Array<number>(degree).fill(0);
   result[degree - 1] = 1;
@@ -110,7 +103,6 @@ function getBlockSpec(version: number, ecl: ECLevel): BlockSpec {
   return { ecPerBlock: t[0], g1blocks: t[1], g1data: t[2], g2blocks: t[3], g2data: t[4] };
 }
 
-// -------- 位流工具 --------
 function buildDataCodewords(text: string, spec: BlockSpec, version: number): number[] {
   const data = new TextEncoder().encode(text);
   const capBits = (spec.g1data * spec.g1blocks + spec.g2data * spec.g2blocks) * 8;
@@ -121,7 +113,7 @@ function buildDataCodewords(text: string, spec: BlockSpec, version: number): num
     for (let i = len - 1; i >= 0; i--) bits.push((value >>> i) & 1);
   };
 
-  pushBits(0b0100, 4); // 字节模式
+  pushBits(0b0100, 4); 
   pushBits(data.length, countBits);
   for (const b of data) pushBits(b, 8);
 
@@ -163,8 +155,7 @@ function maskPenalty(m: boolean[][]): number {
   const n = m.length;
   let penalty = 0;
 
-  const finderA = [false, true, false, true, true, true, false, false, false, false, false]; // 000001011101 前
-  // 用模板评分（行方向扫描）
+  const finderA = [false, true, false, true, true, true, false, false, false, false, false]; 
   const scoreRow = (get: (i: number) => boolean): number => {
     let score = 0;
     const line: boolean[] = [];
@@ -206,7 +197,6 @@ function maskPenalty(m: boolean[][]): number {
   return penalty;
 }
 
-// -------- 主编码 --------
 function getFormatBits(ecl: ECLevel, mask: number): number {
   const data = (ECL_BITS[ecl] << 3) | mask;
   let remainder = data;
@@ -276,7 +266,6 @@ export function encodeQr(text: string, ecl: ECLevel = 'M'): QrResult {
     for (let bi = 0; bi < blocksEcc.length; bi++) finalBytes.push(blocksEcc[bi][i]);
   }
 
-  // 组装模块矩阵
   const size = 17 + version * 4;
   const modules: boolean[][] = Array.from({ length: size }, () => new Array<boolean>(size).fill(false));
   const isFunction = Array.from({ length: size }, () => new Array<boolean>(size).fill(false));
@@ -349,7 +338,7 @@ export function encodeQr(text: string, ecl: ECLevel = 'M'): QrResult {
       else if (i < 9) setFn(8, 15 - i - 1 + 1, mod);
       else setFn(8, 15 - i - 1, mod);
     }
-    setFn(size - 8, 8, true); // 固定暗模块
+    setFn(size - 8, 8, true); 
   };
   placeFormat(0); // 占位（0 掩码），仅用于预留数据避让
 

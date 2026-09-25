@@ -5,7 +5,7 @@
  * Tailwind 的 @layer 工具类，会导致 style.css 顶部的 `*{margin:0;padding:0}`
  * 等重置规则压过 Login/Group/Admin 里几乎所有 Tailwind 布局类，造成大面积错乱。
  * 纳入 base 层后：preflight < style.css(base) < Tailwind utilities，层级正确。 */
-@import "../../public/css/style.css" layer(base);
+@import "./chat-base.css" layer(base);
 
 /* ============================================================
  * CircleChat — Tailwind 入口

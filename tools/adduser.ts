@@ -55,7 +55,10 @@ async function main() {
 
   auth.init(false);
   const existed = !!(auth.loadUsers() || {})[username];
-  if (auth.setPassword(username, password)) {
+  // 账号不存在要走 createUser —— setPassword 只更新已有账号，
+  // 原来不分情况一律调 setPassword，于是「建号」永远失败（还打印得像是成功了）
+  const done = existed ? auth.setPassword(username, password) : auth.createUser(username, password);
+  if (done) {
     console.log((existed ? '已修改密码: ' : '已创建账号: ') + username);
   } else {
     console.log('操作失败');

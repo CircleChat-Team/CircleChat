@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 深色模式切换按钮
- * ============================================================ */
+// 深色模式切换按钮
 import { computed } from 'vue';
 import { theme, toggleTheme } from '../../core/theme';
 import { tr } from '../../core/i18n';

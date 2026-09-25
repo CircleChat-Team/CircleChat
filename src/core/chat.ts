@@ -4,12 +4,16 @@
  * 所有组件 import 同一个实例，状态天然共享。
  * ============================================================ */
 
-import { reactive, ref } from 'vue';
-import { get, post, url } from './api';
+import { reactive, ref, createApp } from 'vue';
+import AvatarCropper from '../components/common/AvatarCropper.vue';
+import { asset, get, post, url } from './api';
 import { config } from './config';
 import { tr } from './i18n';
 import { fmtSize } from './format';
 import { DEFAULT_NOTIFY_SOUND, isNotifySound, playIncoming, playOutgoing, setNotifySound as soundSetNotify } from './sound';
+import type { FileViewTarget } from './fileview';
+import { canSystemNotify, systemNotify, shakeWindow } from '../utils/notify';
+import { presenceStatusKey, presenceText, type PresencePlatforms, type StatusKey } from './presence';
 import type {
   ApiResult,
   ChatMessage,
@@ -19,27 +23,26 @@ import type {
   FriendSent,
   ChatGroup,
   GroupMember,
+  GroupInvite,
   ProfileData,
   MergeData,
-  MergeItem
+  MergeItem,
+  SearchHit
 } from '../types';
 
-const PAGE = 30; // 每批渲染 / 加载条数
-const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
+/** 搜索范围：room = 当前会话；all = 我的全部会话 */
+export type SearchScope = 'room' | 'all';
+
+const PAGE = 30; 
+const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; 
 /** 提示文案里展示的上限，由 MAX_UPLOAD_SIZE 推导，改上限时无需同步改文案 */
 const MAX_UPLOAD_LABEL = Math.round(MAX_UPLOAD_SIZE / 1024 / 1024) + 'MB';
-const GROUP_GAP_MS = 5 * 60 * 1000; // 同一人 5 分钟内连发视为一组
+const GROUP_GAP_MS = 5 * 60 * 1000; 
 
 function clock(ts?: number | null): string {
   const d = new Date(Number(ts) || Date.now());
   const p = (n: number) => (n < 10 ? '0' + n : String(n));
   return p(d.getHours()) + ':' + p(d.getMinutes());
-}
-
-/** 把 /uploads/xxx 转成可访问的完整地址（兼容跨域 apiBase） */
-function asset(u: string): string {
-  if (/^[a-z]+:/i.test(u)) return u; // 已是绝对地址
-  return url(u);
 }
 
 function api(path: string): string {
@@ -53,15 +56,27 @@ export interface ChatState {
   mustChange: boolean;
   online: string[];
   away: string[];
+  /** 在线用户的连接来源：网页端 / 桌面客户端（可能两端都在） */
+  platforms: PresencePlatforms;
+  /** 用户名 -> 最后在线时间（ms）；离线用户用它显示「最后在线 x」 */
+  lastSeen: Record<string, number>;
   allUsers: ChatUser[];
   userImages: Record<string, string | null>;
   myGroups: ChatGroup[];
   myFriends: Friend[];
   friendRequests: FriendRequest[];
   friendSent: FriendSent[];
+  /** 好友备注（我给别人起的备注，仅自己可见）：用户名 -> 备注 */
+  friendRemarks: Record<string, string>;
   activeGroupMembers: GroupMember[];
   activeGid: string | null;
   activeDmPeer: string | null;
+  /** 当前群内：我是否为管理者（群主或管理员） */
+  activeGroupIsManager?: boolean;
+  activeGroupIsOwner?: boolean;
+  /** 当前群是否处于「全员禁言」 */
+  activeGroupMuteAll?: boolean;
+  myInvites: GroupInvite[];
   messages: ChatMessage[];
   renderedIdx: Record<string, boolean>;
   topIndex: number;
@@ -70,14 +85,16 @@ export interface ChatState {
   notifyOn: boolean;
   sendKey: 'enter' | 'ctrl';
   notifySound: string;
-  /** 接收消息提示音开关 */
   soundIn: boolean;
-  /** 发送消息提示音开关 */
+  /** 允许任何人邀请我入群（无需我同意） */
+  allowInvite: boolean;
   soundOut: boolean;
   replyTo: ChatMessage | null;
   profileOpen: boolean;
   profile: ProfileData | null;
   myProfileOpen: boolean;
+  /** 打开个人资料时想直接落到哪个页签（输入区禁言横幅的「申诉」用它） */
+  profileTab: 'profile' | 'security' | 'penalty' | 'apikey' | null;
   styleOpen: boolean;
   friendSearchOpen: boolean;
   groupDialogOpen: boolean;
@@ -97,13 +114,31 @@ export interface ChatState {
   forwardMode: 'single' | 'merge';
   mergeView: MergeData | null;
   imageView: string | null;
+  /** 聊天记录搜索面板（会话内 / 全部会话） */
+  searchOpen: boolean;
+  searchScope: SearchScope;
+  searchQuery: string;
+  searchLoading: boolean;
+  searchHits: SearchHit[];
+  searchTotal: number;
+  searchError: string;
+  /** 文件查看器：文本 / Hex（见 components/chat/FileViewer.vue） */
+  fileView: FileViewTarget | null;
   /** 视频模态播放器（消息里只显示预览图，点开才播放） */
   videoView: { src: string; name: string } | null;
+  /** 消息里 GitHub 链接的仓库详情弹窗（owner/name；见 components/chat/RepoModal.vue） */
+  repoView: string | null;
+  /** 媒体播放音量 0~1（音频消息共用；见 components/chat/AudioPlayer.vue） */
+  volume: number;
   reactTargetIdx: number | null;
   muted: boolean;
   mutedUntil: number | null;
+  /** 所在群处于「群禁言」（仅管理员/群主可发言） */
+  groupMuted?: boolean;
   lastTs: Record<string, number>;
   unread: Record<string, number>;
+  /** @我的未读条数（roomKey -> n）：会话列表用红点单独标出「有人@我」，与普通未读区分 */
+  mentionUnread: Record<string, number>;
   /** 上传任务队列（输入栏上方的进度指示器读取） */
   uploads: UploadTask[];
 }
@@ -115,15 +150,22 @@ const state = reactive<ChatState>({
   mustChange: false,
   online: [],
   away: [],
+  platforms: {},
+  lastSeen: {},
   allUsers: [],
   userImages: {},
   myGroups: [],
   myFriends: [],
   friendRequests: [],
   friendSent: [],
+  friendRemarks: {},
   activeGroupMembers: [],
   activeGid: null,
   activeDmPeer: null,
+  activeGroupIsManager: false,
+  activeGroupIsOwner: false,
+  activeGroupMuteAll: false,
+  myInvites: [],
   messages: [],
   renderedIdx: {},
   topIndex: 0,
@@ -131,6 +173,7 @@ const state = reactive<ChatState>({
   typingWho: null,
   notifyOn: true,
   sendKey: 'enter',
+  allowInvite: false,
   notifySound: DEFAULT_NOTIFY_SOUND,
   soundIn: true,
   soundOut: true,
@@ -138,6 +181,7 @@ const state = reactive<ChatState>({
   profileOpen: false,
   profile: null,
   myProfileOpen: false,
+  profileTab: null,
   styleOpen: false,
   friendSearchOpen: false,
   groupDialogOpen: false,
@@ -154,12 +198,24 @@ const state = reactive<ChatState>({
   forwardMode: 'single',
   mergeView: null,
   imageView: null,
+  searchOpen: false,
+  searchScope: 'room',
+  searchQuery: '',
+  searchLoading: false,
+  searchHits: [],
+  searchTotal: 0,
+  searchError: '',
+  fileView: null,
   videoView: null,
+  repoView: null,
+  volume: 1,
   reactTargetIdx: null,
   muted: false,
   mutedUntil: null,
+  groupMuted: false,
   lastTs: {},
   unread: {},
+  mentionUnread: {},
   uploads: []
 });
 let noticeTimer: number | undefined;
@@ -194,12 +250,11 @@ let ws: WebSocket | null = null;
 let reconnectDelay = 1000;
 let reconnectTimer: number | undefined;
 let heartbeatTimer: number | undefined;
-let connectedOnce = false;
 let usersReady: Promise<void> | null = null;
 let typingSentAt = 0;
+let searchSeq = 0; // 搜索请求序号：丢弃过期响应
 let typingHideTimer: number | undefined;
 
-// ---------------- WebSocket ----------------
 
 function wsUrl(): string {
   const base = config.apiBase;
@@ -244,7 +299,6 @@ function connectWs(): void {
   ws = sock;
 
   sock.onopen = () => {
-    connectedOnce = true;
     setConn('on');
     reconnectDelay = 1000;
     clearInterval(heartbeatTimer);
@@ -253,10 +307,11 @@ function connectWs(): void {
     }, 30000);
     loadHistory();
     pushStatus();
+    loadMyInvites();
   };
 
   sock.onmessage = (ev: MessageEvent) => {
-    let obj: { type?: string; data?: any; from?: string; users?: string[]; away?: string[]; by?: string; owner?: string; admin?: boolean; username?: string } | null = null;
+    let obj: { type?: string; data?: any; from?: string; gid?: string | number | null; users?: string[]; away?: string[]; platforms?: PresencePlatforms; lastSeen?: Record<string, number>; by?: string; owner?: string; admin?: boolean; username?: string } | null = null;
     try {
       obj = JSON.parse(ev.data as string);
     } catch {
@@ -266,6 +321,8 @@ function connectWs(): void {
     switch (obj.type) {
       case 'msg':
         if (obj.data) {
+          // 窗口抖动不走普通通知门禁：它就是用来打断「正在看的会话不打扰」的
+          if (obj.data.type === 'shake') handleShake(obj.data);
           bumpRoom(obj.data);
           maybeNotify(obj.data);
           const inRoom = msgInActiveRoom(obj.data);
@@ -281,7 +338,14 @@ function connectWs(): void {
         if (obj.data) handleRecall(obj.data);
         break;
       case 'typing':
-        if (obj.from && obj.from !== state.me && obj.from === state.activeDmPeer) showTyping(obj.from);
+        if (obj.from && obj.from !== state.me) {
+          // 群聊：只在正看着该群时提示；私聊：只在正和对方私聊时提示
+          if (obj.gid != null) {
+            if (String(obj.gid) === String(state.activeGid)) showTyping(obj.from);
+          } else if (obj.from === state.activeDmPeer) {
+            showTyping(obj.from);
+          }
+        }
         break;
       case 'reaction':
         if (obj.data) handleReaction(obj.data);
@@ -289,10 +353,28 @@ function connectWs(): void {
       case 'presence':
         state.online = obj.users || [];
         state.away = obj.away || [];
+        state.platforms = (obj.platforms as PresencePlatforms) || {};
+        if (obj.lastSeen) state.lastSeen = { ...state.lastSeen, ...(obj.lastSeen as Record<string, number>) };
         break;
       case 'groups.changed':
         loadGroups();
         break;
+      case 'group.members': {
+        // 群成员变了（加入 / 退出 / 被移出）：正在看的群就刷新成员列表
+        const d = (obj.data || {}) as { gid?: string; name?: string; action?: string };
+        const gid = d.gid ? String(d.gid) : '';
+        if (!gid) break;
+        if (gid === state.activeGid) loadGroupMembers(gid);
+        if (d.name === state.me && d.action !== 'join') {
+          // 自己被移出（或自己退出）：刷新群列表；还赖在这个群里就撤出去
+          loadGroups();
+          if (state.activeGid === gid) {
+            switchRoom(null);
+            notify('chat.group.left');
+          }
+        }
+        break;
+      }
       case 'penalty':
         if (obj.data) {
           handlePenalty(obj.data);
@@ -300,6 +382,9 @@ function connectWs(): void {
         break;
       case 'friends.changed':
         loadFriends();
+        break;
+      case 'group.invites':
+        loadMyInvites();
         break;
       case 'logged.out':
         // 会话已被服务端销毁（如改密）：回到登录页重新登录
@@ -318,28 +403,25 @@ function connectWs(): void {
     setConn('off');
     clearInterval(heartbeatTimer);
     if (ws !== sock) return;
-    if (!connectedOnce) {
-      get('/api/me')
-        .then((j) => {
-          if (!j.ok) location.replace('/login.html');
-          else scheduleReconnect();
-        })
-        .catch(() => scheduleReconnect());
-    } else {
-      scheduleReconnect();
-    }
+    // 断线先确认会话还在不在：会话只存在服务端内存里，服务器一重启（每次部署都重启）
+    // 就全没了 → 必须回登录页，而不是无限重连、卡在「连接中」不动。
+    // 网络抖动时 /api/me 正常返回，照旧继续重连。
+    get('/api/me')
+      .then((j) => {
+        if (!j.ok) location.replace('/login.html');
+        else scheduleReconnect();
+      })
+      .catch(() => scheduleReconnect());
   };
 
   sock.onerror = () => {
     try {
       sock.close();
     } catch {
-      /* 忽略 */
     }
   };
 }
 
-// ---------------- 消息处理 ----------------
 
 export function msgInActiveRoom(m: ChatMessage): boolean {
   if (state.activeGid != null) return String(m.gid) === String(state.activeGid);
@@ -379,16 +461,19 @@ function roomKeyOf(m: ChatMessage): string | null {
   return null;
 }
 
-/** 非当前会话收到消息时累加未读 */
 function addUnread(m: ChatMessage): void {
   const k = roomKeyOf(m);
   if (!k) return;
   state.unread[k] = (state.unread[k] || 0) + 1;
+  // @我的消息单独计数：会话列表用红点单独标出「有人@我」，与普通未读数区分（私聊无 @ 概念，群里才有）
+  if (m.type === 'text' && mentionsMe(m.content)) {
+    state.mentionUnread[k] = (state.mentionUnread[k] || 0) + 1;
+  }
 }
 
-/** 进入某会话时清除其未读 */
 export function clearUnread(key: string): void {
   if (state.unread[key]) delete state.unread[key];
+  if (state.mentionUnread[key]) delete state.mentionUnread[key];
 }
 
 function handleRecall(data: { idx?: number; by?: string; owner?: string; admin?: boolean }): void {
@@ -427,11 +512,26 @@ export function mentionsMe(text?: string): boolean {
   return mentionsOf(text).indexOf(state.me) !== -1;
 }
 
-function mentionsOf(text: string): string[] {
-  const out = new Set<string>();
+// @提及的正则按用户名集合缓存：原实现每条文本消息渲染都现拼一个新 RegExp，
+// N 条消息 × 用户数 重复编译，开销随消息数线性放大。只有名单变化才重编译。
+let mentionReCache: { key: string; re: RegExp } | null = null;
+
+function mentionRegex(): RegExp | null {
   const names = state.allUsers.map((u) => u.name);
-  if (!names.length) return [];
-  const re = new RegExp('@(?:' + names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'g');
+  if (!names.length) return null;
+  const key = names.join('');
+  if (!mentionReCache || mentionReCache.key !== key) {
+    const body = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    mentionReCache = { key, re: new RegExp('@(?:' + body + ')', 'g') };
+  }
+  return mentionReCache.re;
+}
+
+function mentionsOf(text: string): string[] {
+  const re = mentionRegex();
+  if (!re) return [];
+  const out = new Set<string>();
+  re.lastIndex = 0; // 复用全局正则前重置游标
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) out.add(m[0].slice(1));
   return [...out];
@@ -439,7 +539,12 @@ function mentionsOf(text: string): string[] {
 
 // ---------------- 历史 / 会话 ----------------
 
+// 历史加载序号：快速连切会话时，前一个会话的慢响应可能在 resetRoom 之后才到达，
+// 若无防护会用旧会话的消息覆盖新会话。每次发起都自增，应用前校验「自己是不是最新一次」。
+let historySeq = 0;
+
 function loadHistory(): void {
+  const seq = ++historySeq;
   // 移除公共频道：未选择任何会话（原先的公共房 gid=null&dm=null）时不加载
   if (state.activeGid == null && state.activeDmPeer == null) {
     state.loadingHistory = false;
@@ -455,10 +560,12 @@ function loadHistory(): void {
       return get(u);
     })
     .then((j) => {
+      if (seq !== historySeq) return; // 已被更新的会话请求取代，丢弃过期响应
       state.loadingHistory = false;
       if (j && j.ok) renderHistory((j.messages as ChatMessage[]) || []);
     })
     .catch(() => {
+      if (seq !== historySeq) return;
       state.loadingHistory = false;
     });
 }
@@ -545,9 +652,9 @@ function resetRoom(): void {
   state.messages = [];
   state.renderedIdx = {};
   state.topIndex = 0;
+  state.typingWho = null; // 切换会话清掉上一个房间的「正在输入」，避免带过来
 }
 
-// ---------------- 加载数据 ----------------
 
 function loadMe(): Promise<boolean> {
   return get('/api/me').then((j) => {
@@ -561,6 +668,8 @@ function loadMe(): Promise<boolean> {
     state.mustChange = !!j.mustChange;
     state.online = (j.online as string[]) || [];
     state.away = (j.away as string[]) || [];
+    state.platforms = (j.platforms as PresencePlatforms) || {};
+    if (j.lastSeen) state.lastSeen = j.lastSeen as Record<string, number>;
     return true;
   });
 }
@@ -574,11 +683,11 @@ function loadUsers(): Promise<void> {
           state.userImages = {};
           state.allUsers.forEach((u) => {
             state.userImages[u.name] = u.image || null;
+            if (u.lastSeen) state.lastSeen[u.name] = Number(u.lastSeen);
           });
         }
       })
       .catch(() => {
-        /* 忽略 */
       });
   }
   return usersReady;
@@ -589,15 +698,18 @@ function loadFriends(): Promise<void> {
     .then((j) => {
       if (!j.ok) return;
       state.myFriends = (j.friends as Friend[]) || [];
+      state.myFriends.forEach((f) => {
+        if (f.lastSeen) state.lastSeen[f.name] = Number(f.lastSeen);
+      });
+      state.friendRemarks = (j.remarks as Record<string, string>) || {};
       state.friendRequests = (j.requests as FriendRequest[]) || [];
       state.friendSent = (j.sent as FriendSent[]) || [];
     })
     .catch(() => {
-      /* 忽略 */
     });
 }
 
-function loadGroups(): Promise<void> {
+export function loadGroups(): Promise<void> {
   return get('/api/groups')
     .then((j) => {
       if (j.ok) state.myGroups = (j.groups as ChatGroup[]) || [];
@@ -607,11 +719,9 @@ function loadGroups(): Promise<void> {
       }
     })
     .catch(() => {
-      /* 忽略 */
     });
 }
 
-// ---------------- 发送 ----------------
 
 export function sendText(text: string, md?: boolean): void {
   const val = (text || '').trim();
@@ -631,6 +741,44 @@ export function sendText(text: string, md?: boolean): void {
   state.replyTo = null;
 }
 
+/** 「窗口抖动」本地冷却：服务端另有一道更短的防线（见 runtime.ts 的 SHAKE_COOLDOWN_MS） */
+const SHAKE_COOLDOWN_MS = 10 * 1000;
+let lastShakeAt = 0;
+
+/** 当前是否可以抖动：私聊 + 对方有桌面客户端在线 */
+export function canShake(): boolean {
+  const peer = state.activeDmPeer;
+  return !!peer && isClientOnline(peer);
+}
+
+/**
+ * 给当前私聊对象发一个「窗口抖动」。
+ * 抖动是客户端能力，对方只在网页端时没有效果，所以先判客户端在线；
+ * 群里不做（一次会惊动所有人）。真正让窗口抖动的是收到消息的那一端。
+ */
+export function sendShake(): void {
+  const peer = state.activeDmPeer;
+  if (!peer) return;
+  if (!isClientOnline(peer)) {
+    notify('chat.shake.notClient');
+    return;
+  }
+  const now = Date.now();
+  if (now - lastShakeAt < SHAKE_COOLDOWN_MS) {
+    notify('chat.shake.tooOften');
+    return;
+  }
+  if (!send({ type: 'msg', data: { type: 'shake', content: '', pm: peer } })) return;
+  lastShakeAt = now;
+  playSent();
+}
+
+/** 收到「窗口抖动」：抖一下——这是提醒手段，不受「正在看的会话」门禁限制 */
+function handleShake(m: ChatMessage): void {
+  if (m.from === state.me) return; // 自己那条会被服务端广播回来，别重复抖
+  void shakeWindow();
+}
+
 /** 单个上传任务（输入栏上方的上传指示器读取） */
 export interface UploadTask {
   id: number;
@@ -640,7 +788,6 @@ export interface UploadTask {
   size: number;
   /** 已上传字节数（用于显示「12.3 MB / 45.0 MB」） */
   loaded: number;
-  /** 0-100 */
   percent: number;
   status: 'queued' | 'uploading' | 'done' | 'failed';
   /** 失败原因（i18n 键或直译文案），成功后清空 */
@@ -653,7 +800,6 @@ export interface UploadTask {
   thumbUrl?: string;
   /** 分片总数（仅分片上传的大文件有；用于面板显示「已传/总片数」） */
   chunks?: number;
-  /** 已确认到达服务端的分片数 */
   chunkDone?: number;
   /** 每片进度（0-100；仅分片上传时用于渲染 IDM 式分段进度条）。
    *  每个分片进度事件都会写入，保证分段标记实时刷新。 */
@@ -664,11 +810,9 @@ export interface UploadTask {
 interface ChunkSession {
   /** 服务端会话 id；首次上传前为空串 */
   uploadId: string;
-  /** 分片总数 */
   chunks: number;
   /** 每片当前已传字节数（在途/已确认），用于聚合出 task.loaded */
   loaded: number[];
-  /** 每片是否已被服务端确认 */
   done: boolean[];
 }
 
@@ -677,7 +821,6 @@ let uploadSeq = 0;
 const MAX_CONCURRENT_UPLOADS = 3;
 /** 分片大小（必须与服务端 server/lib/runtime.ts 的 CHUNK_SIZE 一致） */
 const CHUNK_SIZE = 5 * 1024 * 1024;
-/** 单个文件同时并发的分片数 */
 const MAX_CONCURRENT_CHUNKS = 10;
 /** 任务 id → 待上传文件；不放进响应式状态，避免 Vue 代理 DOM 对象 */
 const pendingFiles = new Map<number, File>();
@@ -832,7 +975,7 @@ function abortInFlight(id: number): void {
   const set = uploadXhr.get(id);
   if (!set) return;
   for (const xhr of Array.from(set)) {
-    try { xhr.abort(); } catch { /* 忽略 */ }
+    try { xhr.abort(); } catch {  }
   }
 }
 
@@ -859,7 +1002,7 @@ async function uploadChunk(id: number, file: File, sess: ChunkSession, index: nu
   const end = Math.min(file.size, start + CHUNK_SIZE);
   const blob = file.slice(start, end);
   const sha = await sha256Hex(blob);
-  if (!taskById(id)) throw new Error('abort'); // 校验期间被取消
+  if (!taskById(id)) throw new Error('abort'); 
   const fd = new FormData();
   fd.append('file', blob, 'chunk');
   const url = api('/api/upload/chunk?uploadId=' + encodeURIComponent(sess.uploadId)
@@ -991,7 +1134,7 @@ function dispatchUpload(id: number, r: { kind: string; url: string; name: string
 function pumpQueue(): void {
   while (runningUploads < MAX_CONCURRENT_UPLOADS && waitQueue.length) {
     const id = waitQueue.shift() as number;
-    if (!pendingFiles.has(id) || !taskById(id)) continue; // 已被取消 / 已移除
+    if (!pendingFiles.has(id) || !taskById(id)) continue; 
     runningUploads++;
     void runUpload(id).finally(() => {
       runningUploads--;
@@ -1046,7 +1189,7 @@ async function runUploadChunked(id: number, file: File, sess: ChunkSession): Pro
     size: file.size,
     uploadId: sess.uploadId
   });
-  if (!taskById(id)) return; // init 期间被取消
+  if (!taskById(id)) return; 
   if (!init.ok || !init.uploadId) {
     failUpload(id, String(init.error || 'chat.upload.retry'));
     return;
@@ -1162,13 +1305,12 @@ export function retryAllFailed(): void {
   }
 }
 
-/** 关闭（移除）一条上传任务 */
 export function dismissUpload(id: number): void {
   const i = state.uploads.findIndex((t) => t.id === id);
   if (i >= 0) {
     const t = state.uploads[i];
     if (t.thumbUrl) {
-      try { URL.revokeObjectURL(t.thumbUrl); } catch { /* 忽略 */ }
+      try { URL.revokeObjectURL(t.thumbUrl); } catch {  }
     }
     state.uploads.splice(i, 1);
   }
@@ -1187,7 +1329,12 @@ export function notifyTyping(): void {
   const now = Date.now();
   if (now - typingSentAt < 2000) return;
   typingSentAt = now;
-  send({ type: 'typing' });
+  // 带上会话上下文：私聊只给对方、群聊只给本群成员。原先不带，服务端广播给所有在线，
+  // 结果群聊 typing 谁也看不到、还会误漏到正在和发起者私聊的人的私聊视图里。
+  const data: Record<string, unknown> = {};
+  if (state.activeGid != null) data.gid = state.activeGid;
+  else if (state.activeDmPeer != null) data.pm = state.activeDmPeer;
+  send({ type: 'typing', data });
 }
 
 function showTyping(name: string): void {
@@ -1198,7 +1345,6 @@ function showTyping(name: string): void {
   }, 3500);
 }
 
-// ---------------- 操作 ----------------
 
 export function react(idx: number, emoji: string): void {
   send({ type: 'react', data: { idx, emoji } });
@@ -1208,7 +1354,6 @@ export function recall(idx: number): void {
   send({ type: 'recall', data: { idx } });
 }
 
-// ---------------- 右键菜单 / 多选 / 转发 ----------------
 
 export function openContextMenu(idx: number, x: number, y: number): void {
   state.contextMenu = { idx, x, y };
@@ -1250,7 +1395,6 @@ export function closeForward(): void {
   state.forwardOpen = false;
 }
 
-/** 打开「合并转发」查看模态框 */
 export function openMergeView(idx: number): void {
   const m = state.messages.find((x) => x.idx === idx);
   if (!m || m.type !== 'merge') return;
@@ -1258,7 +1402,6 @@ export function openMergeView(idx: number): void {
     const o = JSON.parse(m.content || '');
     if (o && Array.isArray(o.items)) state.mergeView = { title: o.title || '', items: o.items as MergeItem[] };
   } catch {
-    /* 忽略非法内容 */
   }
 }
 
@@ -1266,7 +1409,6 @@ export function closeMergeView(): void {
   state.mergeView = null;
 }
 
-/** 打开图片灯箱查看 */
 export function openImageView(src: string): void {
   if (src) state.imageView = src;
 }
@@ -1280,6 +1422,54 @@ export function openVideoView(src: string, name?: string | null): void {
 }
 export function closeVideoView(): void {
   state.videoView = null;
+}
+
+/**
+ * 打开文件查看器（文本 / Hex）。
+ * 这里只带「地址 + 名字 + 体积」，具体读文件头判断类型交给查看器组件——
+ * 判断要看真实内容，不能靠后缀名。
+ */
+export function openFileView(url: string, name?: string | null, size?: number | null): void {
+  if (!url) return;
+  state.fileView = { url, name: String(name || ''), size: Number(size || 0) };
+}
+export function closeFileView(): void {
+  state.fileView = null;
+}
+
+/** 打开 GitHub 仓库详情弹窗（卡片上的「展开详细信息」） */
+export function openRepoView(full: string): void {
+  const f = String(full || '').trim();
+  if (f) state.repoView = f;
+}
+export function closeRepoView(): void {
+  state.repoView = null;
+}
+
+
+/** 上一次的非零音量：拖动到 0（静音）后再点喇叭能回到原来的大小，而不是直接满音量 */
+let lastVolume = 1;
+let volumeSaveTimer: number | undefined;
+
+/**
+ * 设置媒体播放音量（0~1）。
+ * 拖动滑块会连续调用，所以写库做了 500ms 防抖 —— 松手后只落一次设置。
+ */
+export function setVolume(v: number): void {
+  const n = Math.min(1, Math.max(0, Number(v) || 0));
+  state.volume = Math.round(n * 100) / 100;
+  if (state.volume > 0) lastVolume = state.volume;
+  clearTimeout(volumeSaveTimer);
+  volumeSaveTimer = window.setTimeout(() => {
+    void post('/api/settings', { volume: state.volume }).catch(() => {
+      /* 存不上不影响本次播放 */
+    });
+  }, 500);
+}
+
+/** 喇叭按钮的静音切换：0 ⇄ 上次的音量 */
+export function toggleMuteVolume(): void {
+  setVolume(state.volume > 0 ? 0 : lastVolume || 1);
 }
 
 /** 复制图片到剪贴板（失败返回 false，调用方可回退为复制地址） */
@@ -1367,8 +1557,27 @@ export function closeProfile(): void {
   state.profile = null;
 }
 
-export function openMyProfile(): void {
-  state.myProfileOpen = true;
+export function openMyProfile(tab?: 'profile' | 'security' | 'penalty' | 'apikey'): void {
+  // 个人资料/设置已改为独立页面：这里直接跳转
+  state.profileTab = tab || null;
+  location.href = '/profile.html' + (tab ? '?tab=' + encodeURIComponent(tab) : '');
+}
+
+/** 独立资料页启动：设置当前用户并加载头像等基础数据（不建立 WebSocket） */
+export function bootProfilePage(): Promise<boolean> {
+  return get('/api/me')
+    .then((j) => {
+      if (!j.ok) {
+        location.replace('/login.html');
+        return false;
+      }
+      state.me = String(j.username || '');
+      return loadUsers().then(() => true);
+    })
+    .catch(() => {
+      location.replace('/login.html');
+      return false;
+    });
 }
 export function openStyle(): void {
   state.styleOpen = true;
@@ -1380,32 +1589,78 @@ export function closeMyProfile(): void {
   state.myProfileOpen = false;
 }
 
-// ---------------- 个人资料编辑（本人：改名 / 头像 / 两步验证） ----------------
 
 export function updateProfileName(name: string): Promise<{ ok: boolean; error?: string; newName?: string }> {
   return post('/api/profile', { name });
 }
 
 /** 上传图片作为头像并更新本人资料；成功返回 true */
-export async function updateAvatar(file: File): Promise<boolean> {
+/**
+ * 上传一张图片，返回站内路径（/uploads/xxx.png）；失败返回 null 并已提示。
+ * 本人头像 / 群头像 / 管理员改他人头像三处都走这里 —— 服务端只认本站上传路径，
+ * 所以前端也必须只提供「上传」这一种方式，保持一致。
+ */
+/**
+ * 弹出头像裁剪框，返回裁剪后的 PNG Blob；用户取消则 reject。
+ * 通过一个临时挂到 body 的独立 Vue 应用实现，聊天页 / 管理页都能复用，无需各自挂载组件。
+ */
+export function cropAvatarImage(file: File): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      resolve(file);
+      return;
+    }
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const close = (): void => {
+      app.unmount();
+      host.remove();
+    };
+    const app = createApp(AvatarCropper, {
+      file,
+      onConfirm: (blob: Blob) => {
+        close();
+        resolve(blob);
+      },
+      onCancel: () => {
+        close();
+        reject(new Error('cancelled'));
+      }
+    });
+    app.mount(host);
+  });
+}
+
+export async function uploadAvatar(file: File): Promise<string | null> {
+  let payload: Blob = file;
+  try {
+    payload = await cropAvatarImage(file);
+  } catch {
+    return null; 
+  }
   const fd = new FormData();
-  fd.append('file', file);
+  fd.append('file', payload, 'avatar.png');
   const res = await fetch(api('/api/upload'), { method: 'POST', body: fd, credentials: 'same-origin' });
   const body = await res.json();
   if (!body.ok || body.kind !== 'image') {
     notify(String(body.error || 'chat.upload.failed'));
-    return false;
+    return null;
   }
-  const j = await post('/api/profile', { image: body.url });
+  return String(body.url);
+}
+
+export async function updateAvatar(file: File): Promise<boolean> {
+  const url = await uploadAvatar(file);
+  if (!url) return false;
+  const j = await post('/api/profile', { image: url });
   if (j && j.ok) {
-    state.userImages[state.me] = body.url;
+    state.userImages[state.me] = url;
     const u = state.allUsers.find((x) => x.name === state.me);
-    if (u) u.image = body.url;
+    if (u) u.image = url;
   }
   return !!(j && j.ok);
 }
 
-/** 清除本人头像 */
 export function clearAvatar(): Promise<boolean> {
   return post('/api/profile', { image: '' }).then((j) => {
     if (j && j.ok) {
@@ -1474,6 +1729,7 @@ export function reportMessage(idx: number, reason: string): Promise<boolean> {
 function handlePenalty(data: any): void {
   state.muted = !!data.muted;
   state.mutedUntil = typeof data.mutedUntil === 'number' ? data.mutedUntil : null;
+  state.groupMuted = !!data.groupMuted && !data.banned;
   if (data.banned) {
     logout();
     return;
@@ -1496,7 +1752,6 @@ export async function saveSettings(patch: Record<string, unknown>): Promise<void
 export function setSendKey(mode: 'enter' | 'ctrl'): void {
   state.sendKey = mode === 'ctrl' ? 'ctrl' : 'enter';
   void post('/api/settings', { sendKey: state.sendKey }).catch(() => {
-    /* 忽略 */
   });
 }
 
@@ -1506,7 +1761,13 @@ export function setNotifySound(file: string): void {
   state.notifySound = file;
   soundSetNotify(file);
   void post('/api/settings', { notifySound: file }).catch(() => {
-    /* 忽略 */
+  });
+}
+
+/** 设置「允许任何人邀请我入群（无需我同意）」：保存后即时生效 */
+export function setAllowInvite(on: boolean): void {
+  state.allowInvite = on;
+  void post('/api/settings', { allowInvite: on }).catch(() => {
   });
 }
 
@@ -1514,7 +1775,6 @@ export function setNotifySound(file: string): void {
 export function setSoundIn(on: boolean): void {
   state.soundIn = !!on;
   void post('/api/settings', { soundIn: state.soundIn }).catch(() => {
-    /* 忽略 */
   });
 }
 
@@ -1522,38 +1782,27 @@ export function setSoundIn(on: boolean): void {
 export function setSoundOut(on: boolean): void {
   state.soundOut = !!on;
   void post('/api/settings', { soundOut: state.soundOut }).catch(() => {
-    /* 忽略 */
   });
 }
 
 /**
- * 开启/关闭通知。开启时必须在"用户手势"内请求权限（浏览器要求），
- * 尤其 Windows/Edge 下否则不会弹权限框。权限被拒则保持关闭。
+ * 开启/关闭系统通知。
+ * 通知只由桌面客户端提供（页面 → window.__CIRCLECHAT__.notify → 客户端 IPC），
+ * 网页端没有这个能力，开启会直接保持关闭。UI 上对应开关也是禁用的。
  */
 export async function setNotify(enabled: boolean): Promise<boolean> {
-  const on = await (async () => {
-    if (!enabled) return false;
-    if (typeof Notification === 'undefined') return false; // 环境不支持
-    if (Notification.permission === 'granted') return true;
-    if (Notification.permission === 'denied') return false;
-    try {
-      // 在用户手势(点击/切换)内同步发起请求，Edge/Chrome 才会唤醒权限弹窗
-      return (await Notification.requestPermission()) === 'granted';
-    } catch {
-      return false;
-    }
-  })();
+  const on = enabled && canSystemNotify();
   state.notifyOn = on;
   void post('/api/settings', { notify: on }).catch(() => {
-    /* 忽略 */
   });
   return on;
 }
 
-/** 新消息到达：不在当前会话 或 页面隐藏 时弹出系统通知 */
+/** 新消息到达：不在当前会话 或 页面隐藏 时，通过桌面客户端弹系统通知 */
 export function maybeNotify(m: ChatMessage): void {
-  if (!state.notifyOn || typeof Notification === 'undefined') return;
-  if (Notification.permission !== 'granted') return;
+  if (m.type === 'shake') return; // 抖动本身就是提醒，再发条空正文的系统通知没意义
+  if (!state.notifyOn) return;
+  if (!canSystemNotify()) return; // 网页端没有系统通知能力
   if (msgInActiveRoom(m) && !document.hidden) return; // 正在看的会话不打扰
   let room = '';
   let title = m.from || '';
@@ -1572,22 +1821,42 @@ export function maybeNotify(m: ChatMessage): void {
     : m.type === 'file' ? tr('chat.notify.body.file')
     : m.type === 'merge' ? tr('chat.notify.body.merge')
     : String(m.content || '');
+  // 交给客户端弹系统通知；失败（系统通知服务不可用 / 权限被拒 / 超时）时静默跳过，
+  // 不额外打扰用户——提示音与未读红点已经足够。
+  void systemNotify(title, body.slice(0, 200));
+  // 同时让客户端窗口抖一下：通知可能被系统免打扰吃掉，窗口抖动更能吸引注意。
+  // 纯浏览器 / 老客户端没有这个能力，会返回 { done: false }，不影响上面逻辑。
+  void shakeWindow();
+}
+
+/** 第三方登录相关的结果码（?oauth=xxx）；未知码一律按「失败」提示 */
+const OAUTH_ERR_CODES = ['notconfigured', 'state', 'denied', 'failed', 'nobind', 'taken', 'blocked', 'banned', '2fa'];
+
+/**
+ * 从 GitHub 授权跳回来时，地址栏上会带 ?oauth=<结果码>：
+ * 这里提示一下然后把参数清掉（否则刷新会重复提示）。
+ */
+function handleOauthResult(): void {
+  let code = '';
   try {
-    const n = new Notification(title, { body: body.slice(0, 200), tag: 'cc-' + (m.id || Date.now()) });
-    n.onclick = () => {
-      window.focus();
-      try {
-        n.close();
-      } catch {
-        /* 忽略 */
-      }
-    };
-  } catch {
-    /* 忽略 */
+    code = new URLSearchParams(location.search).get('oauth') || '';
+  } catch (e) {
+    return;
+  }
+  if (!code) return;
+  if (code === 'bound') {
+    notify('oauth.bound', true);
+  } else {
+    notify('oauth.err.' + (OAUTH_ERR_CODES.indexOf(code) !== -1 ? code : 'failed'));
+  }
+  try {
+    history.replaceState(null, '', location.pathname);
+  } catch (e) {
   }
 }
 
 export function initChat(): void {
+  handleOauthResult();
   loadMe().then((ok) => {
     if (!ok) return;
     Promise.all([loadUsers(), loadFriends(), loadGroups()]).then(() => {
@@ -1614,22 +1883,24 @@ export function initChat(): void {
           soundSetNotify(s.notifySound);
         }
         if (typeof s.soundIn === 'boolean') state.soundIn = s.soundIn;
+        if (typeof s.allowInvite === 'boolean') state.allowInvite = s.allowInvite;
         if (typeof s.soundOut === 'boolean') state.soundOut = s.soundOut;
+        if (typeof s.volume === 'number' && s.volume >= 0 && s.volume <= 1) {
+          state.volume = s.volume;
+          if (s.volume > 0) lastVolume = s.volume;
+        }
       })
       .catch(() => {
-        /* 忽略 */
       });
   });
 }
 
 export function logout(): void {
   post('/api/logout', {}).catch(() => {
-    /* 忽略 */
   });
   location.replace('/login.html');
 }
 
-// ---------------- 工具（组件复用） ----------------
 
 const PALETTE = ['#07c160', '#10aeff', '#f76260', '#ffc300', '#6467f0', '#ff7a45', '#34c759', '#ff2d55', '#5ac8fa', '#a2845e', '#5856d6', '#ff9500'];
 
@@ -1652,10 +1923,124 @@ export function isAway(name: string): boolean {
   return name !== state.me && state.away.indexOf(name) !== -1;
 }
 
-/** 侧栏 / 资料页状态文案：离开 > 在线 > 离线 */
-export function statusKey(name: string): 'away' | 'online' | 'offline' {
-  if (isAway(name)) return 'away';
-  return isOnline(name) ? 'online' : 'offline';
+/**
+ * 该用户是否有桌面客户端在线。
+ * 窗口抖动是客户端能力，对方只在网页端时抖了也没效果，所以按钮据此禁用。
+ */
+export function isClientOnline(name: string): boolean {
+  const p = state.platforms[name];
+  return !!(p && p.client);
+}
+
+/** 侧栏 / 资料页状态文案 key（用法：tr('common.' + statusKey(name))） */
+export function statusKey(name: string): StatusKey {
+  return presenceStatusKey(isOnline(name), isAway(name), state.platforms[name]);
+}
+
+/** 状态文案：在线/离开按状态词显示，离线时显示「最后在线 x」 */
+export function statusText(name: string): string {
+  return presenceText(isOnline(name), isAway(name), state.platforms[name], state.lastSeen[name]);
+}
+
+
+/** 打开搜索面板；scope=room 搜当前会话，all 搜全部会话 */
+export function openSearch(scope: SearchScope = 'room'): void {
+  state.searchScope = scope === 'all' ? 'all' : 'room';
+  state.searchOpen = true;
+  if (state.searchQuery.trim()) runSearch();
+}
+
+export function closeSearch(): void {
+  state.searchOpen = false;
+}
+
+export function setSearchScope(scope: SearchScope): void {
+  state.searchScope = scope === 'all' ? 'all' : 'room';
+  if (state.searchQuery.trim()) runSearch();
+}
+
+/**
+ * 执行搜索。带自增序号丢弃过期响应——输入框是连续触发的，
+ * 先发的请求可能后回来，不丢的话结果会来回跳。
+ */
+export function runSearch(): void {
+  const q = state.searchQuery.trim();
+  const seq = ++searchSeq;
+  if (!q) {
+    state.searchHits = [];
+    state.searchTotal = 0;
+    state.searchLoading = false;
+    state.searchError = '';
+    return;
+  }
+  let path = '/api/messages/search?limit=50&q=' + encodeURIComponent(q);
+  if (state.searchScope === 'room') {
+    if (state.activeGid != null) path += '&gid=' + encodeURIComponent(String(state.activeGid));
+    else if (state.activeDmPeer != null) path += '&dm=' + encodeURIComponent(state.activeDmPeer);
+    else {
+      state.searchHits = []; // 没有进入任何会话，没什么可搜的
+      state.searchTotal = 0;
+      return;
+    }
+  }
+  state.searchLoading = true;
+  state.searchError = '';
+  get(path)
+    .then((j) => {
+      if (seq !== searchSeq) return;
+      state.searchLoading = false;
+      if (!j.ok) {
+        state.searchError = j.error || 'common.loadFailed';
+        state.searchHits = [];
+        state.searchTotal = 0;
+        return;
+      }
+      state.searchHits = (j.hits as SearchHit[]) || [];
+      state.searchTotal = Number(j.total) || 0;
+    })
+    .catch(() => {
+      if (seq !== searchSeq) return;
+      state.searchLoading = false;
+      state.searchError = 'common.loadFailed';
+    });
+}
+
+/**
+ * 跳到某条消息（滚动到中间 + 高亮闪烁）。
+ * 切会话后历史是异步拉的，所以带几次重试；真的不在当前加载范围
+ * （每个房间只保留最近 MAX_MESSAGES 条）时给个提示，而不是点了没反应。
+ */
+export function jumpToMessage(idx: number, tries = 8): void {
+  const el = document.querySelector('.msg[data-idx="' + idx + '"]');
+  if (el) {
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.add('highlight');
+    window.setTimeout(() => el.classList.remove('highlight'), 1400);
+    return;
+  }
+  if (tries > 0) {
+    window.setTimeout(() => jumpToMessage(idx, tries - 1), 120);
+    return;
+  }
+  notify('chat.reply.notInView');
+}
+
+/** 点搜索结果：切到所在会话再跳过去 */
+export function searchJump(hit: SearchHit): void {
+  if (!hit) return;
+  if (hit.dm) {
+    const peer = String(hit.dm).split(':').find((n) => n !== state.me) || '';
+    if (peer) switchRoomToDm(peer);
+  } else if (hit.gid != null) {
+    switchRoom(String(hit.gid));
+  }
+  // 切会话会重新拉历史，等一拍再跳（jumpToMessage 自身还会重试）
+  window.setTimeout(() => jumpToMessage(hit.idx), 60);
+}
+
+/** 某人的最后在线时间（ms），没有记录时返回 null */
+export function lastSeenOf(name: string): number | null {
+  return state.lastSeen[name] || null;
 }
 
 // ================= 自己的隐身 / 离开状态 =================
@@ -1705,7 +2090,6 @@ try {
   window.addEventListener('focus', syncVisibility);
   window.addEventListener('blur', syncVisibility);
 } catch {
-  /* 忽略 */
 }
 
 export function copyToClipboard(text: string): void {
@@ -1731,18 +2115,78 @@ export function copyToClipboard(text: string): void {
     document.execCommand('copy');
     document.body.removeChild(ta);
   } catch {
-    /* 忽略 */
   }
 }
 
+/**
+ * 拉群成员列表（所有群成员都能看，服务端只要求「是本群成员」）。
+ * 顺手把每个人的 lastSeen 并进 state.lastSeen——这样不在好友列表里的人
+ * 也能显示「最后在线 x」，群成员面板与资料卡共用同一份数据。
+ */
 export function loadGroupMembers(gid: string): void {
   get('/api/groups/members?gid=' + encodeURIComponent(gid))
     .then((j) => {
-      if (j && j.ok) state.activeGroupMembers = (j.members as GroupMember[]) || [];
+      if (!j || !j.ok) return;
+      const list = (j.members as GroupMember[]) || [];
+      state.activeGroupMembers = list;
+      state.activeGroupIsManager = !!j.isManager;
+      state.activeGroupIsOwner = !!j.isOwner;
+      state.activeGroupMuteAll = !!j.muteAll;
+      list.forEach((m) => {
+        if (m.lastSeen) state.lastSeen[m.name] = Number(m.lastSeen);
+      });
     })
     .catch(() => {
-      /* 忽略 */
     });
+}
+
+/** 拉取我收到的、待我同意的群邀请 */
+export function loadMyInvites(): void {
+  get('/api/groups/invites')
+    .then((j) => {
+      if (j && j.ok) state.myInvites = (j.invites as GroupInvite[]) || [];
+    })
+    .catch(() => {
+    });
+}
+
+// ---------- 群管理：角色 / 禁言 / 昵称 / 备注 / 邀请 ----------
+
+export function setMemberRole(gid: string, name: string, role: 'admin' | 'member'): Promise<ApiResult> {
+  return post('/api/groups/member/role', { gid, name, role });
+}
+export function muteMember(gid: string, name: string, muted: boolean): Promise<ApiResult> {
+  return post('/api/groups/member/mute', { gid, name, muted });
+}
+export function setMuteAll(gid: string, val: boolean): Promise<ApiResult> {
+  return post('/api/groups/muteall', { gid, val });
+}
+export function setMemberInviteApprove(gid: string, val: boolean): Promise<ApiResult> {
+  return post('/api/groups/invite/setting', { gid, memberInviteApprove: val });
+}
+export function setNickname(gid: string, nickname: string): Promise<ApiResult> {
+  return post('/api/groups/member/nickname', { gid, nickname });
+}
+export function setGroupRemark(gid: string, remark: string): Promise<ApiResult> {
+  return post('/api/groups/remark', { gid, remark });
+}
+export function fetchGroupRemark(gid: string): Promise<ApiResult> {
+  return get('/api/groups/remark?gid=' + encodeURIComponent(gid));
+}
+export function inviteToGroup(gid: string, invitee: string): Promise<ApiResult> {
+  return post('/api/groups/invite', { gid, invitee });
+}
+export function approveInvite(id: number): Promise<ApiResult> {
+  return post('/api/groups/invite/approve', { id });
+}
+export function rejectInvite(id: number): Promise<ApiResult> {
+  return post('/api/groups/invite/reject', { id });
+}
+export function acceptInvite(id: number): Promise<ApiResult> {
+  return post('/api/groups/invite/accept', { id });
+}
+export function setFriendRemark(to: string, remark: string): Promise<ApiResult> {
+  return post('/api/friends/remark', { to, remark });
 }
 
 export { asset, clock, fmtSize, tr };

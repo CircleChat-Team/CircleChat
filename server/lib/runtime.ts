@@ -17,12 +17,17 @@ import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 
 import * as auth from './auth';
+import { isValidAvatar, safeAvatar } from './avatar';
 import * as store from './store';
 import * as groups from './groups';
 import * as friends from './friends';
 import * as audit from './audit';
 import * as moderate from './moderate';
 import * as mailbox from './mailbox';
+import * as appconfig from './appconfig';
+import * as github from './github';
+import * as captcha from './captcha';
+import * as mini from './mini';
 import { fileKindOf } from './filetypes';
 import * as wsproto from './ws';
 import * as logger from './log';
@@ -33,7 +38,6 @@ function auditDetail(key: string, vars?: Record<string, unknown>): string {
   return JSON.stringify({ k: key, v: vars || {} });
 }
 
-// ---------- 配置 ----------
 const ROOT = process.cwd(); // 运行根目录（启动目录 = 项目根），Nitro 打包后改用 process.cwd()
 const PUB = path.join(ROOT, 'public');
 const UPLOAD_DIR = path.join(PUB, 'uploads');
@@ -47,16 +51,15 @@ const MAX_UPLOAD = 100 * 1024 * 1024; // 单文件上限 100MB
 const MAX_UPLOAD_BODY = MAX_UPLOAD + 1024 * 1024;
 const MAX_TEXT_LEN = 4096;           // 单条文本长度上限
 
-// ---------- 分片上传 ----------
 // 大文件拆成固定大小的分片并行上传：单片失败只需重传该片，且可在断线/刷新后续传。
 // CHUNK_SIZE 必须与前端 src/core/chat.ts 的 CHUNK_SIZE 保持一致。
-const CHUNK_SIZE = 5 * 1024 * 1024;                                  // 每片 5MB
+const CHUNK_SIZE = 5 * 1024 * 1024;                                  
 const MAX_CHUNKS = Math.ceil(MAX_UPLOAD / CHUNK_SIZE) + 1;           // 分片数上限（多留 1 片余量）
 const CHUNK_BODY_LIMIT = CHUNK_SIZE + 1024 * 1024;                   // 单片请求体上限（含 multipart 开销）
 // 分片会话：每个上传会话一个目录，里面是 meta.json + <index>.part
 const SESS_DIR = path.join(TMP_DIR, 'sessions');
 const UPLOAD_ID_RE = /^[a-f0-9]{24}$/;
-const CHUNK_SHA_RE = /^[a-f0-9]{64}$/;                                  // 客户端上报的分片 sha256
+const CHUNK_SHA_RE = /^[a-f0-9]{64}$/;                                  
 const SESSION_TTL = 24 * 3600 * 1000; // 会话（半成品）保留 24 小时，过期由 purgeUploadTmp 清掉
 /** 会话元数据内存缓存（见 readSession） */
 const sessionCache = new Map<string, SessionMeta>();
@@ -66,11 +69,10 @@ const mergingUploads = new Set<string>();
 // 上传文件保留天数：超期后删除硬盘文件，消息记录保留并显示「图片/文件已过期」
 // 可用环境变量 FILE_TTL_DAYS 覆盖，默认 15 天
 const FILE_TTL_DAYS = Math.max(1, parseInt(process.env.FILE_TTL_DAYS as string, 10) || 15);
-const FILE_CLEANUP_INTERVAL = 6 * 3600 * 1000; // 每 6 小时检查一次
+const FILE_CLEANUP_INTERVAL = 6 * 3600 * 1000; 
 
 // 管理员新建用户时的用户名规则：2-20 位字母/数字/下划线/中文/点/横线
 const USERNAME_RE = /^[\w\u4e00-\u9fa5\-.]{2,20}$/;
-// 邮箱格式（简单通用校验）
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MIN_PASS_LEN = 8;
 const MAX_PASS_LEN = 64;
@@ -99,7 +101,6 @@ const AUDIO_EXTS = new Set([
 // 文件管理的「列出 / 删除」据此严格校验，杜绝 ../ 之类的路径穿越。
 const UPLOAD_NAME_RE = /^[a-zA-Z0-9]+\.[a-z0-9]{1,8}$/;
 
-// ---------- 工具函数 ----------
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -147,14 +148,16 @@ const MIME: Record<string, string> = {
   '.m4b': 'audio/mp4'
 };
 
-function sendJSON(res: any, status: number, obj: unknown): void {
+/** 附加响应头（例如跨域头）；与默认头同名的会覆盖默认头 */
+function sendJSON(res: any, status: number, obj: unknown, extraHeaders?: Record<string, string>): void {
   // 连接可能已被客户端断开或请求体超限后销毁，此时写响应会抛错
   if (res.writableEnded || res.destroyed) return;
   const body = JSON.stringify(obj);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff'
+    'X-Content-Type-Options': 'nosniff',
+    ...(extraHeaders || {})
   });
   res.end(body);
 }
@@ -182,7 +185,7 @@ function readBody(req: any, limit: number): Promise<Buffer> {
       size += c.length;
       if (size > limit) {
         settle(() => reject(new Error('BODY_TOO_LARGE')));
-        try { req.destroy(); } catch (e) { /* 忽略 */ }
+        try { req.destroy(); } catch (e) {  }
         return;
       }
       if (buf) {
@@ -201,6 +204,49 @@ function readBody(req: any, limit: number): Promise<Buffer> {
     req.on('close', () => {
       if (!req.complete) onFail();
     });
+  });
+}
+
+// ---------- 静态资源版本号（?v=<内容哈希>） ----------
+
+/**
+ * 构建产物的文件名是固定的（assets/chat.js、assets/tailwind.css，不带 hash），
+ * 一旦被浏览器或中间缓存留住，就会出现「代码更新了、页面还是旧的」。
+ * 这里在响应 HTML 时，给页面里引用的本地静态资源按**文件内容哈希**补上 `?v=`：
+ *   - 内容没变 → 版本不变，缓存照旧命中，不浪费带宽；
+ *   - 内容一变 → URL 就变，浏览器/边缘节点必然重新拉取。
+ * 用内容哈希而不是时间戳/随机数：后者会让每次请求都是新 URL，等于把缓存彻底废掉。
+ * （HTML 本身一直是 no-cache，所以每次都会拿到最新版本号。）
+ */
+const assetHashCache = new Map<string, string>();
+const htmlInjectCache = new Map<string, string>();
+
+/** 静态文件的内容哈希（取前 8 位）；读不到返回 '' */
+function assetHash(filePath: string): string {
+  const hit = assetHashCache.get(filePath);
+  if (hit !== undefined) return hit;
+  let h = '';
+  try {
+    h = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex').slice(0, 8);
+  } catch (e) {
+    /* 文件不存在（页面引用了尚未构建的产物）→ 视为无版本 */
+  }
+  assetHashCache.set(filePath, h);
+  return h;
+}
+
+/** 给 HTML 里的本地静态资源引用补 `?v=<内容哈希>`；外链/上传目录/api 一律不动 */
+function injectAssetVersions(html: string): string {
+  return html.replace(/(\s(?:src|href)=")([^"]*?)"/g, (all: string, pre: string, url: string) => {
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(url)) return all; 
+    const bare = url.split('?')[0].split('#')[0];
+    if (!bare) return all;
+    const abs = path.normalize(path.join(PUB, bare.replace(/^\.?\//, '/')));
+    if (!abs.startsWith(PUB + path.sep)) return all;              
+    if (abs.startsWith(UPLOAD_DIR + path.sep)) return all;       // 上传文件不做版本号
+    const v = assetHash(abs);
+    if (!v) return all;                                          // 不是本地真实静态文件
+    return pre + bare + '?v=' + v + '"';                          
   });
 }
 
@@ -261,19 +307,28 @@ function serveStatic(req: any, res: any, pathname: string): void {
         h['Content-Length'] = String(end - start + 1);
         res.writeHead(206, h);
         const rs = fs.createReadStream(filePath, { start, end });
-        rs.on('error', () => { try { res.destroy(); } catch { /* 忽略 */ } });
+        rs.on('error', () => { try { res.destroy(); } catch {  } });
         rs.pipe(res);
         return;
       }
       h['Content-Length'] = String(total);
       res.writeHead(200, h);
       const rs = fs.createReadStream(filePath);
-      rs.on('error', () => { try { res.destroy(); } catch { /* 忽略 */ } });
+      rs.on('error', () => { try { res.destroy(); } catch {  } });
       rs.pipe(res);
       return;
     }
     fs.readFile(filePath, (e2: any, data: Buffer) => {
       if (e2) { res.writeHead(500); res.end(); return; }
+      // HTML：注入静态资源的 ?v=<内容哈希>（必须在 gzip 之前；结果按文件缓存，不每请求重算）
+      if (ext === '.html') {
+        let out = htmlInjectCache.get(filePath);
+        if (out === undefined) {
+          out = injectAssetVersions(data.toString('utf8'));
+          htmlInjectCache.set(filePath, out);
+        }
+        data = Buffer.from(out, 'utf8');
+      }
       const acceptGzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
       const big = data.length > 512 && /\.(html|css|js|json|svg|txt|md)$/.test(ext);
       const headers: Record<string, string> = {
@@ -303,7 +358,6 @@ function serveStatic(req: any, res: any, pathname: string): void {
 interface StreamedFile {
   /** 原始文件名（已做路径/非法字符清理） */
   name: string;
-  /** 文件字节数 */
   size: number;
   /** 内容 sha256（十六进制），用于去重 */
   sha: string;
@@ -353,13 +407,13 @@ function streamUploadToDisk(req: any, boundary: string, opts: StreamOpts = {}): 
     let paused = false;
     let settled = false;
 
-    const removeTmp = (): void => { try { fs.unlinkSync(tmpPath); } catch (e) { /* 文件可能尚未创建 */ } };
+    const removeTmp = (): void => { try { fs.unlinkSync(tmpPath); } catch (e) {  } };
     const fail = (err: Error): void => {
       if (settled) return;
       settled = true;
       // 超限 / 中断时立刻掐断请求，避免客户端继续白传数据
-      if (err.message === 'TOO_LARGE') { try { req.destroy(); } catch (e) { /* 忽略 */ } }
-      try { out.destroy(); } catch (e) { /* 忽略 */ }
+      if (err.message === 'TOO_LARGE') { try { req.destroy(); } catch (e) {  } }
+      try { out.destroy(); } catch (e) {  }
       removeTmp();
       reject(err);
     };
@@ -438,7 +492,7 @@ function streamUploadToDisk(req: any, boundary: string, opts: StreamOpts = {}): 
         if (buf.length > crlfDash.length) {
           const end = buf.length - crlfDash.length;
           const chunk = buf.slice(0, end);
-          buf = buf.slice(end); // 尾部可能跨块，留到下次拼接
+          buf = buf.slice(end); 
           writeChunk(chunk);
           if (settled || paused) return;
         }
@@ -471,7 +525,7 @@ export function purgeUploadTmp(): void {
     const p = path.join(TMP_DIR, n);
     try {
       if (now - fs.statSync(p).mtimeMs > SESSION_TTL) fs.unlinkSync(p);
-    } catch (e) { /* 忽略 */ }
+    } catch (e) {  }
   }
   // 分片会话目录：超过 TTL 未完成即整目录删除（半成品没有再保留的价值）
   let ids: string[] = [];
@@ -483,22 +537,18 @@ export function purgeUploadTmp(): void {
       // 名字不合规的（历史遗留 / 手工产物）也一并清掉，否则它们永远不会被回收
       if (UPLOAD_ID_RE.test(id)) removeSession(id);
       else fs.rmSync(dir, { recursive: true, force: true });
-    } catch (e) { /* 忽略 */ }
+    } catch (e) {  }
   }
 }
 
-// ---------- 分片上传会话（磁盘持久化，支持断线/刷新后续传） ----------
 
 interface SessionMeta {
-  /** 原始文件名（已清理非法字符） */
   name: string;
   /** 文件总字节数（客户端声明，落盘时以实际分片大小复核） */
   size: number;
-  /** 分片总数 */
   chunks: number;
   /** 归属账号：只有本人能续传/完成自己的会话 */
   owner: string;
-  /** 创建时间（毫秒） */
   ts: number;
 }
 
@@ -547,7 +597,7 @@ function writeSession(id: string, meta: SessionMeta): void {
 
 function removeSession(id: string): void {
   sessionCache.delete(id); // 缓存生命周期与目录一致：目录没了就不该再从缓存里"读到"它
-  try { fs.rmSync(sessionDir(id), { recursive: true, force: true }); } catch (e) { /* 忽略 */ }
+  try { fs.rmSync(sessionDir(id), { recursive: true, force: true }); } catch (e) {  }
 }
 
 /** 已完整到达服务端的分片序号（大小不符的视为未完成） */
@@ -557,7 +607,7 @@ function receivedChunks(meta: SessionMeta, dir: string): number[] {
     try {
       const st = fs.statSync(partPath(dir, i));
       if (st.isFile() && st.size === chunkSizeOf(meta, i)) out.push(i);
-    } catch (e) { /* 该片还没到 */ }
+    } catch (e) {  }
   }
   return out;
 }
@@ -580,7 +630,7 @@ async function materialize(meta: SessionMeta, dir: string, destPath: string): Pr
   }
   const ws = fs.createWriteStream(destPath);
   const opened: fs.ReadStream[] = [];
-  let onWsError: (e: Error) => void = () => { /* 下一行立即被替换 */ };
+  let onWsError: (e: Error) => void = () => {  };
   const wsFailed = new Promise<never>((_resolve, reject) => { onWsError = reject; });
   ws.on('error', (e: Error) => onWsError(e));
 
@@ -602,10 +652,10 @@ async function materialize(meta: SessionMeta, dir: string, destPath: string): Pr
     await Promise.race([copy, wsFailed]);
   } catch (e) {
     for (const rs of opened) {
-      try { rs.destroy(); } catch (e2) { /* 忽略 */ }
+      try { rs.destroy(); } catch (e2) {  }
     }
-    try { ws.destroy(); } catch (e2) { /* 忽略 */ }
-    try { fs.unlinkSync(destPath); } catch (e2) { /* 忽略 */ }
+    try { ws.destroy(); } catch (e2) {  }
+    try { fs.unlinkSync(destPath); } catch (e2) {  }
     throw e;
   }
 }
@@ -635,7 +685,7 @@ function headOfFirstPart(dir: string): Buffer {
   } catch (e) {
     return Buffer.alloc(0);
   } finally {
-    if (fd !== null) { try { fs.closeSync(fd); } catch (e) { /* 忽略 */ } }
+    if (fd !== null) { try { fs.closeSync(fd); } catch (e) {  } }
   }
 }
 
@@ -662,10 +712,123 @@ function sniffImage(buf: Buffer): string | null {
   return null;
 }
 
-// ---------- WebSocket 客户端管理 ----------
 
-const clients = new Set<any>(); // 所有在线 WS 连接
+const clients = new Set<any>(); 
 const typingLast = new Map<string, number>(); // 用户名 -> 上次转发「正在输入」的时间（节流用）
+
+// 「是否在线」由 WS 连接决定，这里只记**离线那一刻的最后活动时间**，供离线用户显示。
+// 内存这份是实时用的（断开瞬间就要能推给前端），库里那份是重启后仍能显示用的。
+let lastSeenMap: Record<string, number> | null = null;
+const lastSeenWrote = new Map<string, number>(); // 用户名 -> 上次落库时间（写库节流）
+
+function ensureLastSeen(): Record<string, number> {
+  if (lastSeenMap) return lastSeenMap;
+  const out: Record<string, number> = {};
+  try {
+    const raw = auth.loadUsers() || {};
+    for (const n of Object.keys(raw)) {
+      const ts = Number(raw[n].lastSeen || 0);
+      if (ts > 0) out[n] = ts;
+    }
+  } catch (e) {
+    /* 读不到就从空开始，不影响主流程 */
+  }
+  lastSeenMap = out;
+  return out;
+}
+
+/** 记录「该用户此刻还在线」。force 用于连接/断开这种关键时刻，其余按 60 秒节流落库 */
+function markSeen(name: string, force = false): void {
+  if (!name) return;
+  const now = Date.now();
+  ensureLastSeen()[name] = now;
+  if (!force) {
+    const prev = lastSeenWrote.get(name) || 0;
+    if (now - prev < 60000) return; // 心跳触发很频繁，别每次都写库
+  }
+  lastSeenWrote.set(name, now);
+  auth.touchLastSeen(name, now);
+}
+
+function lastSeenSnapshot(): Record<string, number> {
+  return Object.assign({}, ensureLastSeen());
+}
+
+/** 除当前连接外，该用户是否还有别的在线连接（断开时判断是否真的下线了） */
+function hasOtherConn(name: string, except: any): boolean {
+  for (const c of clients) if (c !== except && clientId(c) === name) return true;
+  return false;
+}
+
+/** 群组接口的 scope：GET=读；管理类动作=groups.manage；其余=groups.write */
+const GROUP_MANAGE_PATHS = [
+  '/api/groups/member/role',
+  '/api/groups/member/mute',
+  '/api/groups/members/remove',
+  '/api/groups/muteall',
+  '/api/groups/invite/approve',
+  '/api/groups/invite/reject',
+  '/api/groups/invite/setting',
+  '/api/groups/request/approve',
+  '/api/groups/request/reject',
+  '/api/groups/transfer',
+  '/api/groups/file/delete'
+];
+function groupScope(method: string, pathname: string): string {
+  if (method === 'GET') return 'groups.read';
+  if (GROUP_MANAGE_PATHS.indexOf(pathname) !== -1) return 'groups.manage';
+  if (pathname === '/api/groups' && method === 'DELETE') return 'groups.manage'; 
+  return 'groups.write';
+}
+
+/**
+ * API Key 的 scope 校验：返回该请求所需 scope；'__session' 表示必须用会话 Cookie（key 不允许）。
+ * 会话 Cookie 鉴权不校验 scope（全权）；未匹配的接口兜底为最小权限 profile.read。
+ */
+function requiredScope(method: string, pathname: string): string {
+  const m = (method || 'GET').toUpperCase();
+
+  // API Key 自身管理只允许会话（防提权）
+  if (pathname.indexOf('/api/keys') === 0) return '__session';
+  if (pathname.indexOf('/api/admin/') === 0) return 'admin';
+
+  // 账号 - 安全类（改密 / 2FA / 第三方绑定）
+  if (pathname === '/api/pass' || pathname.indexOf('/api/twofa/') === 0 || pathname === '/api/oauth/github/unbind') return 'security';
+  // 账号 - 资料 / 设置（POST 为写）
+  if (pathname === '/api/profile' || pathname === '/api/settings') return m === 'POST' ? 'profile.write' : 'profile.read';
+  if (pathname === '/api/me/notifications/read') return 'profile.write';
+  // 账号 - 只读（资料 / 处罚 / 申诉 / 通知 / 公告）
+  if (pathname === '/api/me' || pathname === '/api/oauth/me' ||
+      pathname.indexOf('/api/me/penalties') === 0 || pathname.indexOf('/api/me/appeals') === 0 ||
+      pathname === '/api/announcements' || pathname.indexOf('/api/me/notifications') === 0) return 'profile.read';
+
+  if (pathname === '/api/users') return 'users.read';
+
+  if (pathname === '/api/friends') return 'friends.read';
+  if (pathname.indexOf('/api/friends/') === 0) return 'friends.write';
+
+  // 消息：读历史 / 发消息
+  if (pathname === '/api/messages') return m === 'POST' ? 'messages.send' : 'messages.read';
+  if (pathname === '/api/report') return 'messages.read';
+
+  if (pathname.indexOf('/api/groups') === 0) return groupScope(m, pathname);
+
+  if (pathname.indexOf('/api/upload') === 0) return 'files.upload';
+
+  // 兜底：最小读权限
+  return 'profile.read';
+}
+
+/** 给一批带 name 的条目补上 lastSeen（群成员列表等；groups 模块只管成员关系，不碰在线状态） */
+function withLastSeen<T extends { name: string }>(list: T[]): (T & { lastSeen: number | null })[] {
+  const ls = ensureLastSeen();
+  return (list || []).map((m) => Object.assign({}, m, { lastSeen: ls[m.name] || null }));
+}
+
+const shakeLast = new Map<string, number>(); // 用户名 -> 上次「窗口抖动」时间（服务端限频）
+// 抖动最短间隔。前端自己也限一次（更长），这里更短是为了不误伤正常点击，
+// 但必须有——恶意连接可以直接发原始帧刷屏，只靠客户端限不住。
+const SHAKE_COOLDOWN_MS = 5 * 1000;
 const twofaChallenges = new Map<string, { username: string; expires: number }>(); // token -> { username, expires }（登录第二步 2FA）
 
 function clientId(c: any): string {
@@ -675,15 +838,14 @@ function clientId(c: any): string {
 function broadcast(obj: any): void {
   const data = wsproto.encodeText(JSON.stringify(obj));
   for (const c of clients) {
-    try { c.socket.write(data); } catch (e) { /* 忽略 */ }
+    try { c.socket.write(data); } catch (e) {  }
   }
 }
 
 function sendTo(client: any, obj: any): void {
-  try { client.sendText(JSON.stringify(obj)); } catch (e) { /* 忽略 */ }
+  try { client.sendText(JSON.stringify(obj)); } catch (e) {  }
 }
 
-// 推送给某群的在线成员
 function broadcastGid(gid: string, obj: any): void {
   for (const c of clients) {
     if (groups.isMember(gid, c.user.username)) sendTo(c, obj);
@@ -698,6 +860,24 @@ function broadcastDm(dm: string, obj: any): void {
   }
 }
 
+// 推送给指定用户的全部连接（多端都在线时每端都发）
+function broadcastUser(name: string, obj: any): void {
+  if (!name) return;
+  for (const c of clients) if (clientId(c) === name) sendTo(c, obj);
+}
+
+/**
+ * 群成员发生变化（加入 / 主动退出 / 被移出）。
+ * 该群在线成员刷新成员列表；当事人**单独再发一次**——被移出时他已不在群里，
+ * broadcastGid 的 isMember 过滤会把他漏掉，而这恰恰是他最需要知道的。
+ */
+function notifyMembersChanged(gid: string, name: string, action: 'join' | 'leave' | 'remove'): void {
+  if (!gid) return;
+  const evt = { type: 'group.members', data: { gid, name, action } };
+  broadcastGid(gid, evt);
+  broadcastUser(name, evt);
+}
+
 // 按房间推送：dm 非空为私聊（仅双方）；gid=null 为公共聊天（全量）；否则按群推成员
 function broadcastRoom(gid: string | null, dm: string | null, obj: any): void {
   if (dm != null) broadcastDm(dm, obj);
@@ -707,13 +887,58 @@ function broadcastRoom(gid: string | null, dm: string | null, obj: any): void {
 
 function broadcastPresence(): void {
   const present = [...new Set(currentPresent())].sort();
-  const away = [...new Set([...clients].filter((c) => !c.invisible && c.away).map(clientId))].sort();
-  broadcast({ type: 'presence', users: present, away });
+  broadcast({
+    type: 'presence',
+    users: present,
+    away: currentAway(),
+    platforms: currentPlatforms(),
+    // 随广播带上最后在线快照：某人刚离线时前端能立刻显示「最后在线 刚刚」，
+    // 不用等下一次拉 /api/users
+    lastSeen: lastSeenSnapshot()
+  });
 }
 
 // 隐身用户对他人显示为离线：凡用于对外展示「在线」的集合都排除 invisible
 function currentPresent(): string[] {
   return [...clients].filter((c) => !c.invisible).map(clientId);
+}
+
+/**
+ * 各在线用户的连接来源：网页端 / 桌面客户端（同一用户可能两端都在）。
+ * 前端据此区分「网页在线 / 客户端在线 / 两端同时在线」。
+ */
+function currentPlatforms(): Record<string, { web: boolean; client: boolean }> {
+  const out: Record<string, { web: boolean; client: boolean }> = {};
+  for (const c of clients) {
+    if (c.invisible) continue; // 隐身者对外等于离线，不暴露来源
+    const n = clientId(c);
+    const p = out[n] || (out[n] = { web: false, client: false });
+    if (c.platform === 'client') p.client = true;
+    else p.web = true;
+  }
+  return out;
+}
+
+/**
+ * 离开名单：该用户**所有**可见连接都不在前台才算离开。
+ * 原来只要有一条连接 away 就把整人标成离开，多端登录时会出现
+ * 「桌面端一直在用、网页端标签页在后台」→ 仍显示离开的误判。
+ */
+function currentAway(): string[] {
+  const all = new Set<string>();
+  const active = new Set<string>();
+  for (const c of clients) {
+    if (c.invisible) continue;
+    const n = clientId(c);
+    all.add(n);
+    if (!c.away) active.add(n);
+  }
+  return [...all].filter((n) => !active.has(n)).sort();
+}
+
+/** 连接来源判定：桌面客户端会在 UA 里带 CircleChatDesktop/x.y.z（见前端 src/utils/client.ts） */
+function platformOf(ua: unknown): 'client' | 'web' {
+  return /CircleChatDesktop\//i.test(String(ua || '')) ? 'client' : 'web';
 }
 
 /**
@@ -725,8 +950,8 @@ function forceLogout(name: string, exceptToken?: string): number {
   for (const c of [...clients]) {
     if (c.user.username !== name) continue;
     if (exceptToken && c.user.token === exceptToken) continue;
-    try { c.sendText(JSON.stringify({ type: 'logged.out' })); } catch (e) { /* 忽略 */ }
-    try { c.close(); } catch (e) { /* 忽略 */ }
+    try { c.sendText(JSON.stringify({ type: 'logged.out' })); } catch (e) {  }
+    try { c.close(); } catch (e) {  }
     n++;
   }
   return n;
@@ -736,11 +961,29 @@ function forceLogout(name: string, exceptToken?: string): number {
 const HEARTBEAT_MS = 30 * 1000;
 setInterval(() => {
   for (const c of clients) {
-    if (!c.alive) { try { c.socket.destroy(); } catch (e) { /* 忽略 */ } continue; }
+    if (!c.alive) { try { c.socket.destroy(); } catch (e) {  } continue; }
     c.alive = false;
-    try { c.socket.write(wsproto.encodePing()); } catch (e) { /* 忽略 */ }
+    try { c.socket.write(wsproto.encodePing()); } catch (e) {  }
   }
 }, HEARTBEAT_MS).unref();
+
+/**
+ * 让所有在线客户端回登录页（服务器重启 / 会话被清空时调用）。
+ *
+ * 会话只存在进程内存里（auth 的 sessions Map），重启后必然全部失效，
+ * 所以这里只是把「你该重新登录了」提前说出去，省得客户端傻等重连。
+ * 万一没机会说（进程被强杀），客户端重连时也会拿到 401 自己回登录页。
+ */
+export function broadcastLogout(reason: string): void {
+  const frame = JSON.stringify({ type: 'logged.out', data: { reason } });
+  for (const c of Array.from(clients)) {
+    try {
+      c.socket.write(wsproto.encodeText(frame));
+      c.close(); // 顺带断开：客户端 onclose 里也会再确认一次会话，双保险
+    } catch (e) {
+    }
+  }
+}
 
 export function handleWsUpgrade(req: any, socket: any, head: Buffer): void {
   const pathname = new URL(req.url, 'http://localhost').pathname;
@@ -767,17 +1010,18 @@ export function handleWsUpgrade(req: any, socket: any, head: Buffer): void {
     alive: true,
     invisible: false, // 隐身：对他人显示为离线
     away: false,      // 离开：在线但页面不在前台
-    close: () => { /* 见下 */ }
+    platform: platformOf(req.headers['user-agent']), 
+    close: () => {  }
   };
 
   const decoder = new wsproto.Decoder({
     onText: (text: string) => handleWsText(client, text),
-    onPing: () => { client.alive = true; try { client.socket.write(wsproto.encodePing()); } catch (e) { /* 忽略 */ } },
+    onPing: () => { client.alive = true; try { client.socket.write(wsproto.encodePing()); } catch (e) {  } },
     onClose: () => shutdownClient(client, 'close-frame')
   });
 
   client.close = () => shutdownClient(client, 'local');
-  client.sendText = (s: string) => { try { client.socket.write(wsproto.encodeText(s)); } catch (e) { /* 忽略 */ } };
+  client.sendText = (s: string) => { try { client.socket.write(wsproto.encodeText(s)); } catch (e) {  } };
 
   socket.on('data', (chunk: Buffer) => { client.alive = true; decoder.push(chunk); });
   // 对端直接断开（关标签页 / 断网）时只会触发 end，必须在这里清理，
@@ -787,6 +1031,7 @@ export function handleWsUpgrade(req: any, socket: any, head: Buffer): void {
   socket.on('close', () => shutdownClient(client, 'closed'));
 
   clients.add(client);
+  markSeen(clientId(client), true); // 连上就算「此刻在线」，立刻落库
   broadcastPresence();
   logger.write({ ip, proto: 'ws', method: 'CONNECT', url: '/ws', status: 101, ua: req.headers['user-agent'] });
 }
@@ -795,13 +1040,120 @@ function shutdownClient(client: any, _reason: string): void {
   if (!clients.has(client)) return;
   clients.delete(client);
   typingLast.delete(client.user.username);
+  // 多端登录时，还有别的连接就还不算离线，别把时间写早了
+  if (!hasOtherConn(client.user.username, client)) markSeen(client.user.username, true);
   try {
     // 先发送 Close 帧再 FIN，确保对端能收到
     client.socket.write(wsproto.encodeClose(1000));
     client.socket.end();
-  } catch (e) { /* 忽略 */ }
+  } catch (e) {  }
   logger.write({ ip: client.user.ip, proto: 'ws', method: 'DISCONNECT', url: '/ws', status: 200 });
   broadcastPresence();
+}
+
+/**
+ * 创建一条消息（WebSocket 与 HTTP 共用）：处罚/禁言校验 → 房间与内容校验 → 落库 → 审计 → 广播。
+ * 失败返回 kind='penalty'（含要下发的 penalty 帧）或 kind='invalid'（含错误码，供 HTTP 回包）。
+ */
+function createMessage(
+  from: string,
+  ip: string,
+  raw: any,
+  viaApp?: string
+): { ok: true; record: any; gid: string | null; dm: string | null }
+  | { ok: false; kind: 'penalty'; error: string; frame: any }
+  | { ok: false; kind: 'invalid'; error: string } {
+  const d = raw && typeof raw === 'object' ? raw : {};
+  const type = d.type === 'image' || d.type === 'file' || d.type === 'video' || d.type === 'audio' || d.type === 'merge' || d.type === 'shake' ? d.type : 'text';
+  let content = String(d.content || '').slice(0, type === 'merge' ? 8000 : (type === 'text' ? MAX_TEXT_LEN : 300));
+  // 处罚拦截：禁言 / 封禁 / IP 封禁的用户不能继续发消息
+  const block = moderate.blockFor(from, ip);
+  if (block.muted || block.banned) {
+    return {
+      ok: false,
+      kind: 'penalty',
+      error: block.banned ? 'api.msg.banned' : 'api.msg.muted',
+      frame: { type: 'penalty', data: { muted: block.muted, banned: block.banned, mutedUntil: block.mutedUntil, bannedUntil: block.bannedUntil } }
+    };
+  }
+  // 目标房间：pm 为私聊（对方用户名），否则 gid 为群 / 公共
+  let dm: string | null = null;
+  if (d.pm !== undefined && d.pm !== null && String(d.pm).trim() !== '') {
+    const peer = String(d.pm).trim().slice(0, 64);
+    if (peer === from) return { ok: false, kind: 'invalid', error: 'api.msg.selfDm' };
+    const rawUsers = auth.loadUsers() || {};
+    if (!Object.prototype.hasOwnProperty.call(rawUsers, peer)) return { ok: false, kind: 'invalid', error: 'api.user.notFound' };
+    dm = friends.pairKey(from, peer);
+  }
+  const gid = d.gid != null ? String(d.gid) : null;
+  if (gid !== null) {
+    if (gid.length > 64) return { ok: false, kind: 'invalid', error: 'api.msg.invalid' };
+    if (!groups.isMember(gid, from)) return { ok: false, kind: 'invalid', error: 'api.msg.notMember' };
+    // 群禁言 / 单独成员禁言：非管理者被拦截（群主/管理员永远可发言）
+    if (groups.speakBlocked(gid, from)) {
+      return { ok: false, kind: 'penalty', error: 'api.msg.groupMuted', frame: { type: 'penalty', data: { muted: true, groupMuted: groups.isMuteAll(gid) } } };
+    }
+  }
+  if (dm !== null) {
+    // 好友门禁：非好友之间禁止私聊（必须先加好友）
+    const peer = dm.split(':').find((x: string) => x !== from);
+    if (!peer || !friends.isFriend(from, peer)) return { ok: false, kind: 'invalid', error: 'api.msg.notFriend' };
+  }
+  // 防注入：image/file 的 content 必须是本服务器上传目录的合法文件；merge 仅做结构校验
+  if (type === 'shake') {
+    if (dm === null) return { ok: false, kind: 'invalid', error: 'api.msg.shakeDmOnly' };
+    content = '';
+    const last = shakeLast.get(from) || 0;
+    if (Date.now() - last < SHAKE_COOLDOWN_MS) return { ok: false, kind: 'invalid', error: 'api.msg.tooOften' };
+    shakeLast.set(from, Date.now());
+  } else if (type === 'text') {
+    if (!content.trim()) return { ok: false, kind: 'invalid', error: 'api.msg.empty' };
+  } else if (type === 'merge') {
+    let parsed: any = null;
+    try { parsed = JSON.parse(content); } catch (e) { return { ok: false, kind: 'invalid', error: 'api.msg.invalid' }; }
+    if (!parsed || !Array.isArray(parsed.items) || !parsed.items.length || parsed.items.length > 100) return { ok: false, kind: 'invalid', error: 'api.msg.invalid' };
+  } else {
+    if (!/^\/uploads\/[a-zA-Z0-9]+\.[a-z0-9]{1,8}$/i.test(content)) return { ok: false, kind: 'invalid', error: 'api.msg.invalid' };
+    if (d.name !== undefined && typeof d.name !== 'string') return { ok: false, kind: 'invalid', error: 'api.msg.invalid' };
+    if (d.size !== undefined && (!Number.isInteger(d.size) || d.size < 0 || d.size > MAX_UPLOAD)) return { ok: false, kind: 'invalid', error: 'api.msg.invalid' };
+  }
+  // 引用回复：只接受存在且未被撤回、且同房间的消息
+  let replyTo: number | undefined = undefined;
+  if (d.replyTo !== undefined && d.replyTo !== null) {
+    const rid = Number(d.replyTo);
+    if (Number.isInteger(rid) && rid > 0) {
+      const t = store.get(rid);
+      if (t && !t.recalled) {
+        const tRoom = t.dm != null ? 'dm:' + t.dm : (t.gid != null ? 'gid:' + t.gid : 'pub');
+        const myRoom = dm != null ? 'dm:' + dm : (gid != null ? 'gid:' + gid : 'pub');
+        if (tRoom === myRoom) replyTo = rid;
+      }
+    }
+  }
+  const record = store.add({
+    from,
+    type,
+    content,
+    name: d.name,
+    size: d.size,
+    replyTo,
+    gid,
+    dm,
+    md: type === 'text' && d.md ? 1 : 0,
+    viaApp: viaApp ? String(viaApp).slice(0, 64) : undefined
+  });
+  audit.add({
+    actor: from,
+    action: dm != null ? 'dm.msg' : (gid == null ? 'msg' : 'group.msg'),
+    target: dm != null ? record.idx : (gid == null ? record.idx : gid),
+    detail: auditDetail(type === 'image' ? 'log.detail.msg.image'
+      : (type === 'file' ? 'log.detail.msg.file'
+        : (type === 'shake' ? 'log.detail.msg.shake' : 'log.detail.msg.text')),
+      type === 'text' ? { text: content.slice(0, 40) } : { name: String(d.name || '未命名') }),
+    ip
+  });
+  broadcastRoom(gid, dm, { type: 'msg', data: record });
+  return { ok: true, record, gid, dm };
 }
 
 function handleWsText(client: any, text: string): void {
@@ -810,6 +1162,9 @@ function handleWsText(client: any, text: string): void {
   try { msg = JSON.parse(text); } catch (e) { return; }
   if (!msg || typeof msg !== 'object') return;
   if (msg.type === 'ping') {
+    // 顺带续一下「最后在线」：长时间挂着的会话如果遇到进程被杀，
+    // 库里记的时间也不会太旧（内部 60 秒节流，不会真的每次写库）
+    markSeen(clientId(client));
     client.sendText(JSON.stringify({ type: 'pong', ts: Date.now() }));
     return;
   }
@@ -819,14 +1174,18 @@ function handleWsText(client: any, text: string): void {
     const now = Date.now();
     if (now - (typingLast.get(u) || 0) > 2000) {
       typingLast.set(u, now);
-      const frame = wsproto.encodeText(JSON.stringify({ type: 'typing', from: u }));
-      // 私聊：只推给对方；公共 / 群聊：推给其余所有在线
-      const pm = msg.data && msg.data.pm != null ? String(msg.data.pm).trim() : null;
+      // 按会话路由：私聊只给对方、群聊只给本群在线成员。不带上下文的（已没有公共房）不转发。
+      const d = msg.data || {};
+      const pm = d.pm != null ? String(d.pm).trim() : null;
+      const gid = d.gid != null ? String(d.gid).trim() : null;
+      if (!pm && !gid) return;
       if (pm && !friends.isFriend(u, pm)) return; // 非好友不转发「正在输入」
+      const frame = wsproto.encodeText(JSON.stringify({ type: 'typing', from: u, gid }));
       for (const c of clients) {
         if (c === client) continue;
         if (pm) { if (c.user.username !== pm) continue; }
-        try { c.socket.write(frame); } catch (e) { /* 忽略 */ }
+        else if (gid) { if (!groups.isMember(gid, c.user.username)) continue; }
+        try { c.socket.write(frame); } catch (e) {  }
       }
     }
     return;
@@ -839,85 +1198,12 @@ function handleWsText(client: any, text: string): void {
     return;
   }
   if (msg.type === 'msg') {
-    const d = msg.data || {};
-    const type = d.type === 'image' || d.type === 'file' || d.type === 'video' || d.type === 'audio' || d.type === 'merge' ? d.type : 'text';
-    let content = String(d.content || '').slice(0, type === 'merge' ? 8000 : (type === 'text' ? MAX_TEXT_LEN : 300));
-    const from = client.user.username;
-    // 处罚拦截：禁言 / 封禁 / IP 封禁的用户不能继续发消息
-    const block = moderate.blockFor(from, client.user.ip);
-    if (block.muted || block.banned) {
-      sendTo(client, {
-        type: 'penalty',
-        data: { muted: block.muted, banned: block.banned, mutedUntil: block.mutedUntil, bannedUntil: block.bannedUntil }
-      });
+    const r = createMessage(client.user.username, client.user.ip, msg.data || {});
+    if (!r.ok) {
+      if (r.kind === 'penalty') sendTo(client, r.frame);
       return;
     }
-    // 目标房间：dm 为私聊（对方用户名），否则 gid 为群 / 公共
-    let dm: string | null = null;
-    if (d.pm !== undefined && d.pm !== null && String(d.pm).trim() !== '') {
-      const peer = String(d.pm).trim().slice(0, 64);
-      if (peer === from) return; // 不能给自己发私聊
-      const raw = auth.loadUsers() || {};
-      if (!Object.prototype.hasOwnProperty.call(raw, peer)) return; // 对方账号不存在
-      dm = friends.pairKey(from, peer);
-    }
-    let gid = d.gid != null ? String(d.gid) : null;
-    if (gid !== null) {
-      if (gid.length > 64) return;
-      if (!groups.isMember(gid, from)) return;
-    }
-    if (dm !== null) {
-      // 好友门禁：非好友之间禁止私聊（必须先加好友）
-      const peer = dm.split(':').find((x: string) => x !== from);
-      if (!peer || !friends.isFriend(from, peer)) return;
-    }
-    // 防注入：image/file 的 content 必须是本服务器上传目录的合法文件（防 javascript: 等伪造链接）
-    // merge（合并转发）的 content 是结构化 JSON：仅做格式与大小校验
-    if (type === 'text') {
-      if (!content.trim()) return;
-    } else if (type === 'merge') {
-      let parsed: any = null;
-      try { parsed = JSON.parse(content); } catch (e) { return; }
-      if (!parsed || !Array.isArray(parsed.items) || !parsed.items.length || parsed.items.length > 100) return;
-    } else {
-      if (!/^\/uploads\/[a-zA-Z0-9]+\.[a-z0-9]{1,8}$/i.test(content)) return;
-      if (d.name !== undefined && typeof d.name !== 'string') return;
-      if (d.size !== undefined && (!Number.isInteger(d.size) || d.size < 0 || d.size > MAX_UPLOAD)) return;
-    }
-    // 引用回复：只接受存在且未被撤回的消息；私聊里仅本房间的消息可被引用
-    let replyTo: number | undefined = undefined;
-    if (d.replyTo !== undefined && d.replyTo !== null) {
-      const rid = Number(d.replyTo);
-      if (Number.isInteger(rid) && rid > 0) {
-        const t = store.get(rid);
-        if (t && !t.recalled) {
-          const tRoom = t.dm != null ? 'dm:' + t.dm : (t.gid != null ? 'gid:' + t.gid : 'pub');
-          const myRoom = dm != null ? 'dm:' + dm : (gid != null ? 'gid:' + gid : 'pub');
-          if (tRoom === myRoom) replyTo = rid;
-        }
-      }
-    }
-    const record = store.add({
-      from,
-      type,
-      content,
-      name: d.name,
-      size: d.size,
-      replyTo,
-      gid,
-      dm,
-      md: type === 'text' && d.md ? 1 : 0
-    });
-    audit.add({
-      actor: from,
-      action: dm != null ? 'dm.msg' : (gid == null ? 'msg' : 'group.msg'),
-      target: dm != null ? record.idx : (gid == null ? record.idx : gid),
-      detail: auditDetail(type === 'image' ? 'log.detail.msg.image'
-        : (type === 'file' ? 'log.detail.msg.file' : 'log.detail.msg.text'),
-        type === 'text' ? { text: content.slice(0, 40) } : { name: String(d.name || '未命名') }),
-      ip: client.user.ip
-    });
-    broadcastRoom(gid, dm, { type: 'msg', data: record });
+    return;
   }
   if (msg.type === 'react') {
     const d = msg.data || {};
@@ -974,7 +1260,6 @@ function handleWsText(client: any, text: string): void {
   }
 }
 
-// ---------- 落盘收尾（单次上传与分片上传共用同一套归类 / 去重 / 命名规则） ----------
 
 interface FinalizedUpload {
   kind: 'image' | 'video' | 'audio' | 'file';
@@ -990,7 +1275,7 @@ function renameOrCopy(src: string, dest: string): void {
     fs.renameSync(src, dest);
   } catch (e) {
     fs.copyFileSync(src, dest);
-    try { fs.unlinkSync(src); } catch (e2) { /* 忽略 */ }
+    try { fs.unlinkSync(src); } catch (e2) {  }
   }
 }
 
@@ -1039,25 +1324,125 @@ async function finalizeUpload(
   return { kind, url: '/uploads/' + saveName, name: origName, size, deduped };
 }
 
-// ---------- HTTP 路由 ----------
+
+/**
+ * 应用标识与版本（供 /api/app-manifest 下发）。
+ * 环境变量优先，缺省读 package.json 的 name/version——版本随发布自动更新，
+ * 不必在代码里维护一份会过期的常量。
+ */
+function readAppInfo(): { id: string; version: string } {
+  let id = 'circlechat';
+  let version = '0.0.0';
+  try {
+    const o = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')) as { name?: string; version?: string };
+    if (o && typeof o.name === 'string' && o.name) id = o.name;
+    if (o && typeof o.version === 'string' && o.version) version = o.version;
+  } catch (e) {
+    // 工作目录里没有 package.json（容器启动时 cwd 未必是项目根）：用兜底值
+  }
+  return {
+    id: process.env.CIRCLECHAT_APP_ID || process.env.APP_ID || id,
+    version: process.env.APP_VERSION || version
+  };
+}
+const APP_INFO = readAppInfo();
+
+/**
+ * /api/app-manifest 的跨域响应头。
+ * 桌面应用（Electron / Tauri / 本地客户端）没有同源概念，来源直接放开。
+ * 该接口不下发凭据、也不认 Cookie，放开来源不会扩大本站的攻击面。
+ */
+const APP_MANIFEST_CORS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400'
+};
+
+
+// client_id / client_secret 由管理员在管理面板里填，存在 app_config 表里；
+// **不在代码里写死**，secret 也永远不会下发给任何前端。
+const GH_CFG_ID = 'oauth.github.clientId';
+const GH_CFG_SECRET = 'oauth.github.clientSecret';
+// 端点允许用环境变量改指到本地桩服务，便于端到端自测（默认是真实 GitHub）
+const GH_BASE = process.env.GITHUB_BASE || 'https://github.com';
+const GH_AUTHORIZE = GH_BASE + '/login/oauth/authorize';
+const GH_TOKEN = GH_BASE + '/login/oauth/access_token';
+const GH_USER = (process.env.GITHUB_API_BASE || 'https://api.github.com') + '/user';
+const OAUTH_STATE_TTL = 10 * 60 * 1000;
+
+/** 授权请求的 state → { 模式, 发起的本地账号, 过期时间 }；一次性、10 分钟有效 */
+const oauthStates = new Map<string, { mode: 'login' | 'bind'; username: string; expires: number }>();
+
+/** 验证码校验失败时的文案键（前端直接 tr 出来显示） */
+function captchaErrorKey(r: captcha.VerifyResult): string {
+  return r === 'expired' ? 'api.captcha.expired' : 'api.captcha.wrong';
+}
+
+/** GitHub 取数失败的原因码 → 前端文案键 */
+function githubErrorKey(code: string): string {
+  if (code === 'rate_limited') return 'github.rateLimited';
+  if (code === 'not_found') return 'github.notFound';
+  return 'github.failed';
+}
+
+function githubConfig(): { clientId: string; secret: string } {
+  return { clientId: appconfig.get(GH_CFG_ID), secret: appconfig.get(GH_CFG_SECRET) };
+}
+
+/** 配置是否完整（只有 id + secret 都有，入口才可用） */
+function githubEnabled(): boolean {
+  const c = githubConfig();
+  return !!(c.clientId && c.secret);
+}
+
+/**
+ * OAuth 回调地址。GitHub 应用里填的 Callback URL 必须与此**完全一致**，
+ * 管理面板会把它显示出来供管理员复制，避免填错。
+ */
+function oauthRedirectUri(req: any): string {
+  const host = String(req.headers['host'] || 'localhost');
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
+    || (/^(?:localhost|127\.0\.0\.1|\[::1\])(?::|$)/.test(host) ? 'http' : 'https');
+  return proto + '://' + host + '/api/oauth/github/callback';
+}
+
+/** 302 跳转，可带一个结果码（前端按码显示提示） */
+function redirectTo(res: any, page: string, code?: string): void {
+  res.writeHead(302, { Location: code ? page + '?oauth=' + encodeURIComponent(code) : page });
+  res.end();
+}
 
 function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string): void {
   const t0 = Date.now();
+
+  // 小程序接口的 CORS 预检：沙箱 iframe 的 Origin 是 null，直连前必须先过预检
+  if (pathname.indexOf('/api/mini/') === 0 && req.method === 'OPTIONS') {
+    sendJSON(res, 200, { ok: true }, MINI_CORS);
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
 
   // POST /api/register —— 提交注册申请（开放注册，需管理员审核通过后才可登录）
   if (pathname === '/api/register' && req.method === 'POST') {
     readBody(req, 8192).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
       const pass = o && typeof o.password === 'string' ? o.password : '';
       const email = o && typeof o.email === 'string' ? o.email.trim().slice(0, 190) : '';
+      // 图形验证码（注册是开放接口，不拦一手会被脚本刷满待审队列）；管理员可在管理面板关掉
+      const cv = captcha.isEnabled('register') ? captcha.verify(o && o.captchaId, o && o.captcha) : 'ok';
+      if (cv !== 'ok') {
+        sendJSON(res, 400, { ok: false, error: captchaErrorKey(cv) });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
       if (!USERNAME_RE.test(name) || !passwordStrength(pass)) {
         sendJSON(res, 400, { ok: false, error: 'api.user.registerFormat' });
         logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
-      // 邮箱必填且格式合法
       if (!EMAIL_RE.test(email)) {
         sendJSON(res, 400, { ok: false, error: 'reg.emailInvalid' });
         logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -1077,7 +1462,6 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
-  // POST /api/login
   if (pathname === '/api/login' && req.method === 'POST') {
     if (auth.isLocked(ip)) {
       audit.add({ actor: '', action: 'login.fail', detail: auditDetail('log.detail.login.fail.rateLimited'), ip });
@@ -1087,10 +1471,20 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     }
     readBody(req, 8192).then((body) => {
       let u!: string; let p!: string;
-      try { ({ username: u, password: p } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 解析失败走下面校验 */ }
+      let cid: any; let ctext: any;
+      try { ({ username: u, password: p, captchaId: cid, captcha: ctext } = JSON.parse(body.toString('utf8'))); } catch (e) {  }
       if (typeof u !== 'string' || typeof p !== 'string') {
         auth.recordFail(ip);
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      // 图形验证码：同样计入失败次数，防止用「换账号 + 猜验证码」绕过密码限流
+      const cap = captcha.isEnabled('login') ? captcha.verify(cid, ctext) : 'ok';
+      if (cap !== 'ok') {
+        auth.recordFail(ip);
+        audit.add({ actor: u.trim(), action: 'login.fail', detail: auditDetail('log.detail.login.fail.captcha'), ip });
+        sendJSON(res, 400, { ok: false, error: captchaErrorKey(cap) });
         logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
       }
@@ -1144,7 +1538,6 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
-  // POST /api/logout
   if (pathname === '/api/logout' && req.method === 'POST') {
     const token = auth.tokenFromCookie(req.headers.cookie);
     const sess = token ? auth.getSession(token) : null;
@@ -1166,6 +1559,24 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   }
 
   // GET /api/setup（公开：内置管理员是否仍用默认密码，供登录页提示）
+  // GET /api/captcha?scope=login|register&dark=0|1 —— 取一张图形验证码（免登录：登录页要用）
+  // 该页面被管理员关掉人机验证时返回 { enabled: false } 且**不生成**验证码（前端据此隐藏输入框）
+  if (pathname === '/api/captcha' && req.method === 'GET') {
+    const scope: captcha.CaptchaScope = urlObj.searchParams.get('scope') === 'register' ? 'register' : 'login';
+    const dark = urlObj.searchParams.get('dark') === '1';
+    // 验证码图不能缓存：否则浏览器拿到上一张，用户输的却是眼前这张
+    res.setHeader('Cache-Control', 'no-store');
+    if (!captcha.isEnabled(scope)) {
+      sendJSON(res, 200, { ok: true, enabled: false });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const c = captcha.create(dark);
+    sendJSON(res, 200, { ok: true, enabled: true, id: c.id, svg: c.svg });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
   if (pathname === '/api/setup' && req.method === 'GET') {
     sendJSON(res, 200, { ok: true, defaultAdmin: auth.defaultAdminPassword() });
     return;
@@ -1175,7 +1586,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/twofa/verify' && req.method === 'POST') {
     readBody(req, 8192).then((body) => {
       let challenge!: string; let code!: string;
-      try { ({ challenge, code } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 走下面校验 */ }
+      try { ({ challenge, code } = JSON.parse(body.toString('utf8'))); } catch (e) {  }
       const ch = twofaChallenges.get(challenge);
       if (!ch || Date.now() > ch.expires) {
         if (ch) twofaChallenges.delete(challenge);
@@ -1214,19 +1625,386 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
-  // 以下接口均需登录
-  const me = auth.authByCookie(req.headers.cookie);
+  // GET /api/app-manifest —— 公开：给桌面应用下发的应用清单（标识 + 版本 + 时间戳 + 服务端签名）
+  // 放在鉴权门槛之前：桌面应用不带本站会话 Cookie，走不了登录态。
+  // 签名密钥取自环境变量 APP_SECRET，只用于计算签名、绝不下发。
+  if (pathname === '/api/app-manifest') {
+    // 跨域预检：桌面应用若带自定义请求头（非简单请求），浏览器/客户端会先发 OPTIONS
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, { ...APP_MANIFEST_CORS, 'Cache-Control': 'no-store' });
+      res.end();
+      return;
+    }
+    if (req.method !== 'GET') {
+      sendJSON(res, 405, { ok: false, error: 'method_not_allowed' }, APP_MANIFEST_CORS);
+      logger.write({ ip, method: req.method, url: pathname, status: 405, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const secret = process.env.APP_SECRET || '';
+    if (!secret) {
+      // 未配置密钥就一份都不发：宁可接口不可用，也不给出无签名（可被伪造）的清单
+      sendJSON(res, 503, { ok: false, error: 'app_secret_not_configured' }, APP_MANIFEST_CORS);
+      logger.write({ ip, method: req.method, url: pathname, status: 503, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const timestamp = Math.floor(Date.now() / 1000); 
+    // 按约定：sha256(app_id + version + timestamp + APP_SECRET)
+    const signature = crypto.createHash('sha256')
+      .update(APP_INFO.id + APP_INFO.version + timestamp + secret)
+      .digest('hex');
+    sendJSON(res, 200, {
+      app_id: APP_INFO.id,
+      version: APP_INFO.version,
+      timestamp,
+      signature
+    }, APP_MANIFEST_CORS);
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/oauth/providers —— 公开：登录页据此决定要不要显示「用 GitHub 登录」
+  if (pathname === '/api/oauth/providers' && req.method === 'GET') {
+    sendJSON(res, 200, { ok: true, github: { enabled: githubEnabled() } });
+    return;
+  }
+
+  // GET /api/oauth/github/start?mode=login|bind —— 跳到 GitHub 授权页
+  if (pathname === '/api/oauth/github/start' && req.method === 'GET') {
+    const gh = githubConfig();
+    if (!gh.clientId || !gh.secret) { redirectTo(res, '/login.html', 'notconfigured'); return; }
+    const mode = urlObj.searchParams.get('mode') === 'bind' ? 'bind' : 'login';
+    const who = auth.authByCookie(req.headers.cookie);
+    if (mode === 'bind' && !who) { redirectTo(res, '/login.html'); return; } // 绑定必须已登录
+    // 顺手清掉过期 state，避免 Map 越积越大
+    const now = Date.now();
+    for (const [k, v] of oauthStates) if (v.expires < now) oauthStates.delete(k);
+    const state = crypto.randomBytes(24).toString('hex');
+    oauthStates.set(state, { mode, username: who ? who.username : '', expires: now + OAUTH_STATE_TTL });
+    const u = new URL(GH_AUTHORIZE);
+    u.searchParams.set('client_id', gh.clientId);
+    u.searchParams.set('redirect_uri', oauthRedirectUri(req));
+    u.searchParams.set('scope', 'read:user');
+    u.searchParams.set('state', state);
+    res.writeHead(302, { Location: u.toString() });
+    res.end();
+    logger.write({ ip, method: req.method, url: pathname, status: 302, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/oauth/github/callback?code=&state= —— GitHub 授权后的回调
+  if (pathname === '/api/oauth/github/callback' && req.method === 'GET') {
+    void (async () => {
+      const gh = githubConfig();
+      const state = String(urlObj.searchParams.get('state') || '');
+      const st = oauthStates.get(state);
+      oauthStates.delete(state); // 一次性：无论成败都作废，防重放
+      const page = st && st.mode === 'bind' ? '/chat.html' : '/login.html';
+      const fail = (why: string): void => {
+        redirectTo(res, page, why);
+        logger.write({ ip, method: req.method, url: pathname, status: 302, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      };
+      if (!gh.clientId || !gh.secret) { fail('notconfigured'); return; }
+      // state 校验：同时挡住 CSRF 与过期请求
+      if (!st || st.expires < Date.now()) { fail('state'); return; }
+      if (urlObj.searchParams.get('error')) { fail('denied'); return; } 
+      const code = String(urlObj.searchParams.get('code') || '');
+      if (!code) { fail('failed'); return; }
+      try {
+        const tokRes = await fetch(GH_TOKEN, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            client_id: gh.clientId,
+            client_secret: gh.secret,
+            code,
+            redirect_uri: oauthRedirectUri(req)
+          })
+        });
+        const tok = (await tokRes.json()) as { access_token?: string };
+        if (!tok || !tok.access_token) { fail('failed'); return; }
+        const uRes = await fetch(GH_USER, {
+          headers: {
+            Authorization: 'Bearer ' + tok.access_token,
+            Accept: 'application/vnd.github+json',
+            'User-Agent': 'CircleChat'
+          }
+        });
+        const gu = (await uRes.json()) as { id?: number; login?: string };
+        const ghId = gu && gu.id ? String(gu.id) : '';
+        if (!ghId) { fail('failed'); return; }
+        const ghLogin = String(gu.login || '');
+        // access_token 只用来拿身份，不落地存储（最小权限）
+        if (st.mode === 'bind') {
+          const owner = auth.findByGithubId(ghId);
+          if (owner && owner !== st.username) { fail('taken'); return; } // 已被别的账号绑走
+          auth.setGithubLink(st.username, ghId, ghLogin);
+          audit.add({ actor: st.username, action: 'oauth.bind', detail: auditDetail('log.detail.oauth.bind', { login: ghLogin }), ip });
+          redirectTo(res, '/chat.html', 'bound');
+          logger.write({ ip, method: req.method, url: pathname, status: 302, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        // 登录模式：GitHub 账号必须已绑定到某个本地账号
+        const name = auth.findByGithubId(ghId);
+        if (!name) { fail('nobind'); return; }
+        const u = auth.loadUsers()[name];
+        // status 为 NULL 视为正常（内置 admin 就是这种老记录），与 auth.login() 保持一致
+        const st2 = u && u.status != null ? u.status : auth.STATUS.ACTIVE;
+        if (!u || st2 !== auth.STATUS.ACTIVE) { fail('blocked'); return; }
+        if (moderate.blockFor(name, ip).banned) { fail('banned'); return; }
+        // 开了两步验证的账号不允许走第三方登录：否则等于绕过了第二因子
+        if (auth.getTotp(name).enabled) { fail('2fa'); return; }
+        const token = auth.createSession(name, ip);
+        audit.add({ actor: name, action: 'oauth.login', detail: auditDetail('log.detail.oauth.login', { login: ghLogin }), ip });
+        res.writeHead(302, {
+          Location: '/chat.html',
+          'Set-Cookie': 'circlechat_token=' + encodeURIComponent(token) +
+            '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + (7 * 24 * 3600)
+        });
+        res.end();
+        logger.write({ ip, method: req.method, url: pathname, status: 302, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      } catch (e) {
+        // 网络异常 / GitHub 返回非 JSON 等：一律按失败处理，不把内部错误抛给用户
+        console.error('[oauth] GitHub 授权流程失败：', e);
+        fail('failed');
+      }
+    })();
+    return;
+  }
+
+  // POST /api/appeal —— 提交申诉 {reason}；未登录时另需 {username, password}
+  //   ⚠️ 这个接口必须放在「以下接口均需登录」那道闸门**之前**：
+  //   被封禁的人根本登不进来，未登录也要能申诉。所以这里自己读 cookie 判断是否已登录，
+  //   未登录时用「用户名 + 密码」证明身份，并沿用登录那套 IP 失败锁定
+  //   （否则这里就成了一个可以无限试密码的撞库探针）。
+  if (pathname === '/api/appeal' && req.method === 'POST') {
+    const whoCookie = auth.authByCookie(req.headers.cookie);
+    if (auth.isLocked(ip)) {
+      sendJSON(res, 429, { ok: false, error: 'api.login.rateLimited' });
+      logger.write({ ip, method: req.method, url: pathname, status: 429, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const reason = o && typeof o.reason === 'string' ? o.reason.trim() : '';
+      // 已登录就用会话里的身份（禁言/警告用户走这条）；否则下面用账号密码认人
+      let who = whoCookie ? whoCookie.username : '';
+      if (!who) {
+        const name = o && typeof o.username === 'string' ? o.username.trim() : '';
+        const pass = o && typeof o.password === 'string' ? o.password : '';
+        // 直接用 auth.login 只做「账号 + 密码」校验：这里**不能**用带封禁拦截的登录流程，
+        // 被处罚的人恰恰是要申诉的那批人（auth.login 不建会话、不拦封禁）
+        const u = name && pass ? auth.login(name, pass) : null;
+        if (!u) {
+          auth.recordFail(ip);
+          sendJSON(res, 403, { ok: false, error: 'api.login.badCredentials' });
+          logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        auth.clearFails(ip);
+        who = name;
+      }
+      const r = moderate.addAppeal({ user: who, ip, reason });
+      if (!r.ok) {
+        sendJSON(res, 400, { ok: false, error: r.code });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      audit.add({
+        actor: who,
+        action: 'mod.appeal',
+        target: who,
+        detail: auditDetail('log.detail.mod.appeal', { reason: reason.slice(0, 60) }),
+        ip
+      });
+      sendJSON(res, 200, { ok: true, id: r.id });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
+  // 以下接口均需登录（会话 Cookie 或 API Key）
+  // 例外：小程序沙箱内的直连请求带 X-Mini-Token（会话派生的短时令牌），
+  // 该令牌只对 /api/mini/* 生效，不能拿来调其他接口，避免身份外溢。
+  const me = (auth.authByRequest(req, ip) ||
+    (pathname.indexOf('/api/mini/') === 0 ? authFromMiniToken(req, ip) : null)) as MiniRequestAuth | null;
   if (!me) {
     sendJSON(res, 401, { ok: false, error: 'api.unauthorized' });
     logger.write({ ip, method: req.method, url: pathname, status: 401, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
+  // API Key：先限速（429），再校验 scope（403）；会话 Cookie 为全权，跳过这两步
+  if (me.viaKey) {
+    if (auth.apiKeyRateLimited(me.keyId as number, me.rateLimit)) {
+      sendJSON(res, 429, { ok: false, error: 'api.rateLimited' }, { 'Retry-After': '60' });
+      logger.write({ ip, method: req.method, url: pathname, status: 429, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const need = requiredScope(req.method || 'GET', pathname);
+    if (need === '__session' || !me.scopes || me.scopes.indexOf(need) === -1) {
+      sendJSON(res, 403, { ok: false, error: 'api.forbidden' });
+      logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+  }
 
-  // GET /api/me
+  // ---------- API Key 管理（仅会话 Cookie；key 不能管理 key，防提权） ----------
+
+  // GET /api/keys —— 我的 API Key 列表 + 可选 scope
+  if (pathname === '/api/keys' && req.method === 'GET') {
+    sendJSON(res, 200, {
+      ok: true,
+      keys: auth.listApiKeys(me.username),
+      scopes: auth.API_SCOPES,
+      defaultRate: auth.API_KEY_DEFAULT_RATE,
+      isAdmin: auth.isAdmin(me.username)
+    });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/keys {name, scopes[], rateLimit?, expiresDays?}
+  if (pathname === '/api/keys' && req.method === 'POST') {
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      if (!o || typeof o !== 'object') {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        return;
+      }
+      // admin scope 仅管理员账号可授
+      if (Array.isArray(o.scopes) && o.scopes.indexOf('admin') !== -1 && !auth.isAdmin(me.username)) {
+        sendJSON(res, 403, { ok: false, error: 'api.forbidden' });
+        return;
+      }
+      const created = auth.createApiKey(me.username, { name: o.name, scopes: o.scopes, rateLimit: o.rateLimit, expiresDays: o.expiresDays });
+      if (!created) {
+        sendJSON(res, 400, { ok: false, error: 'api.key.invalid' });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'key.create', target: created.info.prefix, detail: auditDetail('log.detail.key.create', { name: created.info.name }), ip });
+      sendJSON(res, 200, { ok: true, key: created.info, plaintext: created.plaintext });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
+  // POST /api/keys/update {id, name?, scopes?, rateLimit?, expiresDays?, revoked?}
+  if (pathname === '/api/keys/update' && req.method === 'POST') {
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const id = o && o.id != null ? Number(o.id) : NaN;
+      if (!Number.isInteger(id) || id <= 0) {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        return;
+      }
+      if (o && Array.isArray(o.scopes) && o.scopes.indexOf('admin') !== -1 && !auth.isAdmin(me.username)) {
+        sendJSON(res, 403, { ok: false, error: 'api.forbidden' });
+        return;
+      }
+      const ok = auth.updateApiKey(me.username, id, {
+        name: o && o.name,
+        scopes: o && o.scopes,
+        rateLimit: o && o.rateLimit,
+        expiresDays: o && o.expiresDays,
+        revoked: o && o.revoked
+      });
+      if (!ok) {
+        sendJSON(res, 400, { ok: false, error: 'api.key.invalid' });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'key.update', target: String(id), detail: auditDetail('log.detail.key.update', { id }), ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
+  // POST /api/keys/delete {id}
+  if (pathname === '/api/keys/delete' && req.method === 'POST') {
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const id = o && o.id != null ? Number(o.id) : NaN;
+      if (!Number.isInteger(id) || id <= 0) {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        return;
+      }
+      if (!auth.deleteApiKey(me.username, id)) {
+        sendJSON(res, 404, { ok: false, error: 'api.key.notFound' });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'key.delete', target: String(id), detail: auditDetail('log.detail.key.delete', { id }), ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
+  // POST /api/messages —— 发送消息（HTTP，供 API Key / 脚本调用；与 WS 同一套校验与广播）
+  if (pathname === '/api/messages' && req.method === 'POST') {
+    readBody(req, 65536).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      if (!o || typeof o !== 'object' || Array.isArray(o)) {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        return;
+      }
+      const r = createMessage(me.username, ip, o);
+      if (!r.ok) {
+        const status = r.kind === 'penalty' ? 403 : 400;
+        sendJSON(res, status, { ok: false, error: r.error });
+        logger.write({ ip, method: req.method, url: pathname, status, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      sendJSON(res, 200, { ok: true, message: r.record });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
   if (pathname === '/api/me' && req.method === 'GET') {
     const online = currentPresent();
-    const away = [...clients].filter((c) => !c.invisible && c.away).map(clientId);
-    sendJSON(res, 200, { ok: true, username: me.username, role: auth.getRole(me.username), online, away, mustChange: auth.mustChange(me.username), totpEnabled: auth.getTotp(me.username).enabled });
+    sendJSON(res, 200, {
+      ok: true,
+      username: me.username,
+      role: auth.getRole(me.username),
+      online,
+      away: currentAway(),
+      platforms: currentPlatforms(), // 在线用户的连接来源（网页端 / 桌面客户端）
+      lastSeen: lastSeenSnapshot(), // 用户名 -> 最后在线时间（ms）
+      mustChange: auth.mustChange(me.username),
+      totpEnabled: auth.getTotp(me.username).enabled
+    });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/oauth/me —— 当前账号的第三方登录状态（个人资料页用；不含任何密钥）
+  if (pathname === '/api/oauth/me' && req.method === 'GET') {
+    sendJSON(res, 200, {
+      ok: true,
+      github: { enabled: githubEnabled(), login: auth.getGithubLogin(me.username) }
+    });
+    return;
+  }
+
+  // POST /api/oauth/github/unbind —— 解除 GitHub 绑定（解绑后仍可用账号密码登录）
+  if (pathname === '/api/oauth/github/unbind' && req.method === 'POST') {
+    auth.setGithubLink(me.username, null, null);
+    audit.add({ actor: me.username, action: 'oauth.unbind', detail: auditDetail('log.detail.oauth.unbind'), ip });
+    sendJSON(res, 200, { ok: true });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -1236,6 +2014,13 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     const penalties = moderate.listPenaltiesFor(me.username, ip);
     const status = moderate.statusOf(me.username, ip);
     sendJSON(res, 200, { ok: true, penalties, status });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/me/appeals —— 我提交过的申诉（含处理结果与备注）
+  if (pathname === '/api/me/appeals' && req.method === 'GET') {
+    sendJSON(res, 200, { ok: true, appeals: moderate.listAppealsFor(me.username) });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -1266,7 +2051,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/pass' && req.method === 'POST') {
     readBody(req, 8192).then((body) => {
       let cur!: string; let np!: string;
-      try { ({ current: cur, password: np } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 解析失败走下面校验 */ }
+      try { ({ current: cur, password: np } = JSON.parse(body.toString('utf8'))); } catch (e) {  }
       if (typeof cur !== 'string' || typeof np !== 'string') {
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
         logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -1332,7 +2117,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       }
       if (obj && typeof obj.image === 'string') {
         const image = obj.image.trim();
-        if (image !== '' && !/^\/uploads\/[a-zA-Z0-9]+\.[a-zA-Z0-9]{1,8}$/.test(image)) {
+        if (!isValidAvatar(image)) {
           sendJSON(res, 400, { ok: false, error: 'api.user.imageInvalid' });
           logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
           return;
@@ -1371,7 +2156,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/twofa/enable' && req.method === 'POST') {
     readBody(req, 8192).then((body) => {
       let code!: string;
-      try { ({ code } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 走下面校验 */ }
+      try { ({ code } = JSON.parse(body.toString('utf8'))); } catch (e) {  }
       const st = auth.getTotp(me.username);
       if (st.enabled) {
         sendJSON(res, 400, { ok: false, error: 'twofa.alreadyOn' });
@@ -1397,7 +2182,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/twofa/disable' && req.method === 'POST') {
     readBody(req, 8192).then((body) => {
       let code!: string;
-      try { ({ code } = JSON.parse(body.toString('utf8'))); } catch (e) { /* 走下面校验 */ }
+      try { ({ code } = JSON.parse(body.toString('utf8'))); } catch (e) {  }
       const st = auth.getTotp(me.username);
       if (!st.enabled) {
         sendJSON(res, 400, { ok: false, error: 'twofa.alreadyOff' });
@@ -1430,30 +2215,37 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         return q === '' || String(name).toLowerCase().indexOf(q) !== -1;
       })
       .sort()
-      .map((name) => ({ name, image: raw[name].image || null }));
+      .map((name) => ({ name, image: safeAvatar(raw[name].image), lastSeen: ensureLastSeen()[name] || null }));
     sendJSON(res, 200, { ok: true, users });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
 
-  // ---------- 好友接口 ----------
 
-  // 带在线/头像装饰的用户名列表
-  function decorateNames(names: string[]): { name: string; online: boolean; image?: string }[] {
+  function decorateNames(names: string[]): { name: string; online: boolean; image?: string; lastSeen: number | null }[] {
     const raw = auth.loadUsers() || {};
     const online = new Set(currentPresent());
     return names.map(function (n) {
-      const o: { name: string; online: boolean; image?: string } = { name: n, online: online.has(n) };
-      if (raw[n] && raw[n].image) o.image = raw[n].image;
+      const o: { name: string; online: boolean; image?: string; lastSeen: number | null } = {
+        name: n,
+        online: online.has(n),
+        lastSeen: ensureLastSeen()[n] || null
+      };
+      const av = raw[n] ? safeAvatar(raw[n].image) : null;
+      if (av) o.image = av;
       return o;
     });
   }
 
   // GET /api/friends —— 好友 / 收到的申请 / 已发出的申请
   if (pathname === '/api/friends' && req.method === 'GET') {
+    const rawFriends = friends.listFriends(me.username);
+    const remarks: Record<string, string> = {};
+    for (const n of rawFriends) remarks[String(n)] = groups.getFriendRemark(me.username, String(n)) || '';
     sendJSON(res, 200, {
       ok: true,
-      friends: decorateNames(friends.listFriends(me.username)),
+      friends: decorateNames(rawFriends),
+      remarks,
       requests: friends.listRequests(me.username),
       sent: friends.listSent(me.username)
     });
@@ -1465,7 +2257,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/friends/request' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const to = o && typeof o.to === 'string' ? o.to.trim() : '';
       if (!to || to.length > 64 || to === me.username) {
         sendJSON(res, 400, { ok: false, error: 'api.friend.invalidPeer' });
@@ -1498,7 +2290,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/friends/accept' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const from = o && typeof o.from === 'string' ? o.from.trim() : '';
       if (!from || !friends.acceptRequest(me.username, from)) {
         sendJSON(res, 404, { ok: false, error: 'api.friend.reqGone' });
@@ -1519,7 +2311,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/friends/decline' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const from = o && typeof o.from === 'string' ? o.from.trim() : '';
       if (!from) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
       friends.declineRequest(me.username, from);
@@ -1546,7 +2338,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       name,
       role: raw[name].role === 'admin' ? 'admin' : 'user',
       created: raw[name].created || null,
-      image: raw[name].image || null,
+      image: safeAvatar(raw[name].image),
       online: online.has(name),
       msgs: counts[name] || 0
     });
@@ -1585,12 +2377,23 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
         return;
       }
-      // 收发提示音各自的开关
       if (patch.soundIn !== undefined && typeof patch.soundIn !== 'boolean') {
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
         return;
       }
       if (patch.soundOut !== undefined && typeof patch.soundOut !== 'boolean') {
+        sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+        return;
+      }
+      // 媒体播放音量：0~1 的数（越界 / 非数一律拒绝，免得存进去一个把玩家静音的值）
+      if (patch.volume !== undefined &&
+          (typeof patch.volume !== 'number' || !Number.isFinite(patch.volume) ||
+           patch.volume < 0 || patch.volume > 1)) {
+        sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+        return;
+      }
+      // 是否允许任何人邀请我入群（无需我同意）
+      if (patch.allowInvite !== undefined && typeof patch.allowInvite !== 'boolean') {
         sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
         return;
       }
@@ -1608,7 +2411,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/report' && req.method === 'POST') {
     readBody(req, 4096).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const idx = Number(o && o.idx);
       const reason = o && typeof o.reason === 'string' ? o.reason.trim().slice(0, 200) : '';
       if (!Number.isInteger(idx) || idx <= 0) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
@@ -1645,6 +2448,92 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       return;
     }
 
+    // GET /api/admin/captcha —— 人机验证开关（登录页 / 注册页各一个）
+    if (pathname === '/api/admin/captcha' && req.method === 'GET') {
+      sendJSON(res, 200, { ok: true, login: captcha.isEnabled('login'), register: captcha.isEnabled('register') });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // POST /api/admin/captcha —— 保存人机验证开关 {login?: boolean, register?: boolean}
+    if (pathname === '/api/admin/captcha' && req.method === 'POST') {
+      readBody(req, 1024).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+        if (!o || typeof o !== 'object' ||
+            (o.login !== undefined && typeof o.login !== 'boolean') ||
+            (o.register !== undefined && typeof o.register !== 'boolean')) {
+          sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        if (typeof o.login === 'boolean') captcha.setEnabled('login', o.login);
+        if (typeof o.register === 'boolean') captcha.setEnabled('register', o.register);
+        const state = { login: captcha.isEnabled('login'), register: captcha.isEnabled('register') };
+        audit.add({
+          actor: me.username,
+          action: 'admin.captcha',
+          target: 'captcha',
+          detail: auditDetail('log.detail.captcha', {
+            login: state.login ? '✓' : '✕',
+            register: state.register ? '✓' : '✕'
+          }),
+          ip
+        });
+        sendJSON(res, 200, { ok: true, login: state.login, register: state.register });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
+    // GET /api/admin/oauth —— 第三方登录配置（secret 只回报「是否已设置」，永不下发）
+    if (pathname === '/api/admin/oauth' && req.method === 'GET') {
+      const gh = githubConfig();
+      sendJSON(res, 200, {
+        ok: true,
+        github: { clientId: gh.clientId, hasSecret: !!gh.secret, redirectUri: oauthRedirectUri(req) }
+      });
+      return;
+    }
+
+    // POST /api/admin/oauth —— 保存 GitHub OAuth 配置 {clientId, secret?, clear?}
+    // secret 留空表示「不修改」，免得每次保存都要重填；clear:true 清空全部配置。
+    if (pathname === '/api/admin/oauth' && req.method === 'POST') {
+      readBody(req, 4096).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+        if (!o || typeof o !== 'object') {
+          sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+          return;
+        }
+        if (o.clear) {
+          appconfig.set(GH_CFG_ID, '');
+          appconfig.set(GH_CFG_SECRET, '');
+        } else {
+          const id = typeof o.clientId === 'string' ? o.clientId.trim().slice(0, 64) : '';
+          const secret = typeof o.secret === 'string' ? o.secret.trim().slice(0, 128) : '';
+          if (!/^[A-Za-z0-9_.-]{4,64}$/.test(id)) {
+            sendJSON(res, 400, { ok: false, error: 'admin.oauth.badId' });
+            return;
+          }
+          if (secret && !/^[A-Za-z0-9_.-]{8,128}$/.test(secret)) {
+            sendJSON(res, 400, { ok: false, error: 'admin.oauth.badSecret' });
+            return;
+          }
+          appconfig.set(GH_CFG_ID, id);
+          if (secret) appconfig.set(GH_CFG_SECRET, secret);
+        }
+        audit.add({ actor: me.username, action: 'oauth.config', detail: auditDetail('log.detail.oauth.config'), ip });
+        sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
     // GET /api/admin/reports?status= —— 举报列表（按时间倒序）
     if (pathname === '/api/admin/reports' && req.method === 'GET') {
       const status = urlObj.searchParams.get('status') || '';
@@ -1658,7 +2547,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/reports/dismiss' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const id = Number(o && o.id);
         if (!Number.isInteger(id) || id <= 0) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
         if (!moderate.dismissReport(id, me.username)) { sendJSON(res, 404, { ok: false, error: 'mod.reportGone' }); return; }
@@ -1675,7 +2564,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/reports/punish' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const id = Number(o && o.id);
         if (!Number.isInteger(id) || id <= 0) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
         const res2 = moderate.punishFromReport(id, me.username,
@@ -1683,6 +2572,65 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         if (!res2.ok) { sendJSON(res, 400, { ok: false, error: res2.code }); return; }
         audit.add({ actor: me.username, action: 'mod.punish', target: id, detail: auditDetail('log.detail.punish', { type: o.type, id: res2.id }), ip });
         sendJSON(res, 200, { ok: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
+    // GET /api/admin/appeals?status= —— 申诉列表（pending / approved / rejected，省略=全部）
+    if (pathname === '/api/admin/appeals' && req.method === 'GET') {
+      const status = urlObj.searchParams.get('status') || '';
+      if (status && ['pending', 'approved', 'rejected'].indexOf(status) === -1) {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      sendJSON(res, 200, { ok: true, appeals: moderate.listAppeals(status || undefined) });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // POST /api/admin/appeals/handle —— 处理申诉 {id, action: approve|reject, note?}
+    //   approve = 通过并**自动撤销关联的那条处罚**
+    if (pathname === '/api/admin/appeals/handle' && req.method === 'POST') {
+      readBody(req, 4096).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+        const id = Number(o && o.id);
+        const action = o && typeof o.action === 'string' ? o.action : '';
+        const note = o && typeof o.note === 'string' ? o.note.trim().slice(0, 200) : '';
+        if (!Number.isInteger(id) || id <= 0) {
+          sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        // 驳回必须写理由：备注会随站内通知发给本人，不写等于没解释（前端也拦了一道，这里兜底）
+        if (action === 'reject' && !note) {
+          sendJSON(res, 400, { ok: false, error: 'mod.appeal.noteRequired' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        const r = moderate.handleAppeal(id, action, me.username, note);
+        if (!r.ok) {
+          const code = r.code === 'mod.appealGone' ? 404 : 400;
+          sendJSON(res, code, { ok: false, error: r.code });
+          logger.write({ ip, method: req.method, url: pathname, status: code, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        audit.add({
+          actor: me.username,
+          action: action === 'approve' ? 'mod.appeal.approve' : 'mod.appeal.reject',
+          target: 'appeal#' + id,
+          detail: auditDetail('log.detail.mod.appealHandle', {
+            id: String(id),
+            penalty: r.penaltyId == null ? '-' : String(r.penaltyId),
+            note: note || '-'
+          }),
+          ip
+        });
+        sendJSON(res, 200, { ok: true, penaltyId: r.penaltyId });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
         sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
@@ -1701,7 +2649,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/penalties/add' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const res2 = moderate.addPenalty({
           type: (o && o.type) || '', target: (o && o.target) || '', reason: (o && o.reason) || '',
           days: Number(o && o.days), permanent: !!o.permanent, actor: me.username
@@ -1720,7 +2668,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/penalties/revoke' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const id = Number(o && o.id);
         if (!Number.isInteger(id) || id <= 0) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
         if (!moderate.revokePenalty(id, me.username)) { sendJSON(res, 404, { ok: false, error: 'mod.penaltyGone' }); return; }
@@ -1737,7 +2685,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/announcements' && req.method === 'POST') {
       readBody(req, 8192).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const res2 = mailbox.createAnnouncement({
           title: (o && o.title) || '', content: (o && o.content) || '', actor: me.username
         });
@@ -1754,7 +2702,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/announcements' && req.method === 'DELETE') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const id = Number(o && o.id);
         if (!Number.isInteger(id) || id <= 0) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
         if (!mailbox.deleteAnnouncement(id)) { sendJSON(res, 404, { ok: false, error: 'announce.gone' }); return; }
@@ -1770,13 +2718,16 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/users' && req.method === 'GET') {
       const raw = auth.loadUsers() || {};
       const online = new Set(currentPresent());
+      const platforms = currentPlatforms();
       const users = Object.keys(raw).sort().map((name) => ({
         name,
         role: raw[name].role === 'admin' ? 'admin' : 'user',
         status: raw[name].status || auth.STATUS.ACTIVE,
         created: raw[name].created || null,
-        image: raw[name].image || null,
-        online: online.has(name)
+        image: safeAvatar(raw[name].image),
+        online: online.has(name),
+        platform: platforms[name] || null, // 连接来源：网页端 / 桌面客户端 / 两端（离线为 null）
+        lastSeen: ensureLastSeen()[name] || null
       }));
       sendJSON(res, 200, { ok: true, users });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -1794,7 +2745,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/review/approve' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         if (!name) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
         if (!auth.reviewApprove(name)) {
@@ -1814,7 +2765,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/review/reject' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         if (!name) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
         if (!auth.reviewReject(name)) {
@@ -1831,13 +2782,24 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     }
 
     // GET /api/admin/logs —— 审计日志（倒序，支持按用户 / 动作筛选与分页）
+    //   ?actions=a,b,c 可一次筛多个动作（管理面板的类别多选）；老的 ?action= 仍然支持
     if (pathname === '/api/admin/logs' && req.method === 'GET') {
       const q = urlObj.searchParams;
+      const rawActions: string[] = String(q.get('actions') || '')
+        .split(',')
+        .map((x: string) => x.trim())
+        .filter((x: string) => !!x);
+      if (rawActions.length > 100 || rawActions.some((a: string) => !/^[a-zA-Z0-9._]{1,40}$/.test(a))) {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
       const page = audit.list({
         limit: q.get('limit'),
         offset: q.get('offset'),
         actor: (q.get('actor') || '').trim() || undefined,
-        action: (q.get('action') || '').trim() || undefined
+        action: (q.get('action') || '').trim() || undefined,
+        actions: rawActions.length ? rawActions : undefined
       });
       sendJSON(res, 200, { ok: true, total: page.total, logs: page.logs, max: audit.MAX_LOGS });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -1848,7 +2810,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/user/add' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         const pass = o && typeof o.password === 'string' ? o.password : '';
         if (!USERNAME_RE.test(name) || !passwordStrength(pass)) {
@@ -1868,24 +2830,77 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       return;
     }
 
+    // POST /api/admin/user/role —— 改权限 {name, role: 'user'|'admin'}
+    //   角色是**每次请求都从库里读**的，改完立刻生效，不必踢下线。
+    //   唯一的硬约束：**至少要留一个管理员** —— 把最后一个管理员降权，
+    //   系统就变成谁也管不了（连改回来都没人能做），所以服务端直接拦。
+    if (pathname === '/api/admin/user/role' && req.method === 'POST') {
+      readBody(req, 2048).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+        const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+        const role = o && typeof o.role === 'string' ? o.role : '';
+        if (!name || (role !== 'user' && role !== 'admin')) {
+          sendJSON(res, 400, { ok: false, error: 'api.invalidParams' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        const users = auth.loadUsers() || {};
+        if (!Object.prototype.hasOwnProperty.call(users, name)) {
+          sendJSON(res, 404, { ok: false, error: 'api.user.notFound' });
+          logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        const cur = auth.getRole(name);
+        if (cur === role) {
+          // 已经是这个权限了：按成功返回但不写审计，免得刷出一堆无变化的记录
+          sendJSON(res, 200, { ok: true, changed: false });
+          logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        if (role !== 'admin' && cur === 'admin' && auth.countAdmins() <= 1) {
+          sendJSON(res, 400, { ok: false, error: 'api.admin.lastAdmin' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        if (!auth.setRole(name, role)) {
+          sendJSON(res, 404, { ok: false, error: 'api.user.notFound' });
+          logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        audit.add({
+          actor: me.username,
+          action: 'admin.user.role',
+          target: name,
+          detail: auditDetail(role === 'admin' ? 'log.detail.user.roleAdmin' : 'log.detail.user.roleUser', { name }),
+          ip
+        });
+        sendJSON(res, 200, { ok: true, changed: true });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
     // POST /api/admin/user/del —— 删除用户 {name}
     if (pathname === '/api/admin/user/del' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         if (!name) { sendJSON(res, 400, { ok: false, error: 'api.invalidParams' }); return; }
         if (name === me.username) { sendJSON(res, 400, { ok: false, error: 'api.admin.cannotDeleteSelf' }); return; }
         if (name === 'admin') { sendJSON(res, 400, { ok: false, error: 'api.admin.cannotDeleteAdmin' }); return; }
         if (!auth.deleteUser(name)) { sendJSON(res, 404, { ok: false, error: 'api.user.notFound' }); return; }
         groups.removeUserAll(name); // 清理该用户在各群的全部成员关系，避免遗留孤儿
-        groups.removeRequestsOfUser(name); // 清理该用户的全部入群申请
+        groups.removeRequestsOfUser(name); 
         friends.removeUserAll(name); // 清理该用户全部好友关系与好友申请
+        auth.removeUserApiKeys(name); 
         broadcast({ type: 'friends.changed' });
         audit.add({ actor: me.username, action: 'admin.user.del', target: name, detail: auditDetail('log.detail.user.del', { name }), ip });
-        // 立即断开该用户的所有在线连接
         for (const c of [...clients]) {
-          if (c.user.username === name) { try { c.close(); } catch (e) { /* 忽略 */ } }
+          if (c.user.username === name) { try { c.close(); } catch (e) {  } }
         }
         sendJSON(res, 200, { ok: true });
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -1899,13 +2914,13 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/user/image' && req.method === 'POST') {
       readBody(req, 4096).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         const image = o && typeof o.image === 'string' ? o.image.trim() : '';
         if (!name) { sendJSON(res, 400, { ok: false, error: '参数错误' }); return; }
-        // 仅接受 http(s) 图片地址或留空清除；拒绝 javascript: 等危险协议
-        if (image !== '' && !/^https?:\/\/[^\s"'<>]{1,2048}$/i.test(image)) {
-          sendJSON(res, 400, { ok: false, error: '头像须为 http(s) 图片地址，或留空清除' });
+        // 与本人改头像一致：只接受本站上传的图片路径（空串 = 清除）
+        if (!isValidAvatar(image)) {
+          sendJSON(res, 400, { ok: false, error: '头像须为上传的图片，或留空清除' });
           return;
         }
         if (!auth.setImage(name, image)) {
@@ -1925,7 +2940,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/user/rename' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         const newName = o && typeof o.newName === 'string' ? o.newName.trim() : '';
         if (!name || !USERNAME_RE.test(newName)) {
@@ -1951,7 +2966,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         for (const c of [...clients]) {
           if (c.user.username !== name) continue;
           c.user.username = newName;
-          try { c.sendText(JSON.stringify({ type: 'me.changed', username: newName })); } catch (e) { /* 忽略 */ }
+          try { c.sendText(JSON.stringify({ type: 'me.changed', username: newName })); } catch (e) {  }
         }
         broadcast({ type: 'friends.changed' });
         broadcastPresence();
@@ -1968,7 +2983,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/user/pass' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         const pass = o && typeof o.password === 'string' ? o.password : '';
         if (!name || !passwordStrength(pass)) {
@@ -1992,7 +3007,6 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       return;
     }
 
-    // ---------- 文件管理（全服上传文件） ----------
 
     // GET /api/admin/files —— 上传文件列表（按修改时间倒序，支持按文件名 / 原始名搜索）
     if (pathname === '/api/admin/files' && req.method === 'GET') {
@@ -2002,6 +3016,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       let names: string[] = [];
       try { names = fs.readdirSync(UPLOAD_DIR); } catch (e) { names = []; } // 目录不存在时按空列表处理
       const usage = store.fileUsage();
+      const avatars = avatarBaseSet();
       const all: any[] = [];
       for (const n of names) {
         if (!UPLOAD_NAME_RE.test(n)) continue; // 只认本服务器落盘的随机名，忽略 .gitkeep 等无关文件
@@ -2009,6 +3024,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         try { st = fs.statSync(path.join(UPLOAD_DIR, n)); } catch (e) { continue; }
         if (!st.isFile()) continue;
         const u = usage.get(n);
+        const isAvatar = avatars.has(n); // 用户/群头像：视为已引用且受保护
         all.push({
           name: n,
           origin: u && u.name ? u.name : '',
@@ -2016,7 +3032,8 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
           ts: Math.floor(st.mtimeMs),
           // 优先用原始文件名判定（落盘名可能被改写，例如伪装成图片的会被降级成 .bin）
           kind: fileKindOf(u && u.name ? u.name : n),
-          used: u ? u.count : 0
+          used: isAvatar ? Math.max(1, u ? u.count : 0) : (u ? u.count : 0),
+          avatar: isAvatar
         });
       }
       const matched = kw
@@ -2043,7 +3060,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (pathname === '/api/admin/file/del' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
         let o: any = null;
-        try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
         const name = o && typeof o.name === 'string' ? o.name.trim() : '';
         if (!UPLOAD_NAME_RE.test(name)) {
           sendJSON(res, 400, { ok: false, error: 'api.admin.fileInvalid' });
@@ -2054,6 +3071,12 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         // 纵深防御：解析后的真实路径必须仍落在上传目录内
         if (fp !== path.join(UPLOAD_DIR, path.basename(fp))) {
           sendJSON(res, 400, { ok: false, error: 'api.admin.fileInvalid' });
+          return;
+        }
+        // 用户/群头像受保护：不在此处删除，提示改用「用户/群聊头像移除」功能
+        if (avatarBaseSet().has(name)) {
+          sendJSON(res, 400, { ok: false, error: 'api.admin.fileIsAvatar' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
           return;
         }
         let removed = false;
@@ -2077,12 +3100,70 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       return;
     }
 
+    // POST /api/admin/files/del-batch —— 批量删除上传文件 {names: []}
+    // 逐个走与单删相同的流程（删盘 + 去重记录 + 引用它的消息标记过期），
+    // 汇总成一条审计记录；非法名 / 已不存在的计入 failed，不影响其余的删除
+    if (pathname === '/api/admin/files/del-batch' && req.method === 'POST') {
+      readBody(req, 32768).then((body) => {
+        let o: any = null;
+        try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+        const list = o && Array.isArray(o.names) ? o.names : null;
+        if (!list || !list.length) {
+          sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        if (list.length > 200) {
+          sendJSON(res, 400, { ok: false, error: 'api.admin.tooManyFiles' });
+          logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+          return;
+        }
+        const seen: Record<string, true> = {};
+        let deleted = 0;
+        let expired = 0;
+        const failed: string[] = [];
+        const protectedNames: string[] = [];
+        const avatars = avatarBaseSet();
+        for (const raw of list) {
+          const name = typeof raw === 'string' ? raw.trim() : '';
+          if (!name || seen[name]) continue; 
+          seen[name] = true;
+          if (!UPLOAD_NAME_RE.test(name)) { failed.push(name); continue; }
+          const fp = path.join(UPLOAD_DIR, name);
+          if (fp !== path.join(UPLOAD_DIR, path.basename(fp))) { failed.push(name); continue; }
+          // 用户/群头像受保护：跳过，不改动
+          if (avatars.has(name)) { protectedNames.push(name); continue; }
+          try {
+            if (!fs.existsSync(fp)) { failed.push(name); continue; }
+            fs.unlinkSync(fp);
+          } catch (e) {
+            failed.push(name);
+            continue;
+          }
+          store.dropUpload(name);
+          expired += store.expireByFile(name);
+          deleted++;
+        }
+        audit.add({
+          actor: me.username,
+          action: 'admin.file.delBatch',
+          target: deleted + ' files',
+          detail: auditDetail('log.detail.file.delBatch', { n: deleted }),
+          ip
+        });
+        sendJSON(res, 200, { ok: true, deleted, expired, failed, protected: protectedNames });
+        logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      }).catch((e) => {
+        sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
     sendJSON(res, 404, { ok: false, error: 'api.notFound' });
     logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
 
-  // ---------- 群组接口（需登录） ----------
 
   // GET /api/groups —— 我的群列表
   if (pathname === '/api/groups' && req.method === 'GET') {
@@ -2095,7 +3176,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
       const safeName = /^[\w\u4e00-\u9fa5\-.]{1,24}$/.test(name);
       if (!safeName) {
@@ -2117,7 +3198,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups' && req.method === 'DELETE') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const g = groups.getGroup(gid);
       if (!g) { sendJSON(res, 404, { ok: false, error: 'api.group.notFound' }); return; }
@@ -2144,7 +3225,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       sendJSON(res, 403, { ok: false, error: 'api.group.noView' });
       return;
     }
-    sendJSON(res, 200, { ok: true, gid, members: groups.groupMembers(gid) });
+    sendJSON(res, 200, { ok: true, gid, members: withLastSeen(groups.groupMembers(gid)), isOwner: groups.isOwner(gid, me.username), isManager: groups.isManager(gid, me.username) || auth.isAdmin(me.username), muteAll: groups.isMuteAll(gid) });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     return;
   }
@@ -2153,7 +3234,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups/join' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       if (gid.length > 64 || !groups.getGroup(gid)) {
         sendJSON(res, 404, { ok: false, error: 'api.group.notFound' });
@@ -2177,7 +3258,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups/leave' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       if (groups.isOwner(gid, me.username)) {
         sendJSON(res, 400, { ok: false, error: 'api.group.ownerCannotLeave' });
@@ -2188,6 +3269,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         return;
       }
       audit.add({ actor: me.username, action: 'group.leave', target: gid, detail: auditDetail('log.detail.group.leave'), ip });
+      notifyMembersChanged(gid, me.username, 'leave'); // 群里其他人实时看到成员列表变化
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -2200,7 +3282,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups/rename' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
       const g = groups.getGroup(gid);
@@ -2226,7 +3308,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups/avatar' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const avatar = o && typeof o.avatar === 'string' ? o.avatar.trim() : '';
       const g = groups.getGroup(gid);
@@ -2249,7 +3331,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups/announce' && req.method === 'POST') {
     readBody(req, 4096).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const text = o && typeof o.text === 'string' ? o.text : '';
       const g = groups.getGroup(gid);
@@ -2291,7 +3373,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups/request' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const r = groups.requestJoin(gid, me.username);
       if (!r.ok) {
@@ -2314,12 +3396,18 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (!g) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
     const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
     if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权管理该群' }); return; }
+    const mm = groups.manageMembers(gid);
+    const meM = mm.find((m) => m.name === me.username);
     sendJSON(res, 200, {
       ok: true,
-      group: { id: g.id, name: g.name, owner: g.owner, created: g.created },
+      group: { id: g.id, name: g.name, owner: g.owner, created: g.created, muteAll: g.muteAll, memberInviteApprove: g.memberInviteApprove },
       isOwner: groups.isOwner(gid, me.username),
-      members: groups.manageMembers(gid),
+      isManager: groups.isManager(gid, me.username) || auth.isAdmin(me.username),
+      myRole: meM && meM.owner ? 'owner' : (meM && meM.role === 'admin' ? 'admin' : 'member'),
+      myNickname: (meM && meM.nickname) || null,
+      members: withLastSeen(mm),
       requests: groups.pendingRequests(gid),
+      invites: groups.invitesByGroup(gid),
       files: store.filesByRoom(gid, null)
     });
     logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -2350,7 +3438,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups/request/approve' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
       const g = groups.getGroup(gid);
@@ -2358,8 +3446,9 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
       if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权审核该群' }); return; }
       if (!groups.approveJoin(gid, name)) { sendJSON(res, 404, { ok: false, error: '该申请不存在或已处理' }); return; }
-      audit.add({ actor: me.username, action: 'group.request.approve', target: gid, detail: auditDetail('log.detail.group.request.approve', { name }), ip });
-      broadcast({ type: 'groups.changed' }); // 让新成员客户端刷新群列表
+      audit.add({ actor: me.username, action: 'group.request.approve', target: gid, detail: auditDetail('log.detail.group.approve', { name }), ip });
+      broadcast({ type: 'groups.changed' }); 
+      notifyMembersChanged(gid, name, 'join'); // 群内在线的成员实时看到有人加入
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -2372,14 +3461,14 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups/request/reject' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
       if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
       const canManage = groups.isOwner(gid, me.username) || auth.isAdmin(me.username);
       if (!canManage) { sendJSON(res, 403, { ok: false, error: '无权审核该群' }); return; }
       if (!groups.rejectJoin(gid, name)) { sendJSON(res, 404, { ok: false, error: '该申请不存在或已处理' }); return; }
-      audit.add({ actor: me.username, action: 'group.request.reject', target: gid, detail: auditDetail('log.detail.group.request.reject', { name }), ip });
+      audit.add({ actor: me.username, action: 'group.request.reject', target: gid, detail: auditDetail('log.detail.group.reject', { name }), ip });
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -2392,7 +3481,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups/members/remove' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
       const g = groups.getGroup(gid);
@@ -2403,6 +3492,8 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       if (!groups.removeMember(gid, name)) { sendJSON(res, 404, { ok: false, error: '不是该群成员' }); return; }
       audit.add({ actor: me.username, action: 'group.member.remove', target: gid, detail: '移除成员：' + name, ip });
       broadcastGid(gid, { type: 'groups.changed', data: { gid } });
+      // 被移出的人已不是成员，broadcastGid 覆盖不到他，必须单独通知
+      notifyMembersChanged(gid, name, 'remove');
       sendJSON(res, 200, { ok: true });
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch((e) => {
@@ -2415,7 +3506,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups/transfer' && req.method === 'POST') {
     readBody(req, 2048).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const name = o && typeof o.name === 'string' ? o.name.trim() : '';
       const g = groups.getGroup(gid);
@@ -2442,7 +3533,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/groups/file/delete' && req.method === 'POST') {
     readBody(req, 4096).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
       const idx = o && o.idx != null ? Number(o.idx) : NaN;
       if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: '群不存在' }); return; }
@@ -2455,6 +3546,242 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     }).catch((e) => {
       sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' });
     });
+    return;
+  }
+
+  // ---------- 群成员角色 / 禁言 / 群昵称 ----------
+
+  // POST /api/groups/member/role {gid, name, role}（群主设置管理员 / 普通成员）
+  if (pathname === '/api/groups/member/role' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+      const role = o && o.role === 'admin' ? 'admin' : 'member';
+      const g = groups.getGroup(gid);
+      if (!g) { sendJSON(res, 404, { ok: false, error: 'api.group.notFound' }); return; }
+      if (!(groups.isOwner(gid, me.username) || auth.isAdmin(me.username))) { sendJSON(res, 403, { ok: false, error: '无权操作' }); return; }
+      if (name === g.owner) { sendJSON(res, 400, { ok: false, error: '不能修改群主角色' }); return; }
+      if (!groups.setMemberRole(gid, name, role)) { sendJSON(res, 404, { ok: false, error: '成员不存在' }); return; }
+      audit.add({ actor: me.username, action: 'group.member.role', target: gid, detail: (role === 'admin' ? '设为管理员：' : '取消管理员：') + name, ip });
+      broadcastGid(gid, { type: 'groups.changed', data: { gid } });
+      broadcastGid(gid, { type: 'group.members', data: { gid } });
+      sendJSON(res, 200, { ok: true });
+    }).catch((e) => { sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' }); });
+    return;
+  }
+
+  // POST /api/groups/member/mute {gid, name, muted}（群主/管理员禁言成员）
+  if (pathname === '/api/groups/member/mute' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const name = o && typeof o.name === 'string' ? o.name.trim() : '';
+      const muted = !!(o && o.muted);
+      const g = groups.getGroup(gid);
+      if (!g) { sendJSON(res, 404, { ok: false, error: 'api.group.notFound' }); return; }
+      if (!groups.isManager(gid, me.username) && !auth.isAdmin(me.username)) { sendJSON(res, 403, { ok: false, error: '无权操作' }); return; }
+      if (name === g.owner || name === me.username) { sendJSON(res, 400, { ok: false, error: '不能禁言群主或自己' }); return; }
+      if (!groups.setMuted(gid, name, muted)) { sendJSON(res, 404, { ok: false, error: '成员不存在或不可禁言' }); return; }
+      audit.add({ actor: me.username, action: 'group.member.mute', target: gid, detail: (muted ? '禁言：' : '解除禁言：') + name, ip });
+      broadcastGid(gid, { type: 'groups.changed', data: { gid } });
+      broadcastGid(gid, { type: 'group.members', data: { gid } });
+      sendJSON(res, 200, { ok: true });
+    }).catch((e) => { sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' }); });
+    return;
+  }
+
+  // POST /api/groups/muteall {gid, val}（群主/管理员开启或关闭群禁言）
+  if (pathname === '/api/groups/muteall' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const val = !!(o && o.val);
+      if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: 'api.group.notFound' }); return; }
+      if (!groups.isManager(gid, me.username) && !auth.isAdmin(me.username)) { sendJSON(res, 403, { ok: false, error: '无权操作' }); return; }
+      groups.setMuteAll(gid, val);
+      audit.add({ actor: me.username, action: 'group.muteall', target: gid, detail: val ? '开启群禁言' : '关闭群禁言', ip });
+      broadcastGid(gid, { type: 'groups.changed', data: { gid } });
+      sendJSON(res, 200, { ok: true });
+    }).catch((e) => { sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' }); });
+    return;
+  }
+
+  // POST /api/groups/member/nickname {gid, nickname}（本人设置「我在本群的昵称」）
+  if (pathname === '/api/groups/member/nickname' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const nickname = o && typeof o.nickname === 'string' ? o.nickname : '';
+      if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: 'api.group.notFound' }); return; }
+      if (!groups.isMember(gid, me.username)) { sendJSON(res, 403, { ok: false, error: 'api.group.noView' }); return; }
+      if (!groups.setNickname(gid, me.username, nickname)) { sendJSON(res, 404, { ok: false, error: '不是该群成员' }); return; }
+      broadcastGid(gid, { type: 'group.members', data: { gid } });
+      sendJSON(res, 200, { ok: true });
+    }).catch((e) => { sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' }); });
+    return;
+  }
+
+  // POST /api/groups/invite/setting {gid, memberInviteApprove}（群主/管理员设置成员邀请是否需要审批）
+  if (pathname === '/api/groups/invite/setting' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const val = !!(o && o.memberInviteApprove);
+      if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: 'api.group.notFound' }); return; }
+      if (!(groups.isOwner(gid, me.username) || auth.isAdmin(me.username))) { sendJSON(res, 403, { ok: false, error: '无权操作' }); return; }
+      groups.setMemberInviteApprove(gid, val);
+      audit.add({ actor: me.username, action: 'group.invite.setting', target: gid, detail: val ? '开启成员邀请审批' : '关闭成员邀请审批', ip });
+      broadcastGid(gid, { type: 'groups.changed', data: { gid } });
+      sendJSON(res, 200, { ok: true });
+    }).catch((e) => { sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' }); });
+    return;
+  }
+
+  // POST /api/groups/invite {gid, invitee}（成员/管理员/群主邀请；成员邀请可能需审批）
+  if (pathname === '/api/groups/invite' && req.method === 'POST') {
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const invitee = o && typeof o.invitee === 'string' ? o.invitee.trim() : '';
+      if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: 'api.group.notFound' }); return; }
+      if (!groups.isMember(gid, me.username)) { sendJSON(res, 403, { ok: false, error: 'api.group.noView' }); return; }
+      const raw = auth.loadUsers() || {};
+      if (!Object.prototype.hasOwnProperty.call(raw, invitee)) { sendJSON(res, 404, { ok: false, error: 'api.user.notFound' }); return; }
+      const inv = groups.createInvite(gid, me.username, invitee);
+      if (!inv.ok) { sendJSON(res, 409, { ok: false, error: inv.reason || '邀请失败' }); return; }
+      // 被邀请人设置了「允许任何人邀请我」→ 无需同意，直接入群
+      if (inv.status === groups.INV_PENDING) {
+        const st = auth.getSettings(invitee) as any;
+        if (st && st.allowInvite) {
+          groups.acceptInvite(inv.id!, invitee);
+          audit.add({ actor: me.username, action: 'group.invite.auto', target: gid, detail: '自动接受邀请：' + invitee, ip });
+          notifyMembersChanged(gid, invitee, 'join');
+          broadcast({ type: 'groups.changed' });
+          sendJSON(res, 200, { ok: true, autoJoined: true });
+          return;
+        }
+      }
+      audit.add({ actor: me.username, action: 'group.invite', target: gid, detail: '邀请：' + invitee + (inv.status === groups.INV_NEEDS_APPROVAL ? '（待审批）' : '（待接受）'), ip });
+      if (inv.status === groups.INV_NEEDS_APPROVAL) {
+        broadcastGid(gid, { type: 'groups.changed', data: { gid } }); // 通知管理者去审批
+      } else {
+        broadcastUser(invitee, { type: 'group.invites' }); // 通知被邀请人
+      }
+      sendJSON(res, 200, { ok: true, status: inv.status });
+    }).catch((e) => { sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' }); });
+    return;
+  }
+
+  // GET /api/groups/invites?gid= —— 带 gid：该群未完成邀请（管理者视图）；不带：我待接受的邀请
+  if (pathname === '/api/groups/invites' && req.method === 'GET') {
+    const gid = (urlObj.searchParams.get('gid') || '').trim() || '';
+    if (gid) {
+      if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: 'api.group.notFound' }); return; }
+      if (!groups.isManager(gid, me.username) && !auth.isAdmin(me.username)) { sendJSON(res, 403, { ok: false, error: '无权查看' }); return; }
+      sendJSON(res, 200, { ok: true, gid, invites: groups.invitesByGroup(gid), approvals: groups.pendingApprovals(gid) });
+    } else {
+      sendJSON(res, 200, { ok: true, invites: groups.invitesForMe(me.username) });
+    }
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/groups/invite/approve {id}（群主/管理员批准「需审批」的邀请）
+  if (pathname === '/api/groups/invite/approve' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const id = o && o.id != null ? Number(o.id) : NaN;
+      const inv = groups.getInvite(id);
+      if (!inv) { sendJSON(res, 404, { ok: false, error: '邀请不存在' }); return; }
+      if (!groups.isManager(inv.gid, me.username) && !auth.isAdmin(me.username)) { sendJSON(res, 403, { ok: false, error: '无权审批' }); return; }
+      if (!groups.approveInvite(id, me.username)) { sendJSON(res, 409, { ok: false, error: '该邀请无需审批或已处理' }); return; }
+      broadcastUser(inv.invitee, { type: 'group.invites' });
+      broadcastGid(inv.gid, { type: 'groups.changed', data: { gid: inv.gid } });
+      sendJSON(res, 200, { ok: true });
+    }).catch((e) => { sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' }); });
+    return;
+  }
+
+  // POST /api/groups/invite/reject {id}（邀请人 / 被邀请人 / 管理者均可撤销或拒绝）
+  if (pathname === '/api/groups/invite/reject' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const id = o && o.id != null ? Number(o.id) : NaN;
+      const inv = groups.getInvite(id);
+      if (!inv) { sendJSON(res, 404, { ok: false, error: '邀请不存在' }); return; }
+      if (!groups.rejectInvite(id, me.username)) { sendJSON(res, 409, { ok: false, error: '邀请不存在或已处理' }); return; }
+      broadcastUser(inv.invitee, { type: 'group.invites' });
+      broadcastUser(inv.inviter, { type: 'group.invites' });
+      broadcastGid(inv.gid, { type: 'groups.changed', data: { gid: inv.gid } });
+      sendJSON(res, 200, { ok: true });
+    }).catch((e) => { sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' }); });
+    return;
+  }
+
+  // POST /api/groups/invite/accept {id}（被邀请人接受 → 入群）
+  if (pathname === '/api/groups/invite/accept' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const id = o && o.id != null ? Number(o.id) : NaN;
+      const inv = groups.getInvite(id);
+      if (!inv) { sendJSON(res, 404, { ok: false, error: '邀请不存在' }); return; }
+      if (inv.invitee !== me.username) { sendJSON(res, 403, { ok: false, error: '不是给你的邀请' }); return; }
+      if (inv.status !== groups.INV_PENDING) { sendJSON(res, 409, { ok: false, error: '邀请已处理' }); return; }
+      if (!groups.acceptInvite(id, me.username)) { sendJSON(res, 404, { ok: false, error: '入群失败' }); return; }
+      audit.add({ actor: me.username, action: 'group.invite.accept', target: inv.gid, detail: '接受邀请入群', ip });
+      notifyMembersChanged(inv.gid, me.username, 'join');
+      broadcast({ type: 'groups.changed' });
+      sendJSON(res, 200, { ok: true });
+    }).catch((e) => { sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' }); });
+    return;
+  }
+
+  // POST /api/groups/remark {gid, remark}（本人设置群备注，仅自己可见）
+  if (pathname === '/api/groups/remark' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const gid = o && typeof o.gid === 'string' ? o.gid.trim() : '';
+      const remark = o && typeof o.remark === 'string' ? o.remark : '';
+      if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: 'api.group.notFound' }); return; }
+      if (!groups.isMember(gid, me.username)) { sendJSON(res, 403, { ok: false, error: 'api.group.noView' }); return; }
+      groups.setGroupRemark(me.username, gid, remark);
+      sendJSON(res, 200, { ok: true });
+    }).catch((e) => { sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' }); });
+    return;
+  }
+
+  // GET /api/groups/remark?gid= —— 获取本人对该群的备注
+  if (pathname === '/api/groups/remark' && req.method === 'GET') {
+    const gid = (urlObj.searchParams.get('gid') || '').trim() || '';
+    if (!groups.getGroup(gid)) { sendJSON(res, 404, { ok: false, error: 'api.group.notFound' }); return; }
+    if (!groups.isMember(gid, me.username)) { sendJSON(res, 403, { ok: false, error: 'api.group.noView' }); return; }
+    sendJSON(res, 200, { ok: true, remark: groups.getGroupRemark(me.username, gid) || '' });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/friends/remark {to, remark}（本人设置好友备注，仅自己可见）
+  if (pathname === '/api/friends/remark' && req.method === 'POST') {
+    readBody(req, 2048).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+      const to = o && typeof o.to === 'string' ? o.to.trim() : '';
+      const remark = o && typeof o.remark === 'string' ? o.remark : '';
+      if (!friends.isFriend(me.username, to)) { sendJSON(res, 403, { ok: false, error: 'api.friend.notFriend' }); return; }
+      groups.setFriendRemark(me.username, to, remark);
+      sendJSON(res, 200, { ok: true });
+    }).catch((e) => { sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: '请求无效' }); });
     return;
   }
 
@@ -2490,6 +3817,99 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
+  // GET /api/messages/search —— 搜索聊天记录
+  //   ?gid= 或 ?dm= 限定在某个群 / 私聊（会话内搜索）；两个都不带就是「我的全部会话」
+  //   ?q= 关键词；?limit= / ?offset= 分页。权限与 /api/messages 一致（不是成员就搜不到）
+  if (pathname === '/api/messages/search' && req.method === 'GET') {
+    const q = (urlObj.searchParams.get('q') || '').trim();
+    const gid = (urlObj.searchParams.get('gid') || '').trim() || null;
+    const dmPeer = (urlObj.searchParams.get('dm') || '').trim() || null;
+    const limit = Math.min(Math.max(parseInt(urlObj.searchParams.get('limit') as string, 10) || 30, 1), 100);
+    const offset = Math.max(parseInt(urlObj.searchParams.get('offset') as string, 10) || 0, 0);
+    if (q.length > 64) {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    if (!q) {
+      sendJSON(res, 200, { ok: true, hits: [], total: 0, q: '' });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    let scope: store.SearchScope;
+    if (dmPeer !== null) {
+      if (dmPeer.length > 64 || dmPeer === me.username) {
+        sendJSON(res, 403, { ok: false, error: 'api.dm.noView' });
+        logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      const raw = auth.loadUsers() || {};
+      if (!Object.prototype.hasOwnProperty.call(raw, dmPeer)) {
+        sendJSON(res, 404, { ok: false, error: 'api.user.notFound' });
+        logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      scope = { kind: 'room', gid: null, dm: friends.pairKey(me.username, dmPeer) };
+    } else if (gid !== null) {
+      if (gid.length > 64 || !groups.isMember(gid, me.username)) {
+        sendJSON(res, 403, { ok: false, error: 'api.group.noViewMessages' });
+        logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      scope = { kind: 'room', gid, dm: null };
+    } else {
+      scope = {
+        kind: 'rooms',
+        gids: groups.listGroupsOf(me.username).map((g: any) => String(g.id)),
+        dms: store.dmRoomsOf(me.username)
+      };
+    }
+    const found = store.searchMessages(q, scope, limit, offset);
+    sendJSON(res, 200, { ok: true, hits: found.hits, total: found.total, q, scope: scope.kind });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // GET /api/github/repo?repo=owner/name —— 消息里 GitHub 链接的仓库卡片（基础信息）
+  // 前端一次请求拿全卡片要的数据；服务端内部带缓存 + 并发合并，见 server/lib/github.ts
+  if (pathname === '/api/github/repo' && req.method === 'GET') {
+    const full = (urlObj.searchParams.get('repo') || '').trim();
+    if (!github.isValidFull(full)) {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    github.repoBasic(full).then((r) => {
+      const body: Record<string, unknown> = { ok: !!r.data, repo: r.data, stale: r.stale, at: r.at };
+      if (!r.data) body.error = githubErrorKey(r.error);
+      sendJSON(res, 200, body);
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch(() => {
+      sendJSON(res, 200, { ok: false, error: 'github.failed' });
+    });
+    return;
+  }
+
+  // GET /api/github/repo/detail?repo=owner/name —— 点开「展开详细信息」才取
+  // （贡献者 / 语言构成 / 最新发布 / 提交历史；仓库主信息卡片里已经有了，不重复取）
+  if (pathname === '/api/github/repo/detail' && req.method === 'GET') {
+    const full = (urlObj.searchParams.get('repo') || '').trim();
+    if (!github.isValidFull(full)) {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    github.repoDetail(full).then((r) => {
+      const body: Record<string, unknown> = { ok: !!r.data, detail: r.data, stale: r.stale, at: r.at };
+      if (!r.data) body.error = githubErrorKey(r.error);
+      sendJSON(res, 200, body);
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch(() => {
+      sendJSON(res, 200, { ok: false, error: 'github.failed' });
+    });
+    return;
+  }
+
   // POST /api/upload —— 小文件单次上传（≤ CHUNK_SIZE）；大文件走下面的分片接口
   if (pathname === '/api/upload' && req.method === 'POST') {
     const ctype = req.headers['content-type'] || '';
@@ -2500,13 +3920,13 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (Number.isFinite(declared) && declared > MAX_UPLOAD_BODY) {
       sendJSON(res, 413, { ok: false, error: 'api.upload.tooLarge' });
       logger.write({ ip, method: req.method, url: pathname, status: 413, ms: Date.now() - t0, ua: req.headers['user-agent'] });
-      try { req.destroy(); } catch (e) { /* 忽略 */ }
+      try { req.destroy(); } catch (e) {  }
       return;
     }
     streamUploadToDisk(req, bm[1].replace(/^"|"$/g, '')).then(async (file) => {
       const r = await finalizeUpload(file.head, file.name, file.size, file.sha,
         (dest) => renameOrCopy(file.tmpPath, dest));
-      if (r.deduped) { try { fs.unlinkSync(file.tmpPath); } catch (e) { /* 忽略 */ } }
+      if (r.deduped) { try { fs.unlinkSync(file.tmpPath); } catch (e) {  } }
       audit.add({
         actor: me.username,
         action: 'upload',
@@ -2533,7 +3953,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/upload/init' && req.method === 'POST') {
     readBody(req, 4096).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const size = o && o.size != null ? Number(o.size) : NaN;
       if (!Number.isInteger(size) || size <= 0 || size > MAX_UPLOAD) {
         sendJSON(res, 413, { ok: false, error: 'api.upload.tooLarge' });
@@ -2588,7 +4008,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     if (Number.isFinite(declared) && declared > CHUNK_BODY_LIMIT) {
       sendJSON(res, 413, { ok: false, error: 'api.upload.tooLarge' });
       logger.write({ ip, method: req.method, url: pathname, status: 413, ms: Date.now() - t0, ua: req.headers['user-agent'] });
-      try { req.destroy(); } catch (e) { /* 忽略 */ }
+      try { req.destroy(); } catch (e) {  }
       return;
     }
     // 单片体积必须精确匹配（仅最后一片可短），否则拼接结果会损坏
@@ -2600,7 +4020,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     streamUploadToDisk(req, bm[1].replace(/^"|"$/g, ''), { maxBytes: expect, dir }).then((part) => {
       const bad = part.size !== expect || (CHUNK_SHA_RE.test(wantSha) && part.sha !== wantSha);
       if (bad) {
-        try { fs.unlinkSync(part.tmpPath); } catch (e) { /* 忽略 */ }
+        try { fs.unlinkSync(part.tmpPath); } catch (e) {  }
         sendJSON(res, 400, { ok: false, error: 'api.upload.badChunk' });
         logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
         return;
@@ -2622,7 +4042,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/upload/complete' && req.method === 'POST') {
     readBody(req, 4096).then(async (body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const uploadId = o && typeof o.uploadId === 'string' ? o.uploadId : '';
       const meta = UPLOAD_ID_RE.test(uploadId) ? readSession(uploadId) : null;
       if (!meta || meta.owner !== me.username) {
@@ -2677,7 +4097,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   if (pathname === '/api/upload/abort' && req.method === 'POST') {
     readBody(req, 4096).then((body) => {
       let o: any = null;
-      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
       const uploadId = o && typeof o.uploadId === 'string' ? o.uploadId : '';
       const meta = UPLOAD_ID_RE.test(uploadId) ? readSession(uploadId) : null;
       // 只允许放弃自己的会话；不存在也返回 ok（幂等）
@@ -2690,12 +4110,549 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
+  // ---------- 小程序（MiniApp） ----------
+
+  // GET /api/mini/index?scope=&id= —— 合并后的索引（带已安装标记与源状态）
+  if (pathname === '/api/mini/index' && req.method === 'GET') {
+    const gid = urlObj.searchParams.get('id') || '';
+    mini.getIndex().then((idx) => {
+      const marks = new Set<string>();
+      for (const i of mini.listInstalls({ scopeType: 'user', username: me.username })) marks.add('u:' + i.appId);
+      for (const i of (gid ? mini.listInstalls({ scopeType: 'group', scopeId: gid }) : [])) marks.add('g:' + i.appId);
+      const apps = idx.apps.map((a) => Object.assign({}, a, {
+        installedUser: marks.has('u:' + a.id),
+        installedGroup: marks.has('g:' + a.id)
+      }));
+      miniDone(res, 200, {
+        ok: true, apps, sources: idx.sources, updatedAt: idx.updatedAt, cached: idx.cached,
+        permissions: mini.PERMISSIONS, limits: mini.KV_LIMITS
+      }, req, pathname, ip, t0);
+    }).catch(() => {
+      miniDone(res, 200, { ok: true, apps: [], sources: [], updatedAt: 0, cached: false, permissions: mini.PERMISSIONS, limits: mini.KV_LIMITS }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // GET /api/mini/installed?id=<gid> —— 当前会话可见的小程序（个人级 + 该群级）
+  if (pathname === '/api/mini/installed' && req.method === 'GET') {
+    const gid = urlObj.searchParams.get('id') || '';
+    const list = mini.visibleInstalls(me.username, gid || null);
+    miniDone(res, 200, { ok: true, installs: list.map(miniInstallView) }, req, pathname, ip, t0);
+    return;
+  }
+
+  // POST /api/mini/install {appId, scope:'user'|'group', scopeId?, granted[]}
+  if (pathname === '/api/mini/install' && req.method === 'POST') {
+    miniReadBody(req, res, 8192, (o) => {
+      if (!cookieOnly(me)) {
+        miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+        return;
+      }
+      const appId = String(o.appId || '');
+      const { scope, scopeId } = miniScope(o, me.username);
+      if (scope === 'group' && (!scopeId || !groups.isMember(scopeId, me.username))) {
+        miniDone(res, 403, { ok: false, error: 'api.mini.notMember' }, req, pathname, ip, t0);
+        return;
+      }
+      mini.findApp(appId).then((app) => {
+        if (!app) {
+          miniDone(res, 404, { ok: false, error: 'api.mini.appNotFound' }, req, pathname, ip, t0);
+          return;
+        }
+        const granted = (Array.isArray(o.granted) ? o.granted : [])
+          .filter((p: unknown) => app.permissions.indexOf(p as mini.Permission) !== -1) as mini.Permission[];
+        const inst = mini.installApp(me.username, app, scope, scopeId, granted);
+        audit.add({
+          actor: me.username,
+          action: 'mini.install',
+          target: app.id,
+          detail: auditDetail('log.detail.mini.install.' + scope, { name: app.name }),
+          ip
+        });
+        miniDone(res, 200, { ok: true, install: miniInstallView(inst) }, req, pathname, ip, t0);
+      }).catch(() => {
+        miniDone(res, 500, { ok: false, error: 'api.serverError' }, req, pathname, ip, t0);
+      });
+    });
+    return;
+  }
+
+  // POST /api/mini/uninstall {appId, scope, scopeId?}
+  if (pathname === '/api/mini/uninstall' && req.method === 'POST') {
+    miniReadBody(req, res, 4096, (o) => {
+      if (!cookieOnly(me)) {
+        miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+        return;
+      }
+      const { scope, scopeId } = miniScope(o, me.username);
+      const inst = mini.getInstall(String(o.appId || ''), scope, scopeId);
+      if (!inst) {
+        miniDone(res, 404, { ok: false, error: 'api.mini.notInstalled' }, req, pathname, ip, t0);
+        return;
+      }
+      if (!miniManageable(inst, me.username)) {
+        miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+        return;
+      }
+      mini.uninstallApp(inst.appId, scope, scopeId);
+      audit.add({
+        actor: me.username,
+        action: 'mini.uninstall',
+        target: inst.appId,
+        detail: auditDetail('log.detail.mini.uninstall.' + scope, { name: inst.name }),
+        ip
+      });
+      miniDone(res, 200, { ok: true }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // POST /api/mini/regrant {appId, scope, scopeId?, granted[]} —— 重新授权
+  if (pathname === '/api/mini/regrant' && req.method === 'POST') {
+    miniReadBody(req, res, 4096, (o) => {
+      if (!cookieOnly(me)) {
+        miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+        return;
+      }
+      const { scope, scopeId } = miniScope(o, me.username);
+      const inst = mini.getInstall(String(o.appId || ''), scope, scopeId);
+      if (!inst) {
+        miniDone(res, 404, { ok: false, error: 'api.mini.notInstalled' }, req, pathname, ip, t0);
+        return;
+      }
+      if (!miniManageable(inst, me.username)) {
+        miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+        return;
+      }
+      const granted = (Array.isArray(o.granted) ? o.granted : [])
+        .filter((p: unknown) => (inst.manifest.permissions || []).indexOf(p as mini.Permission) !== -1) as mini.Permission[];
+      mini.regrant(inst.appId, scope, scopeId, granted);
+      audit.add({
+        actor: me.username,
+        action: 'mini.regrant',
+        target: inst.appId,
+        detail: auditDetail('log.detail.mini.regrant', { name: inst.name, count: granted.length }),
+        ip
+      });
+      const fresh = mini.getInstall(inst.appId, scope, scopeId);
+      miniDone(res, 200, { ok: true, install: fresh ? miniInstallView(fresh) : null }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // GET /api/mini/context?appId=&scope=&scopeId= —— 下发运行上下文并签发令牌
+  if (pathname === '/api/mini/context' && req.method === 'GET') {
+    if (!cookieOnly(me)) {
+      miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+      return;
+    }
+    const q = urlObj.searchParams;
+    const { scope, scopeId } = miniScope({ scope: q.get('scope'), scopeId: q.get('scopeId') }, me.username);
+    const inst = mini.getInstall(String(q.get('appId') || ''), scope, scopeId);
+    if (!inst || !miniUsable(inst, me.username)) {
+      miniDone(res, 404, { ok: false, error: 'api.mini.notInstalled' }, req, pathname, ip, t0);
+      return;
+    }
+    const chatId = scope === 'group' ? 'g:' + scopeId : 'u:' + me.username;
+    const signed = mini.signToken({ u: me.username, a: inst.appId, s: scope, c: scopeId, p: inst.perms });
+    miniDone(res, 200, {
+      ok: true,
+      context: {
+        appId: inst.appId,
+        userId: me.username,
+        username: me.username,
+        scope,
+        scopeId,
+        chatId,
+        name: inst.name,
+        icon: inst.icon,
+        entry: inst.entry,
+        command: inst.manifest.command || '',
+        permissions: inst.perms
+      },
+      token: signed.token,
+      expires: signed.expires
+    }, req, pathname, ip, t0);
+    return;
+  }
+
+  // POST /api/mini/message {appId, scope, scopeId?, content, md?, gid?, pm?} —— 代发文本消息
+  if (pathname === '/api/mini/message' && req.method === 'POST') {
+    miniReadBody(req, res, 8192, (o) => {
+      const target = miniTarget(me, o);
+      if (!target.ok) {
+        miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+        return;
+      }
+      const inst = target.inst;
+      const scope = inst.scopeType;
+      const scopeId = inst.scopeId;
+      if (!mini.hasPerm(inst, 'message.send')) {
+        miniDone(res, 403, { ok: false, error: 'api.mini.noPerm' }, req, pathname, ip, t0);
+        return;
+      }
+      if (!miniMsgAllowed(me.username + '|' + inst.appId)) {
+        miniDone(res, 429, { ok: false, error: 'api.mini.rateLimited' }, req, pathname, ip, t0);
+        return;
+      }
+      const content = String(o.content == null ? '' : o.content).slice(0, MAX_TEXT_LEN);
+      // 群级安装只能发到本群；个人级由小程序指定目标，成员/好友校验交给 createMessage
+      const gid = scope === 'group' ? scopeId : (o.gid ? String(o.gid).slice(0, 64) : '');
+      const pm = scope === 'group' ? '' : (o.pm ? String(o.pm).slice(0, 64) : '');
+      if (!gid && !pm) {
+        miniDone(res, 400, { ok: false, error: 'api.mini.noTarget' }, req, pathname, ip, t0);
+        return;
+      }
+      const r = createMessage(me.username, ip, {
+        type: 'text', content, gid: gid || null, pm: pm || null, md: o.md ? 1 : 0
+      }, inst.appId);
+      if (!r.ok) {
+        miniDone(res, r.kind === 'penalty' ? 403 : 400, { ok: false, error: r.error }, req, pathname, ip, t0);
+        return;
+      }
+      audit.add({
+        actor: me.username,
+        action: 'mini.msg',
+        target: String(r.record.idx),
+        detail: auditDetail('log.detail.mini.msg', { name: inst.name, text: content.slice(0, 40) }),
+        ip
+      });
+      miniDone(res, 200, { ok: true, idx: r.record.idx }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // GET /api/mini/chat?appId=&scope=&scopeId=&limit= —— 读取当前会话信息、成员与最近消息
+  if (pathname === '/api/mini/chat' && req.method === 'GET') {
+    const q = urlObj.searchParams;
+    const target = miniTarget(me, Object.fromEntries(q as unknown as Iterable<[string, string]>));
+    if (!target.ok) {
+      miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+      return;
+    }
+    const inst = target.inst;
+    const scope = inst.scopeType;
+    const scopeId = inst.scopeId;
+    if (!mini.hasPerm(inst, 'chat.read')) {
+      miniDone(res, 403, { ok: false, error: 'api.mini.noPerm' }, req, pathname, ip, t0);
+      return;
+    }
+    const limit = Math.min(Math.max(parseInt(q.get('limit') || '50', 10) || 50, 1), 100);
+    const gid = scope === 'group' ? scopeId : (q.get('gid') || '');
+    const pm = scope === 'group' ? '' : (q.get('pm') || '');
+    if (gid && !groups.isMember(gid, me.username)) {
+      miniDone(res, 403, { ok: false, error: 'api.mini.notMember' }, req, pathname, ip, t0);
+      return;
+    }
+    if (pm && !friends.isFriend(me.username, pm)) {
+      miniDone(res, 403, { ok: false, error: 'api.msg.notFriend' }, req, pathname, ip, t0);
+      return;
+    }
+    const g = gid ? groups.getGroup(gid) : null;
+    const members = gid
+      ? groups.groupMembers(gid).map((m) => ({ name: m.name, role: m.role || 'member', nickname: m.nickname || '' }))
+      : [];
+    const all = store.all(gid || null, pm ? friends.pairKey(me.username, pm) : null);
+    const recent = all.slice(-limit).map((m) => ({
+      idx: m.idx, from: m.from, type: m.type, content: m.recalled ? '' : m.content,
+      ts: m.ts, recalled: m.recalled ? 1 : 0, viaApp: m.viaApp || ''
+    }));
+    miniDone(res, 200, {
+      ok: true,
+      chat: {
+        kind: gid ? 'group' : (pm ? 'dm' : 'public'),
+        id: gid || pm || '',
+        chatId: gid ? 'g:' + gid : (pm ? 'd:' + friends.pairKey(me.username, pm) : 'pub'),
+        name: g ? g.name : (pm || ''),
+        memberCount: members.length
+      },
+      members,
+      recent
+    }, req, pathname, ip, t0);
+    return;
+  }
+
+  // GET /api/mini/kv —— 读取（k 为空则列出）；POST 写入；DELETE 删除
+  if (pathname === '/api/mini/kv' && req.method === 'GET') {
+    const q = urlObj.searchParams;
+    const target = miniTarget(me, Object.fromEntries(q as unknown as Iterable<[string, string]>));
+    if (!target.ok) {
+      miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+      return;
+    }
+    const inst = target.inst;
+    if (!mini.hasPerm(inst, 'kv.read')) {
+      miniDone(res, 403, { ok: false, error: 'api.mini.noPerm' }, req, pathname, ip, t0);
+      return;
+    }
+    const ns = mini.kvNamespace(inst.scopeType, inst.scopeId, me.username);
+    const k = q.get('k') || '';
+    if (k) {
+      const v = mini.kvGet(inst.appId, ns, k);
+      miniDone(res, 200, { ok: true, key: k, value: v }, req, pathname, ip, t0);
+    } else {
+      miniDone(res, 200, { ok: true, items: mini.kvList(inst.appId, ns) }, req, pathname, ip, t0);
+    }
+    return;
+  }
+
+  if (pathname === '/api/mini/kv' && req.method === 'POST') {
+    miniReadBody(req, res, 128 * 1024, (o) => {
+      const target = miniTarget(me, o);
+      if (!target.ok) {
+        miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+        return;
+      }
+      const inst = target.inst;
+      if (!mini.hasPerm(inst, 'kv.write')) {
+        miniDone(res, 403, { ok: false, error: 'api.mini.noPerm' }, req, pathname, ip, t0);
+        return;
+      }
+      const ns = mini.kvNamespace(inst.scopeType, inst.scopeId, me.username);
+      const r = mini.kvSet(inst.appId, ns, String(o.k || ''), String(o.v == null ? '' : o.v), me.username);
+      if (!r.ok) {
+        miniDone(res, 400, { ok: false, error: r.error }, req, pathname, ip, t0);
+        return;
+      }
+      miniDone(res, 200, { ok: true }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  if (pathname === '/api/mini/kv' && req.method === 'DELETE') {
+    miniReadBody(req, res, 8192, (o) => {
+      const target = miniTarget(me, o);
+      if (!target.ok) {
+        miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+        return;
+      }
+      const inst = target.inst;
+      if (!mini.hasPerm(inst, 'kv.write')) {
+        miniDone(res, 403, { ok: false, error: 'api.mini.noPerm' }, req, pathname, ip, t0);
+        return;
+      }
+      const ns = mini.kvNamespace(inst.scopeType, inst.scopeId, me.username);
+      mini.kvDel(inst.appId, ns, String(o.k || ''));
+      miniDone(res, 200, { ok: true }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // POST /api/mini/invoke —— 记录一次 #指令 调用（审计用）
+  if (pathname === '/api/mini/invoke' && req.method === 'POST') {
+    miniReadBody(req, res, 4096, (o) => {
+      const target = miniTarget(me, o);
+      if (!target.ok) {
+        miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+        return;
+      }
+      const inst = target.inst;
+      audit.add({
+        actor: me.username,
+        action: 'mini.invoke',
+        target: inst.appId,
+        detail: auditDetail('log.detail.mini.invoke', { name: inst.name, command: String(o.command || '') }),
+        ip
+      });
+      miniDone(res, 200, { ok: true }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // GET /api/admin/mini —— 索引源配置与上次加载状态（管理员）
+  if (pathname === '/api/admin/mini' && req.method === 'GET') {
+    mini.getIndex().then((idx) => {
+      miniDone(res, 200, {
+        ok: true,
+        sources: mini.getSources(),
+        status: idx.sources,
+        updatedAt: idx.updatedAt,
+        appCount: idx.apps.length,
+        installCount: mini.listInstalls({}).length
+      }, req, pathname, ip, t0);
+    }).catch(() => {
+      miniDone(res, 200, { ok: true, sources: mini.getSources(), status: [], updatedAt: 0, appCount: 0, installCount: 0 }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // POST /api/admin/mini {sources?: [...]} 或 {refresh: true}
+  if (pathname === '/api/admin/mini' && req.method === 'POST') {
+    miniReadBody(req, res, 16384, (o) => {
+      if (Array.isArray(o.sources) || o.sources !== undefined) {
+        mini.setSources((Array.isArray(o.sources) ? o.sources : []) as mini.MiniSource[]);
+        audit.add({
+          actor: me.username,
+          action: 'mini.sourceConfig',
+          target: 'mini_sources',
+          detail: auditDetail('log.detail.mini.sourceConfig', { count: (Array.isArray(o.sources) ? o.sources : []).length }),
+          ip
+        });
+      }
+      const after = o.refresh ? mini.refreshIndex() : mini.getIndex(true);
+      after.then((idx) => {
+        miniDone(res, 200, {
+          ok: true,
+          sources: mini.getSources(),
+          status: idx.sources,
+          updatedAt: idx.updatedAt,
+          appCount: idx.apps.length
+        }, req, pathname, ip, t0);
+      }).catch(() => {
+        miniDone(res, 200, { ok: true, sources: mini.getSources(), status: [], updatedAt: 0, appCount: 0 }, req, pathname, ip, t0);
+      });
+    });
+    return;
+  }
+
   // GET /api/health
   sendJSON(res, 404, { ok: false, error: 'api.notFound' });
   logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
 }
 
-// ---------- HTTP 入口 ----------
+/* ============================================================
+ * 小程序（MiniApp）接口
+ *
+ * 认证：默认走登录会话 Cookie（父页面代持，同源自动携带）。
+ * 沙箱 iframe（sandbox="allow-scripts"）是不透明源、发不出 Cookie，
+ * 因此额外接受由会话派生的短时 mini_token（X-Mini-Token 头），
+ * 它不是用户可创建/可管理的 API Key，仅用于把会话身份带进沙箱。
+ * ============================================================ */
+
+const MINI_CORS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Mini-Token',
+  'Access-Control-Max-Age': '86400'
+};
+
+/** 个人级安装的作用域 id 就是用户名；群级是 gid */
+function miniScope(o: any, username: string): { scope: mini.MiniScopeType; scopeId: string } {
+  return o && o.scope === 'group'
+    ? { scope: 'group', scopeId: String(o.scopeId || '') }
+    : { scope: 'user', scopeId: username };
+}
+
+/** 调用者是否能使用这条安装记录（群级要求是本群成员，个人级要求是本人） */
+function miniUsable(inst: mini.MiniInstall | null, username: string): boolean {
+  if (!inst || !inst.enabled) return false;
+  return inst.scopeType === 'group' ? groups.isMember(inst.scopeId, username) : inst.scopeId === username;
+}
+
+/** 是否能管理（卸载 / 改授权）这条安装记录：本人安装者，或群主/管理员 */
+function miniManageable(inst: mini.MiniInstall | null, username: string): boolean {
+  if (!inst) return false;
+  if (inst.scopeType === 'group') return groups.isManager(inst.scopeId, username);
+  return inst.username === username;
+}
+
+const MINI_MSG_WINDOW = 60 * 1000;
+const MINI_MSG_MAX = 10; // 每个「用户 + 小程序」每分钟最多代发 10 条
+const miniMsgLog = new Map<string, number[]>();
+
+function miniMsgAllowed(key: string): boolean {
+  const now = Date.now();
+  if (miniMsgLog.size > 5000) miniMsgLog.clear(); // 极简的内存兜底，避免长期驻留
+  const arr = (miniMsgLog.get(key) || []).filter((t) => now - t < MINI_MSG_WINDOW);
+  if (arr.length >= MINI_MSG_MAX) {
+    miniMsgLog.set(key, arr);
+    return false;
+  }
+  arr.push(now);
+  miniMsgLog.set(key, arr);
+  return true;
+}
+
+/** 读取并解析小程序请求的 JSON body（错误统一回 api.badRequest + CORS 头） */
+function miniReadBody(req: any, res: any, limit: number, cb: (o: any) => void): void {
+  readBody(req, limit).then((body) => {
+    let o: any = null;
+    try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+    if (!o || typeof o !== 'object') {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' }, MINI_CORS);
+      return;
+    }
+    cb(o);
+  }).catch((e: unknown) => {
+    // 回调里抛出的异常也会走到这里，不能只回 400 就把原因吞掉
+    console.error('[mini] 请求处理失败', e);
+    sendJSON(res, 400, { ok: false, error: 'api.badRequest' }, MINI_CORS);
+  });
+}
+
+/** 小程序接口统一的收尾：回包 + 写访问日志 */
+function miniDone(res: any, status: number, obj: unknown, req: any, pathname: string, ip: string, t0: number): void {
+  sendJSON(res, status, obj, MINI_CORS);
+  logger.write({ ip, method: req.method, url: pathname, status, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+}
+
+/** 会话身份 + 小程序令牌（有 mini 字段表示这次是沙箱里的直连请求） */
+interface MiniRequestAuth extends auth.RequestAuth {
+  mini?: mini.MiniTokenPayload;
+}
+
+/** 由会话派生的短时令牌还原身份；无效返回 null */
+function authFromMiniToken(req: any, ip: string): MiniRequestAuth | null {
+  const raw = req.headers['x-mini-token'];
+  const one = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof one !== 'string' || !one) return null;
+  const t = mini.verifyToken(one);
+  if (!t) return null;
+  return { username: t.u, ip, token: 'mini-token', viaKey: false, scopes: null, mini: t };
+}
+
+/**
+ * 解析小程序请求的作用目标（appId + 作用域 + 安装记录）。
+ * **令牌请求一律以令牌为准**：令牌里写死了 appId / 作用域，请求里再带一个不同的 appId
+ * 一律拒绝——否则 A 小程序可以拿自己的令牌去读写 B 小程序的 KV。
+ */
+function miniTarget(
+  me: MiniRequestAuth,
+  raw: Record<string, unknown>
+): { ok: true; inst: mini.MiniInstall } | { ok: false; status: number; error: string } {
+  const t = me.mini;
+  if (t) {
+    const asked = raw.appId == null ? '' : String(raw.appId);
+    if (asked && asked !== t.a) return { ok: false, status: 403, error: 'api.forbidden' };
+    const inst = mini.getInstall(t.a, t.s, t.c);
+    if (!inst || !miniUsable(inst, me.username)) return { ok: false, status: 404, error: 'api.mini.notInstalled' };
+    return { ok: true, inst };
+  }
+  const { scope, scopeId } = miniScope(raw, me.username);
+  const inst = mini.getInstall(String(raw.appId || ''), scope, scopeId);
+  if (!inst || !miniUsable(inst, me.username)) return { ok: false, status: 404, error: 'api.mini.notInstalled' };
+  return { ok: true, inst };
+}
+
+/** 安装 / 卸载 / 改授权只接受会话 Cookie：这些是用户行为，不该由沙箱里的小程序触发 */
+function cookieOnly(me: MiniRequestAuth): boolean {
+  return !me.mini;
+}
+
+/** 安装记录 -> 前端视图（不回传 manifest 全量，只给展示需要的字段） */
+function miniInstallView(i: mini.MiniInstall): Record<string, unknown> {
+  return {
+    appId: i.appId,
+    name: i.name,
+    icon: i.icon,
+    version: i.version,
+    entry: i.entry,
+    summary: i.manifest.summary || '',
+    description: i.manifest.description || '',
+    author: i.manifest.author || '',
+    homepage: i.manifest.homepage || '',
+    command: i.manifest.command || '',
+    window: i.manifest.window || null,
+    permissions: i.manifest.permissions || [],
+    granted: i.perms,
+    scopeType: i.scopeType,
+    scopeId: i.scopeId,
+    installedBy: i.username,
+    created: i.created,
+    updated: i.updated
+  };
+}
+
 
 export function handleHttp(req: any, res: any): void {
   const ip = req.socket.remoteAddress || '-';
@@ -2727,9 +4684,16 @@ export function handleHttp(req: any, res: any): void {
   logger.write({ ip, method: req.method, url: pathname, status: res.statusCode || 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
 }
 
+/** 用户头像 + 群头像的上传文件名集合：这类文件受保护，不计「未引用」，不参与过期清理，也不可在此处删除 */
+function avatarBaseSet(): Set<string> {
+  const set = auth.avatarFiles();
+  for (const g of groups.avatarFiles()) set.add(g);
+  return set;
+}
+
 export function runFileCleanup(): void {
   try {
-    const n = store.cleanupExpired(FILE_TTL_DAYS);
+    const n = store.cleanupExpired(FILE_TTL_DAYS, avatarBaseSet());
     if (n > 0) console.log('[cleanup] 文件过期清理：' + n + ' 个文件已删除，消息记录保留');
   } catch (e: any) {
     console.error('[cleanup] 文件过期清理失败：' + (e && e.message ? e.message : e));
@@ -2738,3 +4702,6 @@ export function runFileCleanup(): void {
 }
 
 export { UPLOAD_DIR, FILE_CLEANUP_INTERVAL };
+
+// 让 store 的底层文件清理（解散群 / 删群文件 / 过期清理）也能识别并保护用户/群头像
+store.setProtectProvider(avatarBaseSet);

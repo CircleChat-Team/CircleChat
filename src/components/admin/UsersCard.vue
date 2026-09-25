@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 账号管理（新建 + 列表：改密 / 头像 / 删除）
- * ============================================================ */
+// 账号管理（新建 + 列表：改密 / 头像 / 删除）
 import { ref, computed, inject, onMounted } from 'vue';
 import { get, post } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
@@ -9,16 +7,28 @@ import { fmtDate } from '../../core/format';
 import { passwordOk } from '../../core/password';
 import UserManageDialog from './UserManageDialog.vue';
 import type { UserItem } from '../../types';
+import { presenceText } from '../../core/presence';
 
 const props = defineProps<{ me: string }>();
 
 type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
 
+/**
+ * 状态文案。**返回的是翻译好的文本**（presenceText 内部已经 tr 过），
+ * 调用方直接显示即可 —— 以前这里叫 statusKey 并写成 tr('common.' + ...)，
+ * 等于翻了两次，tr 找不到键就把 `common.离线` 这样的键名原样显示出来了。
+ */
+function statusText(u: UserItem): string {
+  return presenceText(!!u.online, false, u.platform, u.lastSeen);
+}
+
 const items = ref<UserItem[]>([]);
 const failed = ref('');
 const newName = ref('');
 const newPass = ref('');
+/** 新建账号的权限组：普通用户 / 管理员 */
+const newRole = ref<'user' | 'admin'>('user');
 const passEl = ref<HTMLInputElement | null>(null);
 
 /** 正在管理的账号名；用名字而不是对象引用，列表刷新后弹窗内容自动跟着更新 */
@@ -48,7 +58,7 @@ function add(): void {
     toast(tr('admin.add.validate'));
     return;
   }
-  post('/api/admin/user/add', { name, password: newPass.value }).then((j) => {
+  post('/api/admin/user/add', { name, password: newPass.value, role: newRole.value }).then((j) => {
     if (!j.ok) {
       toast(tr(j.error || 'admin.add.fail'));
       return;
@@ -73,7 +83,6 @@ onMounted(load);
 </script>
 
 <template>
-  <!-- 新建账号 -->
   <section class="rounded-card border border-line bg-panel p-4">
     <h2 class="mb-3 text-[13px] font-semibold text-muted">{{ tr('admin.add.title') }}</h2>
     <div class="flex items-center gap-2">
@@ -94,6 +103,16 @@ onMounted(load);
         :placeholder="tr('reg.passPlaceholder')"
         @keydown.enter.prevent="add"
       >
+      <!-- 权限组：普通用户 / 管理员（服务端 /api/admin/user/add 本来就收 role，此前只是没给入口） -->
+      <select
+        v-model="newRole"
+        class="h-[34px] shrink-0 rounded-lg border border-line bg-fill px-2 text-[13px] outline-none transition-colors focus:border-primary"
+        :title="tr('admin.add.role')"
+        :aria-label="tr('admin.add.role')"
+      >
+        <option value="user">{{ tr('admin.role.user') }}</option>
+        <option value="admin">{{ tr('admin.role.admin') }}</option>
+      </select>
       <button
         type="button"
         class="h-[34px] shrink-0 rounded-lg bg-primary px-3.5 text-[13px] text-white transition-colors hover:bg-primary-dark"
@@ -104,7 +123,6 @@ onMounted(load);
     </div>
   </section>
 
-  <!-- 账号列表 -->
   <section class="rounded-card border border-line bg-panel p-4">
     <h2 class="mb-3 text-[13px] font-semibold text-muted">
       {{ tr('admin.users.title') }}
@@ -118,7 +136,7 @@ onMounted(load);
       <div
         v-for="u in items"
         :key="u.name"
-        class="flex items-center gap-2 rounded-xl bg-fill px-3 py-2 text-[13px]"
+        class="user-row flex items-center gap-2 rounded-xl bg-fill px-3 py-2 text-[13px]"
       >
         <img
           v-if="u.image"
@@ -132,7 +150,7 @@ onMounted(load);
         </span>
         <span v-if="u.role === 'admin'" class="shrink-0 text-[11px] text-primary">{{ tr('common.admin') }}</span>
         <span class="shrink-0 text-[11px]" :class="u.online ? 'text-primary' : 'text-muted'">
-          {{ u.online ? tr('common.online') : tr('common.offline') }}
+          {{ statusText(u) }}
         </span>
         <span class="shrink-0 text-[11px] text-muted">{{ fmtDate(u.created) }}</span>
 

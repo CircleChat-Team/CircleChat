@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
-import { chatState, sendText, uploadFiles, notifyTyping, dmgating } from '../../core/chat';
+import { ref, computed, nextTick, watch } from 'vue';
+import { chatState, sendText, uploadFiles, notifyTyping, dmgating, sendShake, canShake, openMyProfile } from '../../core/chat';
 import { tr } from '../../core/i18n';
+import { miniCommandCandidates, tryRunMiniCommand, type MiniInstallItem } from '../../core/mini';
 import EmojiPanel from './EmojiPanel.vue';
 import UploadProgress from './UploadProgress.vue';
 
 const text = ref('');
 const textarea = ref<HTMLTextAreaElement | null>(null);
 const bigEl = ref<HTMLTextAreaElement | null>(null);
-const editOpen = ref(false); // 放大编辑器
+const editOpen = ref(false); 
 const showEmoji = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const showMention = ref(true);
@@ -33,10 +34,17 @@ const replyText = computed(() => {
   return String(r.content || '').replace(/\s+/g, ' ').trim();
 });
 
+/** 当前群处于群禁言且我不是管理者：不允许发言 */
+const groupMuted = computed(() =>
+  chatState.activeGid != null && !!chatState.activeGroupMuteAll && !chatState.activeGroupIsManager
+);
 const mutedText = computed(() => {
-  if (!chatState.muted) return '';
-  return tr('chat.muted.banner');
+  if (chatState.muted) return tr('chat.muted.banner');
+  if (groupMuted.value) return tr('group.muteAll');
+  return '';
 });
+/** 只有「账号被禁言」才显示申诉入口；群禁言无需申诉 */
+const showAppeal = computed(() => !!chatState.muted);
 
 // @提及候选：检测光标前未完成的 @词
 const mention = computed(() => {
@@ -50,6 +58,49 @@ const mention = computed(() => {
   return list.length ? { start: m.index, list } : null;
 });
 
+// #指令候选：输入「#」时浮出可调用的小程序（不打断输入，Esc 关掉）
+const showCmd = ref(true);
+const cmdIndex = ref(0);
+const cmdCandidates = computed<MiniInstallItem[]>(() => {
+  if (!showCmd.value || mention.value) return [];
+  const t = text.value.trim();
+  if (!/^#[A-Za-z0-9_-]*$/.test(t)) return [];
+  return miniCommandCandidates(t);
+});
+watch(cmdCandidates, () => {
+  cmdIndex.value = 0;
+});
+function runCmd(inst: MiniInstallItem): void {
+  if (!inst.command) return;
+  const key = roomKey(chatState.activeGid, chatState.activeDmPeer);
+  tryRunMiniCommand('#' + inst.command);
+  text.value = '';
+  if (key) drafts.delete(key);
+  showCmd.value = true;
+  showEmoji.value = false;
+  nextTick(autoGrow);
+}
+
+// 按会话保存未发送草稿：切换会话时把当前内容存回旧会话、恢复新会话草稿。
+// 既避免「带着上一条没发完的话进了新会话」，也防止误发到错误的对象。会话级内存保存，不落盘。
+const drafts = new Map<string, string>();
+function roomKey(gid: string | null, peer: string | null): string {
+  return gid != null ? 'g:' + gid : peer ? 'd:' + peer : '';
+}
+watch(
+  () => [chatState.activeGid, chatState.activeDmPeer] as const,
+  (nv, ov) => {
+    const oldKey = roomKey(ov[0], ov[1]);
+    if (oldKey) {
+      if (text.value) drafts.set(oldKey, text.value);
+      else drafts.delete(oldKey);
+    }
+    const newKey = roomKey(nv[0], nv[1]);
+    text.value = newKey ? drafts.get(newKey) || '' : '';
+    nextTick(autoGrow);
+  }
+);
+
 function autoGrow(): void {
   const el = textarea.value;
   if (!el) return;
@@ -59,12 +110,25 @@ function autoGrow(): void {
 function onInput(): void {
   // 按 Esc 关掉 @ 候选后如果不复位，@补全会永久失效（原实现只在 send() 里复位）
   showMention.value = true;
+  showCmd.value = true;
   autoGrow();
   notifyTyping();
 }
 function send(): void {
+  const key = roomKey(chatState.activeGid, chatState.activeDmPeer);
+  // #指令：命中已安装的小程序就打开它，不要把「#roll」当普通消息发出去
+  if (tryRunMiniCommand(text.value)) {
+    text.value = '';
+    if (key) drafts.delete(key);
+    showCmd.value = true;
+    showMention.value = true;
+    nextTick(autoGrow);
+    showEmoji.value = false;
+    return;
+  }
   sendText(text.value);
   text.value = '';
+  if (key) drafts.delete(key);
   showMention.value = true;
   nextTick(autoGrow);
   showEmoji.value = false;
@@ -90,6 +154,25 @@ function insertNewline(): void {
   });
 }
 function onKey(e: KeyboardEvent): void {
+  // #指令候选：上下键切换、Enter/Tab 直接调用、Esc 关掉
+  if (cmdCandidates.value.length) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const n = cmdCandidates.value.length;
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      cmdIndex.value = (cmdIndex.value + step + n) % n;
+      return;
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      runCmd(cmdCandidates.value[Math.min(cmdIndex.value, cmdCandidates.value.length - 1)]);
+      return;
+    }
+    if (e.key === 'Escape') {
+      showCmd.value = false;
+      return;
+    }
+  }
   if (mention.value) {
     if (e.key === 'Enter' || e.key === 'Tab') {
       e.preventDefault();
@@ -206,6 +289,14 @@ function onFile(e: Event): void {
 function cancelReply(): void {
   chatState.replyTo = null;
 }
+
+// 窗口抖动：只在私聊出现；对方不在桌面客户端时禁用（抖了也没效果）
+const shakeVisible = computed(() => !!chatState.activeDmPeer);
+const canShakeNow = computed(() => canShake());
+const shakeTitle = computed(() => canShakeNow.value ? tr('chat.shake.title') : tr('chat.shake.notClient'));
+function onShake(): void {
+  sendShake();
+}
 </script>
 
 <template>
@@ -224,6 +315,13 @@ function cancelReply(): void {
 
     <div v-if="mutedText" class="reply-bar muted-bar">
       <span class="reply-text">{{ mutedText }}</span>
+      <!-- 被禁言的人最想知道「怎么办」：直接给申诉入口（打开资料的处罚页签） -->
+      <button
+        v-if="showAppeal"
+        type="button"
+        class="muted-appeal shrink-0 text-xs underline transition-opacity hover:opacity-80"
+        @click="openMyProfile('penalty')"
+      >{{ tr('mod.appeal.open') }}</button>
     </div>
 
     <UploadProgress />
@@ -238,6 +336,21 @@ function cancelReply(): void {
         class="mention-item"
         @click="insertMention(n)"
       >@{{ n }}</button>
+    </div>
+
+    <div v-if="cmdCandidates.length" class="mini-cmd">
+      <button
+        v-for="(c, i) in cmdCandidates"
+        :key="c.appId + '/' + c.scopeType"
+        type="button"
+        class="mini-cmd-item"
+        :class="{ on: i === cmdIndex }"
+        @click="runCmd(c)"
+      >
+        <img v-if="c.icon" :src="c.icon" alt="" class="h-5 w-5 rounded object-cover" />
+        <span class="mini-cmd-name">#{{ c.command }}</span>
+        <span class="mini-cmd-sum">{{ c.name }}<template v-if="c.summary"> · {{ c.summary }}</template></span>
+      </button>
     </div>
 
     <div v-if="showEmoji" class="emoji-wrap">
@@ -260,6 +373,19 @@ function cancelReply(): void {
       >
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M16.5 6v11.5a4 4 0 1 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a4 4 0 0 0 8 0V5a5.5 5.5 0 0 0-11 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z" />
+        </svg>
+      </button>
+      <!-- 窗口抖动：只在私聊出现（群里会一次惊动所有人）；对方不在客户端时禁用 -->
+      <button
+        v-if="shakeVisible"
+        type="button"
+        class="tool-btn"
+        :title="shakeTitle"
+        :disabled="!canShakeNow || !!mutedText"
+        @click="onShake"
+      >
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-5v-5a7 7 0 0 0-5-6.71V4a2 2 0 1 0-4 0v1.29A7 7 0 0 0 5 12v5l-2 2v1h18v-1l-2-2z" />
         </svg>
       </button>
       <textarea
@@ -294,7 +420,6 @@ function cancelReply(): void {
     <input ref="fileInput" type="file" hidden multiple @change="onFile" />
   </footer>
 
-  <!-- 放大编辑器（按钮控制） -->
   <div v-if="editOpen" class="editor-overlay" @click.self="closeEditor">
     <div class="editor-card">
       <textarea

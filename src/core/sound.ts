@@ -12,7 +12,6 @@
 import { url } from './api';
 
 const AUDIO_DIR = '/audio/';
-/** 发送提示音（固定） */
 const OUTGOING_FILE = 'universfield-message-ping-351298.mp3';
 
 export interface NotifySound {
@@ -50,13 +49,11 @@ function play(a: HTMLAudioElement | null): void {
   try {
     a.currentTime = 0; // 媒体未就绪时可能抛错，忽略后继续尝试播放
   } catch {
-    /* 忽略 */
   }
   try {
     const p = a.play();
     if (p && typeof p.catch === 'function') p.catch(() => { /* 未获得用户手势前会被拒绝，忽略 */ });
   } catch {
-    /* 忽略 */
   }
 }
 
@@ -65,7 +62,6 @@ const outgoing = make(url(AUDIO_DIR + OUTGOING_FILE), 0.5);
 const notifyCache = new Map<string, HTMLAudioElement>();
 let notifyFile = DEFAULT_NOTIFY_SOUND;
 
-/** 是否为合法的可选提示音 */
 export function isNotifySound(file: string): boolean {
   return NOTIFY_SOUNDS.some((s) => s.file === file);
 }
@@ -85,17 +81,14 @@ function notifyAudio(file: string): HTMLAudioElement | null {
   return a || null;
 }
 
-/** 收到他人新消息 */
 export function playIncoming(): void {
   play(notifyAudio(notifyFile));
 }
 
-/** 自己发送消息（文本 / 文件） */
 export function playOutgoing(): void {
   play(outgoing);
 }
 
-/** 设置面板试听指定提示音 */
 export function playNotifyPreview(file: string): void {
   play(notifyAudio(file));
 }

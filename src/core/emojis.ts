@@ -1,7 +1,4 @@
-/* ============================================================
- * CircleChat 前端 — 表情数据
- * 从原 public/js/chat.js 的 EMOJIS 平移而来，分组按特征表情切分。
- * ============================================================ */
+// CircleChat 前端 — 表情数据 从原 public/js/chat.js 的 EMOJIS 平移而来，分组按特征表情切分。
 
 export const EMOJIS: string[] = [
   // 原有表情
@@ -55,6 +52,6 @@ export function buildEmojiGroups(): EmojiGroup[] {
   });
 }
 
-export const EMOJI_PER_PAGE = 40; // 每页 10 列 × 4 行
+export const EMOJI_PER_PAGE = 40; 
 
 export const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👀'];

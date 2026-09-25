@@ -9,17 +9,20 @@ import {
   setNotifySound,
   setSoundIn,
   setSoundOut,
+  setAllowInvite,
   clearNotice,
-  uploadFiles
+  uploadFiles,
+  openSearch,
+  closeSearch
 } from './core/chat';
 import { NOTIFY_SOUNDS, playNotifyPreview, playOutgoingPreview } from './core/sound';
 import { tr } from './core/i18n';
 import { accent, setAccent } from './core/theme';
+import { canSystemNotify } from './utils/notify';
 import Sidebar from './components/chat/Sidebar.vue';
 import MessageList from './components/chat/MessageList.vue';
 import InputBar from './components/chat/InputBar.vue';
 import ProfileCard from './components/chat/ProfileCard.vue';
-import MyProfile from './components/chat/MyProfile.vue';
 import StyleDialog from './components/chat/StyleDialog.vue';
 import FriendSearch from './components/chat/FriendSearch.vue';
 import GroupDialog from './components/chat/GroupDialog.vue';
@@ -30,6 +33,12 @@ import ForwardPicker from './components/chat/ForwardPicker.vue';
 import MergeForwardViewer from './components/chat/MergeForwardViewer.vue';
 import ImageViewer from './components/chat/ImageViewer.vue';
 import VideoViewer from './components/chat/VideoViewer.vue';
+import FileViewer from './components/chat/FileViewer.vue';
+import MemberPanel from './components/chat/MemberPanel.vue';
+import SearchPanel from './components/chat/SearchPanel.vue';
+import RepoModal from './components/chat/RepoModal.vue';
+import MiniAppPanel from './components/chat/MiniAppPanel.vue';
+import MiniAppFrame from './components/chat/MiniAppFrame.vue';
 import ForceChangePassword from './components/common/ForceChangePassword.vue';
 
 const title = computed(() => {
@@ -58,6 +67,11 @@ const activeAnnouncement = computed(() => {
 // 移动端：侧边栏抽屉 + 设置面板开关
 const sidebarOpen = ref(false);
 const settingsOpen = ref(false);
+// 群成员面板（所有群成员可见，以前只有群主/管理员能进群管理页看成员）
+const membersOpen = ref(false);
+
+/** 系统通知只由桌面客户端提供，网页端把开关置灰 */
+const notifyAvailable = canSystemNotify();
 
 function onNotify(e: Event): void {
   const v = (e.target as HTMLInputElement).checked;
@@ -85,6 +99,10 @@ function onSoundOut(e: Event): void {
   const on = (e.target as HTMLInputElement).checked;
   setSoundOut(on);
   if (on) playOutgoingPreview();
+}
+
+function onAllowInvite(e: Event): void {
+  setAllowInvite((e.target as HTMLInputElement).checked);
 }
 
 // 标签页标题跟随当前会话（与登录页/群管理页的做法一致）
@@ -141,6 +159,18 @@ function refreshMailboxBadge(): void {
       mailboxUnread.value = list.filter((x) => !x.read).length;
     }
   }).catch(() => { /* 静默：失败时不改红点 */ });
+}
+
+/** 打开「当前会话」的聊天记录搜索；与群成员抽屉互斥（都在右侧，不叠着显示） */
+function openRoomSearch(): void {
+  membersOpen.value = false;
+  openSearch('room');
+}
+
+/** 群成员抽屉开关：打开时顺手收起搜索面板 */
+function toggleMembers(): void {
+  membersOpen.value = !membersOpen.value;
+  if (membersOpen.value) closeSearch();
 }
 
 function openMailbox(): void {
@@ -206,6 +236,20 @@ onMounted(refreshMailboxBadge);
         </div>
 
         <div class="chat-actions">
+          <!-- 群成员：所有群成员都能看（不再只有群主/管理员有入口） -->
+          <button
+            v-if="chatState.activeGid != null"
+            type="button"
+            class="header-btn icon-only"
+            :class="{ on: membersOpen }"
+            :title="tr('chat.members.title')"
+            :aria-label="tr('chat.members.title')"
+            @click="toggleMembers"
+          >
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
+            </svg>
+          </button>
           <a v-if="chatState.isAdmin" href="/admin.html" class="admin-entry" :title="tr('chat.adminPanel')">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
@@ -215,13 +259,26 @@ onMounted(refreshMailboxBadge);
           <button
             v-if="chatState.activeGid != null || chatState.activeDmPeer != null"
             type="button"
+            class="header-btn icon-only"
+            :class="{ on: chatState.searchOpen && chatState.searchScope === 'room' }"
+            :title="tr('chat.search.room')"
+            :aria-label="tr('chat.search.room')"
+            @click="openRoomSearch"
+          >
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z" />
+            </svg>
+          </button>
+          <button
+            v-if="chatState.activeGid != null || chatState.activeDmPeer != null"
+            type="button"
             class="header-btn"
             :title="tr('chat.ctx.multi')"
             @click="toggleSelectMode"
           >{{ tr('chat.ctx.multi') }}</button>
           <button
             type="button"
-            class="header-btn"
+            class="header-btn icon-only"
             :title="tr('mailbox.title')"
             @click="openMailbox"
           >
@@ -256,10 +313,13 @@ onMounted(refreshMailboxBadge);
 
       <MessageList />
       <InputBar />
+
+      <MemberPanel v-model="membersOpen" />
+      <SearchPanel />
+      <RepoModal />
     </main>
 
     <ProfileCard />
-    <MyProfile />
     <Dialog />
     <MailboxPanel v-if="mailboxOpen" @close="onMailboxClose" @read="onMailboxRead" />
     <StyleDialog />
@@ -270,6 +330,9 @@ onMounted(refreshMailboxBadge);
     <MergeForwardViewer />
     <ImageViewer />
     <VideoViewer />
+    <FileViewer v-model="chatState.fileView" />
+    <MiniAppPanel />
+    <MiniAppFrame />
 
     <!-- 移动端设置面板：将顶栏散落的按钮统一收纳 -->
     <div class="settings-mask" :class="{ show: settingsOpen }" @click="settingsOpen = false"></div>
@@ -282,10 +345,12 @@ onMounted(refreshMailboxBadge);
         <div class="settings-row">
           <span>{{ tr('chat.notify.label') }}</span>
           <label class="switch">
-            <input type="checkbox" :checked="chatState.notifyOn" @change="onNotify" />
+            <input type="checkbox" :checked="chatState.notifyOn" :disabled="!notifyAvailable" @change="onNotify" />
             <span class="slider"></span>
           </label>
         </div>
+        <!-- 网页端没有系统通知能力（通知由客户端通过 IPC 弹出），说明一下开关为什么点不动 -->
+        <div v-if="!notifyAvailable" class="settings-hint">{{ tr('chat.notify.desktopOnly') }}</div>
         <div class="settings-row">
           <span>{{ tr('chat.settings.soundIn') }}</span>
           <label class="switch">
@@ -306,6 +371,13 @@ onMounted(refreshMailboxBadge);
             <button type="button" :class="{ on: chatState.sendKey === 'enter' }" @click="onSendKey('enter')">{{ tr('chat.settings.sendKey.enter') }}</button>
             <button type="button" :class="{ on: chatState.sendKey === 'ctrl' }" @click="onSendKey('ctrl')">{{ tr('chat.settings.sendKey.ctrl') }}</button>
           </div>
+        </div>
+        <div class="settings-row">
+          <span>{{ tr('group.allowInviteMe') }}</span>
+          <label class="switch">
+            <input type="checkbox" :checked="chatState.allowInvite" @change="onAllowInvite" />
+            <span class="slider"></span>
+          </label>
         </div>
         <div class="settings-row">
           <span>{{ tr('chat.settings.notifySound') }}</span>

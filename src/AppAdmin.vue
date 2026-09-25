@@ -1,10 +1,7 @@
 <script setup lang="ts">
-/* ============================================================
- * 管理页根组件
- * 顶栏（返回 / 语言 / 主题 / 退出）、卡片编排、全局轻提示。
- * ============================================================ */
-import { ref, provide, watchEffect } from 'vue';
-import { post } from './core/api';
+// 管理页根组件 顶栏（返回 / 语言 / 主题 / 退出）、卡片编排、全局轻提示。
+import { ref, provide, watchEffect, onMounted, onBeforeUnmount } from 'vue';
+import { get, post } from './core/api';
 import { tr } from './core/i18n';
 import LangMenu from './components/common/LangMenu.vue';
 import ThemeToggle from './components/common/ThemeToggle.vue';
@@ -13,6 +10,8 @@ import UsersCard from './components/admin/UsersCard.vue';
 import FilesCard from './components/admin/FilesCard.vue';
 import LogsCard from './components/admin/LogsCard.vue';
 import ModerationCard from './components/admin/ModerationCard.vue';
+import SecurityCard from './components/admin/SecurityCard.vue';
+import MiniCard from './components/admin/MiniCard.vue';
 import Dialog from './components/common/Dialog.vue';
 
 const props = defineProps<{ me: string }>();
@@ -37,6 +36,8 @@ const tabs = [
   { id: 'users', label: 'admin.tab.users' },
   { id: 'moderation', label: 'admin.tab.moderation' },
   { id: 'files', label: 'admin.tab.files' },
+  { id: 'security', label: 'admin.tab.security' },
+  { id: 'mini', label: 'admin.tab.mini' },
   { id: 'logs', label: 'admin.tab.logs' }
 ];
 const active = ref('approvals');
@@ -46,13 +47,26 @@ watchEffect(() => {
   document.title = tr('admin.title');
 });
 
+// 管理页没有 WebSocket，无法像聊天 / 群管理页那样在断线时感知会话失效；
+// 这里定时探活 /api/me，一旦 401（会话丢失）由请求层统一回登录页。
+let heartbeat: number | undefined;
+onMounted(() => {
+  heartbeat = window.setInterval(() => {
+    get('/api/me').catch(() => {
+      /* 网络抖动忽略，401 由请求层处理 */
+    });
+  }, 30000);
+});
+onBeforeUnmount(() => {
+  if (heartbeat) window.clearInterval(heartbeat);
+});
+
 function back(): void {
   location.href = '/chat.html';
 }
 
 function logout(): void {
   post('/api/logout', {}).catch(() => {
-    /* 忽略 */
   });
   location.replace('/login.html');
 }
@@ -116,6 +130,8 @@ function logout(): void {
         <UsersCard v-if="active === 'users'" :me="me" />
         <ModerationCard v-if="active === 'moderation'" />
         <FilesCard v-if="active === 'files'" />
+        <SecurityCard v-if="active === 'security'" />
+        <MiniCard v-if="active === 'mini'" />
         <LogsCard v-if="active === 'logs'" />
       </div>
     </main>

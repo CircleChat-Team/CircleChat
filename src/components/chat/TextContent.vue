@@ -2,10 +2,14 @@
 /* 安全文本渲染：把消息正文解析为 文本 / 链接 / @提及 / 行内代码 / 代码块。
  * 纯文本走 Vue 的文本插值（自动转义），只有经过 highlight.js 转义后的代码块才用 v-html，
  * 因此不存在 XSS 风险。 */
-import { computed } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import hljs from 'highlight.js/lib/common';
 import { chatState, tr, copyToClipboard } from '../../core/chat';
 import { renderMath, mathReady } from '../../core/math';
+import { renderMermaid } from '../../core/mermaid';
+import { theme } from '../../core/theme';
+import { extractRepos } from '../../core/github';
+import RepoCard from './RepoCard.vue';
 
 interface Token {
   t: 'text' | 'mention' | 'link' | 'code';
@@ -77,7 +81,18 @@ function copyCode(text?: string): void {
   copyToClipboard(text || '');
 }
 
-const props = defineProps<{ text: string; md?: boolean }>();
+const props = defineProps<{ text: string; md?: boolean; hideRepos?: boolean }>();
+
+/**
+ * 正文里出现的 GitHub 仓库：卡片画在文本**下方**。
+ *
+ * 注意这里用「hideRepos 显式关闭」而不是「repos === false 判断」：
+ * defineProps 里声明成 boolean 的 prop 会被编译成运行时 Boolean 类型，
+ * 而 Vue 对**没传值**的 Boolean prop 一律取 false（`<Comp disabled />` 那套约定），
+ * 所以没传 repos 时拿到的是 false 而不是 undefined —— 用 `=== false` 判断会
+ * 让所有消息都走「关闭」分支，卡片永远不渲染。默认不传=开启，才符合直觉。
+ */
+const repos = computed(() => (props.hideRepos ? [] : extractRepos(props.text || '')));
 
 const blocks = computed<Block[]>(() => {
   const out: Block[] = [];
@@ -98,7 +113,8 @@ const blocks = computed<Block[]>(() => {
  * Markdown 渲染（自研安全子集）
  * 流程：先把用户内容整体 HTML 转义，再仅在转义后的文本上套用自带的
  * 结构标签（用占位符保护内联代码避免被穿套），因此不可能注入脚本。
- * 覆盖：标题 / 段落 / ul/ol 列表 / 引用 / 分隔线 / 围栏代码块 /
+ * 覆盖：标题 / 段落 / ul/ol 列表 / 表格 / 引用 / 分隔线 / 围栏代码块 /
+ * 提示容器（:::info 这类）/ mermaid 图表 /
  * 加粗 / 斜体 / 删除线 / 行内代码 / 链接（仅 http(s)/mailto）。
  * ============================================================ */
 
@@ -150,7 +166,6 @@ function mdInline(s: string): string {
   if (alt) {
     out = out.replace(new RegExp('@(' + alt + ')(?=[\\s，。；！？、<]|$)', 'g'), '<span class="mention">@$1</span>');
   }
-  // 4) 还原被保护的代码 / 链接
   out = out.replace(/\u0001(\d+)\u0001/g, (_a, i: string) => html[Number(i)] || '');
   return out;
 }
@@ -174,12 +189,62 @@ function extractMath(src: string, store: { html: string; display: boolean }[]): 
     .replace(/\$([^$\n]+?)\$/g, (m: string, t: string) => (/[A-Za-z\\^_{}]/.test(t) ? put(t, false) : m));
 }
 
+/* ---------- 表格（GFM） ---------- */
+
+/** 拆一行表格：去掉首尾的 | 再按 | 切分；\| 是转义的竖线，先占位免得被当分隔符 */
+function splitRow(line: string): string[] {
+  const s = line.trim().replace(/^\|/, '').replace(/\|$/, '').replace(/\\\|/g, '\u0003');
+  return s.split('|').map((c) => c.replace(/\u0003/g, '|').trim());
+}
+
+/** 分隔行判定：| --- | :--: | 这种（每个单元格只能是 - 和可选的冒号） */
+function isTableDelim(line: string): boolean {
+  if (!line || line.indexOf('-') === -1) return false;
+  const cells = splitRow(line);
+  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c));
+}
+
+/** 由分隔行得出每列对齐方式（返回 style 值，空串表示默认） */
+function tableAligns(line: string): string[] {
+  return splitRow(line).map((c) => {
+    const left = c.startsWith(':');
+    const right = c.endsWith(':');
+    if (left && right) return 'center';
+    if (right) return 'right';
+    if (left) return 'left';
+    return '';
+  });
+}
+
+/* ---------- 提示容器（:::info / :::warning …） ---------- */
+
+/** 支持的容器类型（其它类型按 generic 样式渲染，标题用原文类型名） */
+const ADM_TYPES = ['note', 'info', 'tip', 'warning', 'danger', 'caution', 'important'];
+const ADM_MAX_DEPTH = 6; // 嵌套上限，防止构造超深嵌套把调用栈打爆
+
+const ADM_OPEN_RE = /^\s*:::+\s*([A-Za-z][\w-]*)\s*(.*)$/;
+const ADM_CLOSE_RE = /^\s*:::+\s*$/;
+
+/** 从 start 行开始找配对的收尾 :::（考虑嵌套）；找不到说明是普通文本 */
+function findAdmonitionEnd(lines: string[], start: number): number {
+  let nest = 1;
+  for (let j = start; j < lines.length; j++) {
+    if (ADM_CLOSE_RE.test(lines[j])) {
+      nest--;
+      if (nest === 0) return j;
+      continue;
+    }
+    if (ADM_OPEN_RE.test(lines[j])) nest++;
+  }
+  return -1;
+}
+
 /** 整段 Markdown 块级渲染为安全 HTML */
-function renderMd(src: string): string {
+function renderMd(src: string, depth = 0): string {
   const math: { html: string; display: boolean }[] = [];
   const lines = extractMath(String(src || '').replace(/\r\n?/g, '\n'), math).split('\n');
   const html: string[] = [];
-  let para: string[] = []; // 待合并的普通段落行
+  let para: string[] = []; 
 
   const flush = (): void => {
     if (!para.length) return;
@@ -190,6 +255,30 @@ function renderMd(src: string): string {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
+
+    // 提示容器：:::info / :::warning 自定义标题 …
+    // 只有能找到配对收尾 ::: 才当容器，否则按普通文本处理（避免吞掉后面全部内容）
+    const adm = depth < ADM_MAX_DEPTH ? ADM_OPEN_RE.exec(line) : null;
+    if (adm) {
+      const close = findAdmonitionEnd(lines, i + 1);
+      if (close !== -1) {
+        flush();
+        const type = adm[1].toLowerCase();
+        const custom = adm[2].trim();
+        const body = lines.slice(i + 1, close).join('\n');
+        const known = ADM_TYPES.indexOf(type) !== -1;
+        const title = custom
+          ? mdInline(custom)
+          : escapeHtml(known ? tr('md.admonition.' + type) : type);
+        html.push(
+          '<div class="md-admonition md-adm-' + (known ? type : 'generic') + '">' +
+          '<div class="md-adm-title">' + title + '</div>' +
+          '<div class="md-adm-body">' + renderMd(body, depth + 1) + '</div></div>'
+        );
+        i = close + 1;
+        continue;
+      }
+    }
 
     // 独占一行的块级公式：直接作为块输出（避免被 <p> 包裹）
     const onlyMath = /^\s*\u0002M(\d+)\u0002\s*$/.exec(line);
@@ -203,7 +292,6 @@ function renderMd(src: string): string {
       }
     }
 
-    // 围栏代码块
     const fence = /^\s*```\s*(\w*)\s*$/.exec(line);
     if (fence) {
       flush();
@@ -214,12 +302,21 @@ function renderMd(src: string): string {
         buf.push(lines[i]);
         i++;
       }
-      i++; // 跳过收尾 ```
-      html.push(mdCode(lang, buf.join('\n')));
+      i++; 
+      const code = buf.join('\n');
+      // mermaid 图表：先只放占位节点（内含源码），等 mermaid 分块加载完再由
+      // 组件把 SVG 画进去；加载/渲染失败就一直显示源码，不会白屏。
+      if ((lang || '').toLowerCase() === 'mermaid') {
+        html.push(
+          '<div class="md-mermaid"><pre class="md-mermaid-src">' + escapeHtml(code) +
+          '</pre><div class="md-mermaid-out"></div></div>'
+        );
+      } else {
+        html.push(mdCode(lang, code));
+      }
       continue;
     }
 
-    // 标题
     const head = /^\s*(#{1,6})\s+(.*)$/.exec(line);
     if (head) {
       flush();
@@ -229,7 +326,6 @@ function renderMd(src: string): string {
       continue;
     }
 
-    // 分隔线
     if (/^\s*(?:\*{3,}|-{3,}|_{3,})\s*$/.test(line)) {
       flush();
       html.push('<hr>');
@@ -237,31 +333,75 @@ function renderMd(src: string): string {
       continue;
     }
 
-    // 无序 / 有序列表（连续收集）
+    // 表格（GFM）：本行含 | 且下一行是分隔行 | --- | --- | 才算，
+    // 所以普通文本里出现竖线不会被误判成表格。
+    if (line.indexOf('|') !== -1 && i + 1 < lines.length && isTableDelim(lines[i + 1])) {
+      flush();
+      const head = splitRow(line);
+      const aligns = tableAligns(lines[i + 1]);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim() !== '' && lines[i].indexOf('|') !== -1 && !isTableDelim(lines[i])) {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      // 列数以表头 / 分隔行 / 正文里最多的为准，缺格的补空，多出来的也显示
+      const cols = Math.max(head.length, aligns.length, ...rows.map((r) => r.length));
+      const cell = (tag: 'th' | 'td', text: string, c: number): string => {
+        const al = aligns[c];
+        return '<' + tag + (al ? ' style="text-align:' + al + '"' : '') + '>' + (text ? mdInline(text) : '') + '</' + tag + '>';
+      };
+      let table = '<div class="md-table-wrap"><table class="md-table"><thead><tr>';
+      for (let c = 0; c < cols; c++) table += cell('th', head[c] || '', c);
+      table += '</tr></thead><tbody>';
+      for (const row of rows) {
+        table += '<tr>';
+        for (let c = 0; c < cols; c++) table += cell('td', row[c] || '', c);
+        table += '</tr>';
+      }
+      table += '</tbody></table></div>';
+      html.push(table);
+      continue;
+    }
+
+    // 列表（连续收集）：无序 / 有序 / 任务清单 - [ ] / - [x]
     const ulItem = /^\s*[-+*]\s+(.*)$/.exec(line);
     const olItem = /^\s*\d+\.\s+(.*)$/.exec(line);
     if (ulItem || olItem) {
       flush();
       const ordered: boolean = !!olItem;
+      // 直接存完整的 <li>，因为任务项要输出带 class 的 li，不能再统一包一层
       const items: string[] = [];
       while (i < lines.length) {
         const l = lines[i];
+        const task = /^\s*[-+*]\s+\[([ xX])\]\s*(.*)$/.exec(l);
+        if (!ordered && task) {
+          const checked = task[1].toLowerCase() === 'x';
+          items.push(
+            '<li class="md-task' + (checked ? ' done' : '') + '">' +
+            '<span class="md-check' + (checked ? ' on' : '') + '" aria-hidden="true">' + (checked ? '✓' : '') + '</span>' +
+            '<span class="md-task-text">' + mdInline(task[2]) + '</span></li>'
+          );
+          i++;
+          continue;
+        }
         const u = /^\s*[-+*]\s+(.*)$/.exec(l);
         const o = /^\s*\d+\.\s+(.*)$/.exec(l);
         if (ordered) {
           if (!o) break;
-          items.push(mdInline(o[1]));
+          items.push('<li>' + mdInline(o[1]) + '</li>');
         } else {
           if (!u) break;
-          items.push(mdInline(u[1]));
+          items.push('<li>' + mdInline(u[1]) + '</li>');
         }
         i++;
       }
-      html.push('<ul class="md-list">' + items.map((it) => '<li>' + it + '</li>').join('') + '</ul>');
+      // 原来无论有序无序都输出 <ul>，有序列表的编号被吃掉、全变成圆点
+      const tag = ordered ? 'ol' : 'ul';
+      html.push('<' + tag + ' class="md-list">' + items.join('') + '</' + tag + '>');
       continue;
     }
 
-    // 引用（连续收集）
     if (/^\s*>/.test(line)) {
       flush();
       const buf: string[] = [];
@@ -273,7 +413,6 @@ function renderMd(src: string): string {
       continue;
     }
 
-    // 空行：结束当前段落
     if (line.trim() === '') {
       flush();
       i++;
@@ -291,8 +430,67 @@ function renderMd(src: string): string {
 /** Markdown 渲染出的 HTML（仅当 md=true 时使用；已整体转义，安全） */
 const mdHtml = computed<string>(() => {
   if (!props.md) return '';
-  void mathReady.value; // 公式模块加载完成后触发重渲染
+  void mathReady.value; 
   return renderMd(props.text || '');
+});
+
+/* ---------- mermaid 图表绘制 ----------
+ * renderMd 只产出占位节点（含源码），真正的 SVG 要等 mermaid 分块加载完
+ * 才能在 DOM 上画（mermaid 渲染是异步且依赖真实 DOM 度量）。 */
+
+const mdRoot = ref<HTMLElement | null>(null);
+/** 正在绘制中的节点：mermaid 渲染是异步的，避免同一节点被并发画两遍 */
+const painting = new WeakSet<Element>();
+let mermaidSeq = 0;
+
+async function paintMermaids(): Promise<void> {
+  const root = mdRoot.value;
+  if (!root) return;
+  const nodes = Array.from(root.querySelectorAll<HTMLElement>('.md-mermaid:not(.done):not(.failed)'));
+  for (const node of nodes) {
+    if (painting.has(node)) continue;
+    const out = node.querySelector<HTMLElement>('.md-mermaid-out');
+    if (!out) continue;
+    const src = node.querySelector<HTMLElement>('.md-mermaid-src')?.textContent || '';
+    painting.add(node);
+    const svg = await renderMermaid(src, 'mermaid-' + ++mermaidSeq, theme.value === 'dark');
+    if (svg) {
+      out.innerHTML = svg;
+      node.classList.add('done');
+    } else {
+      // 失败（语法错误 / 模块没加载上）：保留源码，并加一行说明
+      node.classList.add('failed');
+      const hint = document.createElement('div');
+      hint.className = 'md-mermaid-err';
+      hint.textContent = tr('md.mermaid.failed');
+      node.insertBefore(hint, node.firstChild);
+    }
+  }
+}
+
+/** 主题切换后 mermaid 的配色要跟着变：清掉已画的图重画一遍 */
+function repaintMermaids(): void {
+  const root = mdRoot.value;
+  if (!root) return;
+  for (const node of Array.from(root.querySelectorAll<HTMLElement>('.md-mermaid.done, .md-mermaid.failed'))) {
+    node.classList.remove('done', 'failed');
+    const out = node.querySelector<HTMLElement>('.md-mermaid-out');
+    if (out) out.innerHTML = '';
+    const err = node.querySelector('.md-mermaid-err');
+    if (err) err.remove();
+  }
+  void paintMermaids();
+}
+
+// 内容变化（含公式模块加载完成触发的重渲染）后重画；模板刷新完成才能拿到节点
+watch(mdHtml, () => {
+  if (!props.md) return;
+  void nextTick().then(paintMermaids);
+}, { immediate: true });
+
+watch(theme, () => {
+  if (!props.md) return;
+  void nextTick().then(repaintMermaids);
 });
 
 // Markdown 内代码块的「复制」走事件委托（v-html 无法直接绑定）
@@ -310,7 +508,7 @@ function onMdClick(e: Event): void {
 <template>
   <div class="chat-text" :class="{ 'chat-md': md }">
     <template v-if="md">
-      <div class="md-root" v-html="mdHtml" @click="onMdClick"></div>
+      <div class="md-root" ref="mdRoot" v-html="mdHtml" @click="onMdClick"></div>
     </template>
     <template v-else>
       <template v-for="(b, bi) in blocks" :key="bi">
@@ -332,5 +530,8 @@ function onMdClick(e: Event): void {
         </template></span>
       </template>
     </template>
+
+    <!-- GitHub 仓库卡片：基础信息只走一次接口（见 core/github.ts 的共享缓存） -->
+    <RepoCard v-for="r in repos" :key="r" :repo="r" />
   </div>
 </template>

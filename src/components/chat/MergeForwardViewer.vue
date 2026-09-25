@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 合并转发查看器：以模态框展示一条 merge 消息内的多条内容
- * ============================================================ */
+// 合并转发查看器：以模态框展示一条 merge 消息内的多条内容
 import { computed, ref } from 'vue';
 import type { MergeItem } from '../../types';
 import { chatState, closeMergeView, asset, fmtSize } from '../../core/chat';
@@ -60,7 +58,7 @@ useOverlay({
               rel="noopener"
             >📎 {{ it.name || tr('chat.file.defaultName') }}<span v-if="it.size"> · {{ fmtSize(it.size) }}</span></a>
             <div v-else class="merge-item-text">
-              <TextContent :text="it.content || ''" md />
+              <TextContent :text="it.content || ''" md hide-repos />
             </div>
           </div>
         </div>

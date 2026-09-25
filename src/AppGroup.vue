@@ -1,8 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 群管理页根组件
- * 群主本人或系统管理员可用；管理员可管理任意群。
- * ============================================================ */
+// 群管理页根组件 群主本人或系统管理员可用；管理员可管理任意群。
 import { ref, computed, provide, watchEffect, onMounted, onBeforeUnmount } from 'vue';
 import { get, post } from './core/api';
 import { tr } from './core/i18n';
@@ -11,15 +8,18 @@ import ThemeToggle from './components/common/ThemeToggle.vue';
 import GroupInfoCard from './components/group/GroupInfoCard.vue';
 import JoinRequestsCard from './components/group/JoinRequestsCard.vue';
 import MembersCard from './components/group/MembersCard.vue';
+import InviteApprovalCard from './components/group/InviteApprovalCard.vue';
 import GroupFilesCard from './components/group/GroupFilesCard.vue';
 import GroupLogsCard from './components/group/GroupLogsCard.vue';
 import Dialog from './components/common/Dialog.vue';
-import type { GroupItem, GroupDetail, GroupMember, JoinRequest, GroupFile } from './types';
+import type { GroupItem, GroupDetail, GroupMember, JoinRequest, GroupFile, GroupInvite } from './types';
+import type { PresencePlatforms } from './core/presence';
 
 const props = defineProps<{
   me: string;
   isAdmin: boolean;
   online: string[];
+  platforms: PresencePlatforms;
 }>();
 
 type ToastFn = (msg: string, ms?: number) => void;
@@ -45,6 +45,7 @@ const tabs = [
   { id: 'info', label: 'group.tab.info' },
   { id: 'members', label: 'group.tab.members' },
   { id: 'requests', label: 'group.tab.requests' },
+  { id: 'invites', label: 'group.inviteApprovals' },
   { id: 'files', label: 'group.tab.files' },
   { id: 'logs', label: 'group.tab.logs' }
 ];
@@ -52,11 +53,16 @@ const tab = ref('info');
 
 /** 待审核条数：在页签上直接显示，免得还要点进去才发现有人申请 */
 const pendingCount = computed(() => (detail.value ? detail.value.requests.length : 0));
+const inviteCount = computed(() => {
+  const inv = detail.value && detail.value.invites ? detail.value.invites : [];
+  return inv.filter((i) => i.status === 'needs_approval').length;
+});
 
 // 在线列表：初始取 /api/me 快照，随后由 WebSocket presence 实时更新
 const online = ref<string[]>(props.online || []);
+// 在线用户的连接来源（网页端 / 桌面客户端），与 online 同步更新
+const platforms = ref<PresencePlatforms>(props.platforms || {});
 
-// ---------------- 在线状态（WebSocket presence 实时同步） ----------------
 let ws: WebSocket | null = null;
 let reconnectTimer: number | undefined;
 let reconnectDelay = 1000;
@@ -85,34 +91,57 @@ function connectPresence(): void {
     reconnectDelay = 1000;
     // 重新连上后同步一次最新在线名单
     get('/api/me').then((j) => {
-      if (j.ok) online.value = (j.online as string[]) || [];
+      if (!j.ok) return;
+      online.value = (j.online as string[]) || [];
+      platforms.value = (j.platforms as PresencePlatforms) || {};
     });
   };
   sock.onmessage = (ev: MessageEvent) => {
-    let obj: { type?: string; users?: string[] } | null = null;
+    let obj: { type?: string; users?: string[]; platforms?: PresencePlatforms; data?: { gid?: string } } | null = null;
     try {
       obj = JSON.parse(ev.data as string);
     } catch {
       return;
     }
-    if (obj && obj.type === 'presence' && Array.isArray(obj.users)) {
+    if (!obj) return;
+    if (obj.type === 'logged.out') {
+      // 服务端会话已失效（如服务器重启）：回登录页，别在这儿干等
+      location.replace('/login.html');
+      return;
+    }
+    if (obj.type === 'presence' && Array.isArray(obj.users)) {
       online.value = obj.users;
+      platforms.value = obj.platforms || {};
+    }
+    // 成员/群信息变化：重新拉一次详情（含成员列表）
+    if (obj.type === 'group.members' || obj.type === 'groups.changed') {
+      const changed = obj.data && obj.data.gid ? String(obj.data.gid) : '';
+      if (!changed || changed === gid.value) refresh();
     }
   };
-  sock.onclose = () => {
-    if (ws !== sock) return;
-    ws = null;
+  function scheduleReconnect(): void {
     clearTimeout(reconnectTimer);
     reconnectTimer = window.setTimeout(() => {
       connectPresence();
       reconnectDelay = Math.min(reconnectDelay * 2, 30000);
     }, reconnectDelay);
+  }
+  sock.onclose = () => {
+    if (ws !== sock) return;
+    ws = null;
+    // 先确认会话还在：会话在服务端内存里，服务器重启后会 401 → 回登录页；
+    // 网络抖动则继续重连
+    get('/api/me')
+      .then((j) => {
+        if (!j.ok) location.replace('/login.html');
+        else scheduleReconnect();
+      })
+      .catch(() => scheduleReconnect());
   };
   sock.onerror = () => {
     try {
       sock.close();
     } catch {
-      /* 忽略 */
     }
   };
 }
@@ -151,9 +180,11 @@ function loadDetail(): void {
       detail.value = {
         group: j.group as GroupItem,
         isOwner: !!j.isOwner,
+        isManager: !!j.isManager,
         requests: (j.requests as JoinRequest[]) || [],
         members: (j.members as GroupMember[]) || [],
-        files: (j.files as GroupFile[]) || []
+        files: (j.files as GroupFile[]) || [],
+        invites: (j.invites as GroupInvite[]) || []
       };
     })
     .catch(() => {
@@ -184,7 +215,6 @@ function persistGid(id: string): void {
     else u.searchParams.delete('gid');
     history.replaceState(null, '', u);
   } catch {
-    /* 忽略 */
   }
 }
 
@@ -204,7 +234,6 @@ function back(): void {
 
 function logout(): void {
   post('/api/logout', {}).catch(() => {
-    /* 忽略 */
   });
   location.replace('/login.html');
 }
@@ -224,7 +253,6 @@ onBeforeUnmount(() => {
     try {
       ws.close();
     } catch {
-      /* 忽略 */
     }
     ws = null;
   }
@@ -292,9 +320,9 @@ onBeforeUnmount(() => {
       >
         {{ tr(t.label) }}
         <span
-          v-if="t.id === 'requests' && pendingCount"
+          v-if="(t.id === 'requests' && pendingCount) || (t.id === 'invites' && inviteCount)"
           class="rounded-full bg-danger/15 px-1.5 text-[10px] text-danger tabular-nums"
-        >{{ pendingCount }}</span>
+        >{{ t.id === 'invites' ? inviteCount : pendingCount }}</span>
       </button>
     </nav>
 
@@ -307,7 +335,8 @@ onBeforeUnmount(() => {
           v-if="tab === 'info'"
           :gid="gid"
           :group="detail.group"
-          :is-owner="detail.isOwner"
+          :is-owner="!!detail.isOwner"
+          :is-manager="!!detail.isManager"
           @refreshed="refresh"
           @deleted="onDeleted"
         />
@@ -316,12 +345,22 @@ onBeforeUnmount(() => {
           :gid="gid"
           :members="detail.members"
           :online="online"
+          :platforms="platforms"
+          :is-owner="!!detail.isOwner"
+          :is-manager="!!detail.isManager"
+          :me="me"
           @refreshed="refresh"
         />
         <JoinRequestsCard
           v-else-if="tab === 'requests'"
           :gid="gid"
           :requests="detail.requests"
+          @refreshed="refresh"
+        />
+        <InviteApprovalCard
+          v-else-if="tab === 'invites'"
+          :gid="gid"
+          :invites="detail.invites || []"
           @refreshed="refresh"
         />
         <GroupFilesCard v-else-if="tab === 'files'" :gid="gid" :files="detail.files" @refreshed="refresh" />

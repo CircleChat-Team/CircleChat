@@ -35,7 +35,6 @@ export function pairKey(a: string, b: string): string {
   return sortedPair(a, b).join(':');
 }
 
-/** 是否互为好友 */
 export function isFriend(a: string, b: string): boolean {
   if (!a || !b || String(a) === String(b)) return false;
   const pair = sortedPair(a, b);
@@ -82,14 +81,12 @@ export function declineRequest(target: string, requester: string): boolean {
   return !!(r && r.changes > 0);
 }
 
-/** 移除好友关系 */
 export function removeFriend(a: string, b: string): boolean {
   const pair = sortedPair(a, b);
   const r = open().prepare('DELETE FROM friends WHERE u1 = ? AND u2 = ?').run(pair[0], pair[1]);
   return !!(r && r.changes > 0);
 }
 
-/** 某用户的所有好友用户名 */
 export function listFriends(name: string): string[] {
   name = String(name);
   const rows = open().prepare('SELECT u1, u2 FROM friends WHERE u1 = ? OR u2 = ?').all(name, name) as { u1: string; u2: string }[];

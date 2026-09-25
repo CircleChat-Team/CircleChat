@@ -1,11 +1,10 @@
 <script setup lang="ts">
-/* ============================================================
- * 注册申请表单（提交后需管理员审核）
- * ============================================================ */
+// 注册申请表单（提交后需管理员审核）
 import { ref } from 'vue';
 import { post } from '../../core/api';
 import { tr } from '../../core/i18n';
 import { passwordOk } from '../../core/password';
+import CaptchaField from '../common/CaptchaField.vue';
 
 const emit = defineEmits<{ submitted: [name: string] }>();
 
@@ -16,7 +15,12 @@ const pass2 = ref('');
 const loading = ref(false);
 const hint = ref('');
 
-// 简单邮箱格式校验
+// 图形验证码（同登录页：一次性，失败后要换一张）
+const captchaText = ref('');
+const captcha = ref<InstanceType<typeof CaptchaField> | null>(null);
+/** 管理面板里可以关掉注册页的人机验证 */
+const captchaOn = ref(true);
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 async function submit(): Promise<void> {
@@ -41,9 +45,18 @@ async function submit(): Promise<void> {
     hint.value = tr('reg.mismatch');
     return;
   }
+  if (captchaOn.value && !captchaText.value.trim()) {
+    hint.value = tr('login.captcha.required');
+    return;
+  }
 
   loading.value = true;
-  post('/api/register', { name: u, email: em, password: p })
+  const payload: Record<string, unknown> = { name: u, email: em, password: p };
+  if (captchaOn.value) {
+    payload.captchaId = captcha.value ? captcha.value.getId() : '';
+    payload.captcha = captchaText.value.trim();
+  }
+  post('/api/register', payload)
     .then((j) => {
       loading.value = false;
       if (j.ok) {
@@ -52,14 +65,18 @@ async function submit(): Promise<void> {
         pass.value = '';
         pass2.value = '';
         hint.value = tr(j.message || 'reg.ok');
-        emit('submitted', u); // 回填用户名并切回登录表单
+        emit('submitted', u); 
         return;
       }
       hint.value = tr(j.error || 'reg.fail');
+      captchaText.value = '';
+      captcha.value?.refresh(); 
     })
     .catch(() => {
       loading.value = false;
       hint.value = tr('login.err.network');
+      captchaText.value = '';
+      captcha.value?.refresh();
     });
 }
 </script>
@@ -98,6 +115,8 @@ async function submit(): Promise<void> {
       class="h-11 w-full rounded-xl border border-line bg-fill px-3 text-[15px] outline-none transition-colors focus:border-primary"
       :placeholder="tr('reg.pass2Placeholder')"
     >
+
+    <CaptchaField ref="captcha" v-model="captchaText" scope="register" @enabled="captchaOn = $event" />
 
     <button
       type="submit"

@@ -10,7 +10,7 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'chatplus.db');
 
 // schema 版本，仅作记录与提示；真正的迁移以“逐列比对”为准，天然向前兼容
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 9;
 
 interface TableDef {
   create: string;
@@ -38,7 +38,8 @@ const SCHEMA: Record<string, TableDef> = {
         reply_to     INTEGER,
         gid          TEXT,
         dm           TEXT,
-        md           INTEGER
+        md           INTEGER,
+        via_app      TEXT
         );
       CREATE INDEX IF NOT EXISTS idx_messages_idx ON messages(idx);
     `,
@@ -46,7 +47,8 @@ const SCHEMA: Record<string, TableDef> = {
       idx: 'INTEGER', id: 'TEXT', 'from': 'TEXT', type: 'TEXT',
       content: 'TEXT', ts: 'INTEGER', name: 'TEXT', size: 'INTEGER',
       recalled: 'INTEGER', recalled_by: 'TEXT', recalled_at: 'INTEGER',
-      file_expired: 'INTEGER', reply_to: 'INTEGER', gid: 'TEXT', dm: 'TEXT', md: 'INTEGER'
+      file_expired: 'INTEGER', reply_to: 'INTEGER', gid: 'TEXT', dm: 'TEXT',
+      md: 'INTEGER', via_app: 'TEXT'
     }
   },
   users: {
@@ -62,14 +64,27 @@ const SCHEMA: Record<string, TableDef> = {
         status  TEXT,
         mustChange INTEGER,
         totp_secret TEXT,
-        totp_enabled INTEGER
+        totp_enabled INTEGER,
+        github_id    TEXT,
+        github_login TEXT,
+        last_seen    INTEGER
       );
     `,
     columns: {
       name: 'TEXT', pass: 'TEXT', created: 'INTEGER', role: 'TEXT',
       image: 'TEXT', settings: 'TEXT', updated: 'INTEGER', status: 'TEXT',
-      mustChange: 'INTEGER', totp_secret: 'TEXT', totp_enabled: 'INTEGER'
+      mustChange: 'INTEGER', totp_secret: 'TEXT', totp_enabled: 'INTEGER',
+      github_id: 'TEXT', github_login: 'TEXT', last_seen: 'INTEGER'
     }
+  },
+  app_config: {
+    create: `
+      CREATE TABLE IF NOT EXISTS app_config (
+        key   TEXT PRIMARY KEY,
+        value TEXT
+      );
+    `,
+    columns: { key: 'TEXT', value: 'TEXT' }
   },
   reactions: {
     create: `
@@ -113,26 +128,31 @@ const SCHEMA: Record<string, TableDef> = {
         created INTEGER,
         updated INTEGER,
         avatar  TEXT,
-        announcement TEXT
+        announcement TEXT,
+        mute_all INTEGER DEFAULT 0,
+        member_invite_approve INTEGER DEFAULT 0
       );
     `,
     columns: {
       id: 'TEXT', name: 'TEXT', owner: 'TEXT', created: 'INTEGER', updated: 'INTEGER',
-      avatar: 'TEXT', announcement: 'TEXT'
+      avatar: 'TEXT', announcement: 'TEXT', mute_all: 'INTEGER', member_invite_approve: 'INTEGER'
     }
   },
   group_members: {
     create: `
       CREATE TABLE IF NOT EXISTS group_members (
-        gid    TEXT NOT NULL,
-        name   TEXT NOT NULL,
-        joined INTEGER,
+        gid      TEXT NOT NULL,
+        name     TEXT NOT NULL,
+        joined   INTEGER,
+        role     TEXT DEFAULT 'member',
+        nickname TEXT,
+        muted    INTEGER DEFAULT 0,
         PRIMARY KEY (gid, name)
       );
       CREATE INDEX IF NOT EXISTS idx_gm_name ON group_members(name);
     `,
     columns: {
-      gid: 'TEXT', name: 'TEXT', joined: 'INTEGER'
+      gid: 'TEXT', name: 'TEXT', joined: 'INTEGER', role: 'TEXT', nickname: 'TEXT', muted: 'INTEGER'
     }
   },
   friends: {
@@ -181,6 +201,120 @@ const SCHEMA: Record<string, TableDef> = {
     columns: {
       id: 'INTEGER', gid: 'TEXT', name: 'TEXT', created: 'INTEGER', status: 'TEXT'
     }
+  },
+  group_invites: {
+    create: `
+      CREATE TABLE IF NOT EXISTS group_invites (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        gid      TEXT NOT NULL,
+        inviter  TEXT NOT NULL,
+        invitee  TEXT NOT NULL,
+        created  INTEGER NOT NULL,
+        status   TEXT DEFAULT 'pending',
+        note     TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_gi_gid      ON group_invites(gid);
+      CREATE INDEX IF NOT EXISTS idx_gi_invitee  ON group_invites(invitee);
+      CREATE INDEX IF NOT EXISTS idx_gi_gid_status ON group_invites(gid, status);
+    `,
+    columns: {
+      id: 'INTEGER', gid: 'TEXT', inviter: 'TEXT', invitee: 'TEXT', created: 'INTEGER', status: 'TEXT', note: 'TEXT'
+    }
+  },
+  group_remarks: {
+    create: `
+      CREATE TABLE IF NOT EXISTS group_remarks (
+        u       TEXT NOT NULL,
+        gid     TEXT NOT NULL,
+        remark  TEXT,
+        updated INTEGER,
+        PRIMARY KEY (u, gid)
+      );
+    `,
+    columns: { u: 'TEXT', gid: 'TEXT', remark: 'TEXT', updated: 'INTEGER' }
+  },
+  friend_remarks: {
+    create: `
+      CREATE TABLE IF NOT EXISTS friend_remarks (
+        u1      TEXT NOT NULL,
+        u2      TEXT NOT NULL,
+        remark  TEXT,
+        updated INTEGER,
+        PRIMARY KEY (u1, u2)
+      );
+    `,
+    columns: { u1: 'TEXT', u2: 'TEXT', remark: 'TEXT', updated: 'INTEGER' }
+  },
+  mini_installs: {
+    create: `
+      CREATE TABLE IF NOT EXISTS mini_installs (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        app_id     TEXT NOT NULL,
+        version    TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        icon       TEXT,
+        entry      TEXT NOT NULL,
+        manifest   TEXT NOT NULL,
+        perms      TEXT NOT NULL,
+        source_id  TEXT,
+        scope_type TEXT NOT NULL,
+        scope_id   TEXT NOT NULL,
+        username   TEXT NOT NULL,
+        enabled    INTEGER DEFAULT 1,
+        created    INTEGER NOT NULL,
+        updated    INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_mini_install_unique ON mini_installs(app_id, scope_type, scope_id);
+      CREATE INDEX IF NOT EXISTS idx_mini_install_scope ON mini_installs(scope_type, scope_id);
+      CREATE INDEX IF NOT EXISTS idx_mini_install_user ON mini_installs(username);
+    `,
+    columns: {
+      id: 'INTEGER', app_id: 'TEXT', version: 'TEXT', name: 'TEXT', icon: 'TEXT',
+      entry: 'TEXT', manifest: 'TEXT', perms: 'TEXT', source_id: 'TEXT',
+      scope_type: 'TEXT', scope_id: 'TEXT', username: 'TEXT',
+      enabled: 'INTEGER', created: 'INTEGER', updated: 'INTEGER'
+    }
+  },
+  mini_kv: {
+    create: `
+      CREATE TABLE IF NOT EXISTS mini_kv (
+        app_id    TEXT NOT NULL,
+        ns        TEXT NOT NULL,
+        k         TEXT NOT NULL,
+        v         TEXT NOT NULL,
+        updated   INTEGER NOT NULL,
+        updated_by TEXT,
+        PRIMARY KEY (app_id, ns, k)
+      );
+      CREATE INDEX IF NOT EXISTS idx_mini_kv_ns ON mini_kv(app_id, ns);
+    `,
+    columns: {
+      app_id: 'TEXT', ns: 'TEXT', k: 'TEXT', v: 'TEXT', updated: 'INTEGER', updated_by: 'TEXT'
+    }
+  },
+  api_keys: {
+    create: `
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        username   TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        key_hash   TEXT NOT NULL,
+        prefix     TEXT NOT NULL,
+        scopes     TEXT NOT NULL,
+        rate_limit INTEGER,
+        created    INTEGER NOT NULL,
+        last_used  INTEGER,
+        expires    INTEGER,
+        revoked    INTEGER DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_ak_username ON api_keys(username);
+      CREATE INDEX IF NOT EXISTS idx_ak_hash ON api_keys(key_hash);
+    `,
+    columns: {
+      id: 'INTEGER', username: 'TEXT', name: 'TEXT', key_hash: 'TEXT', prefix: 'TEXT',
+      scopes: 'TEXT', rate_limit: 'INTEGER', created: 'INTEGER', last_used: 'INTEGER',
+      expires: 'INTEGER', revoked: 'INTEGER'
+    }
   }
 };
 
@@ -217,7 +351,6 @@ export function run(): void {
     const def = SCHEMA[table];
     // 1) 确保表 / 索引存在
     db.exec(def.create);
-    // 2) 比对列，补齐缺失列
     const actual = actualColumns(db, table);
     if (!actual) {
       console.error('[migrate] 表 ' + table + ' 创建后仍无法读取，请检查数据库文件。');

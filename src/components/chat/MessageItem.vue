@@ -13,10 +13,11 @@ import {
   mentionsMe,
   fmtSize,
   getProfile,
-  notify,
+  jumpToMessage,
   openContextMenu,
   openMergeView,
   openImageView,
+  openFileView,
   toggleSelect
 } from '../../core/chat';
 import { QUICK_EMOJIS } from '../../core/emojis';
@@ -45,13 +46,17 @@ const recallTip = computed(() => {
   return by === chatState.me ? tr('chat.recall.bySelf') : tr('chat.recall.byOther', { who: by || tr('common.other') });
 });
 
+// 窗口抖动提示行（自己发的和别人发的文案不同）
+const shakeTip = computed(() =>
+  tr(self.value ? 'chat.shake.lineSelf' : 'chat.shake.lineOther', { name: props.msg.from })
+);
+
 const quoteText = computed(() => {
   const r = props.msg.reply;
   if (!r) return '';
   return String(r.snippet || '').replace(/\s+/g, ' ').trim();
 });
 
-// 合并转发卡片
 const mergeData = computed<MergeData | null>(() => {
   if (props.msg.type !== 'merge') return null;
   try {
@@ -123,17 +128,10 @@ function onMsgClick(e: MouseEvent): void {
 function openProfile(): void {
   getProfile(props.msg.from);
 }
+/** 跳到被引用的消息：逻辑统一在 chat.ts（带重试与高亮） */
 function jumpTo(idx?: number): void {
   if (idx == null) return;
-  const el = document.querySelector('.msg[data-idx="' + idx + '"]');
-  if (el) {
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    el.classList.add('highlight');
-    setTimeout(() => el.classList.remove('highlight'), 1400);
-  } else {
-    // 原消息不在当前加载范围内（最多 500 条）时给个提示，而不是点了没反应
-    notify('chat.reply.notInView');
-  }
+  jumpToMessage(idx);
 }
 
 // 右键菜单选择「回应」后，由全局状态触发本消息弹出表情选择器
@@ -150,6 +148,8 @@ watch(
 
 <template>
   <div v-if="recalled" class="sys-msg">{{ recallTip }}</div>
+  <!-- 窗口抖动：跟撤回一样按系统提示行显示，不做成气泡 -->
+  <div v-else-if="msg.type === 'shake'" class="sys-msg">{{ shakeTip }}</div>
   <div
     v-else
     ref="rootEl"
@@ -200,20 +200,34 @@ watch(
       <div v-else-if="msg.type === 'text'" class="bubble">
         <TextContent :text="msg.content" md />
       </div>
-      <a
-        v-else-if="msg.type === 'file' && !expired"
-        :href="asset(msg.content)"
-        class="file-card"
-        target="_blank"
-        rel="noopener"
-        :download="msg.name || ''"
-      >
-        <span class="file-badge">{{ fileExt(msg.name) }}</span>
-        <span class="file-meta">
-          <span class="file-name">{{ msg.name || tr('chat.file.defaultName') }}</span>
-          <span class="file-size">{{ fmtSize(msg.size) }}</span>
-        </span>
-      </a>
+      <!-- 文件卡片：点主体打开查看器（文本/Hex，超过 2MB 会在里面提示下载），
+           右侧单独的按钮才是直接下载 —— 查看与否不影响原来的下载路径 -->
+      <div v-else-if="msg.type === 'file' && !expired" class="file-card">
+        <button
+          type="button"
+          class="file-main"
+          :title="tr('chat.file.view')"
+          @click.stop="openFileView(msg.content, msg.name, msg.size)"
+        >
+          <span class="file-badge">{{ fileExt(msg.name) }}</span>
+          <span class="file-meta">
+            <span class="file-name">{{ msg.name || tr('chat.file.defaultName') }}</span>
+            <span class="file-size">{{ fmtSize(msg.size) }}</span>
+          </span>
+        </button>
+        <a
+          class="file-dl"
+          :href="asset(msg.content)"
+          :download="msg.name || ''"
+          :title="tr('fileview.download')"
+          :aria-label="tr('fileview.download')"
+          @click.stop
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15.5 7.5 11H10V4h4v7h2.5L12 15.5zM5 18h14v2H5v-2z" />
+          </svg>
+        </a>
+      </div>
       <div v-else-if="msg.type === 'merge'" class="merge-card" @click.stop="openMerge">
         <div class="merge-label">{{ tr('chat.merge.label') }}</div>
         <div class="merge-title">{{ mergeTitle }}</div>
