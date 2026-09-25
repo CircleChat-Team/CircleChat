@@ -250,6 +250,7 @@ const dict: Record<string, string> = {
   "chat.list.newMessages": "{n} new messages",
   "chat.date.today": "Today",
   "chat.date.yesterday": "Yesterday",
+  "chat.mention.me": "@me",
   "chat.conn.on": "Connected",
   "chat.conn.off": "Disconnected",
   "chat.conn.notReady": "Connection not ready, please wait",

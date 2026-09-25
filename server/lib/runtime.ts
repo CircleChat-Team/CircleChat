@@ -1171,13 +1171,17 @@ function handleWsText(client: any, text: string): void {
     const now = Date.now();
     if (now - (typingLast.get(u) || 0) > 2000) {
       typingLast.set(u, now);
-      const frame = wsproto.encodeText(JSON.stringify({ type: 'typing', from: u }));
-      // 私聊：只推给对方；公共 / 群聊：推给其余所有在线
-      const pm = msg.data && msg.data.pm != null ? String(msg.data.pm).trim() : null;
+      // 按会话路由：私聊只给对方、群聊只给本群在线成员。不带上下文的（已没有公共房）不转发。
+      const d = msg.data || {};
+      const pm = d.pm != null ? String(d.pm).trim() : null;
+      const gid = d.gid != null ? String(d.gid).trim() : null;
+      if (!pm && !gid) return;
       if (pm && !friends.isFriend(u, pm)) return; // 非好友不转发「正在输入」
+      const frame = wsproto.encodeText(JSON.stringify({ type: 'typing', from: u, gid }));
       for (const c of clients) {
         if (c === client) continue;
         if (pm) { if (c.user.username !== pm) continue; }
+        else if (gid) { if (!groups.isMember(gid, c.user.username)) continue; }
         try { c.socket.write(frame); } catch (e) {  }
       }
     }

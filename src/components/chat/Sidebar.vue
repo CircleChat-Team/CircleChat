@@ -214,7 +214,11 @@ function openHistorySearch(): void {
               {{ initial(item.ref.name) }}
             </span>
             <span class="truncate">{{ item.ref.name }}<i v-if="item.ref.owner === chatState.me"> {{ tr('common.me') }}</i></span>
-            <span v-if="chatState.unread['g:' + item.ref.id]" class="unread-dot">{{ unreadText(chatState.unread['g:' + item.ref.id]) }}</span>
+            <!-- 有人@我：红点单独标出（@我 + 未读数），与普通未读区分 -->
+            <span v-if="chatState.mentionUnread['g:' + item.ref.id]" class="mention-dot">
+              {{ tr('chat.mention.me') }} {{ unreadText(chatState.unread['g:' + item.ref.id] || 0) }}
+            </span>
+            <span v-else-if="chatState.unread['g:' + item.ref.id]" class="unread-dot">{{ unreadText(chatState.unread['g:' + item.ref.id]) }}</span>
           </button>
           <button
             v-if="item.ref.owner === chatState.me || chatState.isAdmin"

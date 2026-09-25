@@ -137,6 +137,8 @@ export interface ChatState {
   groupMuted?: boolean;
   lastTs: Record<string, number>;
   unread: Record<string, number>;
+  /** @我的未读条数（roomKey -> n）：会话列表用红点单独标出「有人@我」，与普通未读区分 */
+  mentionUnread: Record<string, number>;
   /** 上传任务队列（输入栏上方的进度指示器读取） */
   uploads: UploadTask[];
 }
@@ -213,6 +215,7 @@ const state = reactive<ChatState>({
   groupMuted: false,
   lastTs: {},
   unread: {},
+  mentionUnread: {},
   uploads: []
 });
 let noticeTimer: number | undefined;
@@ -308,7 +311,7 @@ function connectWs(): void {
   };
 
   sock.onmessage = (ev: MessageEvent) => {
-    let obj: { type?: string; data?: any; from?: string; users?: string[]; away?: string[]; platforms?: PresencePlatforms; lastSeen?: Record<string, number>; by?: string; owner?: string; admin?: boolean; username?: string } | null = null;
+    let obj: { type?: string; data?: any; from?: string; gid?: string | number | null; users?: string[]; away?: string[]; platforms?: PresencePlatforms; lastSeen?: Record<string, number>; by?: string; owner?: string; admin?: boolean; username?: string } | null = null;
     try {
       obj = JSON.parse(ev.data as string);
     } catch {
@@ -335,7 +338,14 @@ function connectWs(): void {
         if (obj.data) handleRecall(obj.data);
         break;
       case 'typing':
-        if (obj.from && obj.from !== state.me && obj.from === state.activeDmPeer) showTyping(obj.from);
+        if (obj.from && obj.from !== state.me) {
+          // 群聊：只在正看着该群时提示；私聊：只在正和对方私聊时提示
+          if (obj.gid != null) {
+            if (String(obj.gid) === String(state.activeGid)) showTyping(obj.from);
+          } else if (obj.from === state.activeDmPeer) {
+            showTyping(obj.from);
+          }
+        }
         break;
       case 'reaction':
         if (obj.data) handleReaction(obj.data);
@@ -455,10 +465,15 @@ function addUnread(m: ChatMessage): void {
   const k = roomKeyOf(m);
   if (!k) return;
   state.unread[k] = (state.unread[k] || 0) + 1;
+  // @我的消息单独计数：会话列表用红点单独标出「有人@我」，与普通未读数区分（私聊无 @ 概念，群里才有）
+  if (m.type === 'text' && mentionsMe(m.content)) {
+    state.mentionUnread[k] = (state.mentionUnread[k] || 0) + 1;
+  }
 }
 
 export function clearUnread(key: string): void {
   if (state.unread[key]) delete state.unread[key];
+  if (state.mentionUnread[key]) delete state.mentionUnread[key];
 }
 
 function handleRecall(data: { idx?: number; by?: string; owner?: string; admin?: boolean }): void {
@@ -637,6 +652,7 @@ function resetRoom(): void {
   state.messages = [];
   state.renderedIdx = {};
   state.topIndex = 0;
+  state.typingWho = null; // 切换会话清掉上一个房间的「正在输入」，避免带过来
 }
 
 
@@ -1313,7 +1329,12 @@ export function notifyTyping(): void {
   const now = Date.now();
   if (now - typingSentAt < 2000) return;
   typingSentAt = now;
-  send({ type: 'typing' });
+  // 带上会话上下文：私聊只给对方、群聊只给本群成员。原先不带，服务端广播给所有在线，
+  // 结果群聊 typing 谁也看不到、还会误漏到正在和发起者私聊的人的私聊视图里。
+  const data: Record<string, unknown> = {};
+  if (state.activeGid != null) data.gid = state.activeGid;
+  else if (state.activeDmPeer != null) data.pm = state.activeDmPeer;
+  send({ type: 'typing', data });
 }
 
 function showTyping(name: string): void {

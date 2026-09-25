@@ -241,6 +241,7 @@ const dict: Record<string, string> = {
   "chat.list.newMessages": "新しいメッセージ {n} 件",
   "chat.date.today": "今日",
   "chat.date.yesterday": "昨日",
+  "chat.mention.me": "@自分",
   "chat.conn.on": "接続されました",
   "chat.conn.off": "切断されました",
   "chat.conn.notReady": "接続準備中です。お待ちください",
