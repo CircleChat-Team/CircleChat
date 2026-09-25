@@ -3,8 +3,8 @@
  * 管理页根组件
  * 顶栏（返回 / 语言 / 主题 / 退出）、卡片编排、全局轻提示。
  * ============================================================ */
-import { ref, provide, watchEffect } from 'vue';
-import { post } from './core/api';
+import { ref, provide, watchEffect, onMounted, onBeforeUnmount } from 'vue';
+import { get, post } from './core/api';
 import { tr } from './core/i18n';
 import LangMenu from './components/common/LangMenu.vue';
 import ThemeToggle from './components/common/ThemeToggle.vue';
@@ -46,6 +46,20 @@ const active = ref('approvals');
 // tr 是响应式的，切语言时标题自动更新
 watchEffect(() => {
   document.title = tr('admin.title');
+});
+
+// 管理页没有 WebSocket，无法像聊天 / 群管理页那样在断线时感知会话失效；
+// 这里定时探活 /api/me，一旦 401（会话丢失）由请求层统一回登录页。
+let heartbeat: number | undefined;
+onMounted(() => {
+  heartbeat = window.setInterval(() => {
+    get('/api/me').catch(() => {
+      /* 网络抖动忽略，401 由请求层处理 */
+    });
+  }, 30000);
+});
+onBeforeUnmount(() => {
+  if (heartbeat) window.clearInterval(heartbeat);
 });
 
 function back(): void {

@@ -27,12 +27,25 @@ export function displayBase(): string {
   return config.displayBase || location.origin;
 }
 
+/** 是否已在登录页：会话失效时避免反复重定向、也不打断登录表单 */
+function onAuthPage(): boolean {
+  return /\/login\.html$/.test(location.pathname);
+}
+
 async function toJson(res: Response): Promise<ApiResult> {
+  let data: ApiResult;
   try {
-    return (await res.json()) as ApiResult;
+    data = (await res.json()) as ApiResult;
   } catch {
-    return { ok: false, error: 'api.badRequest' };
+    data = { ok: false, error: 'api.badRequest' };
   }
+  // 会话已失效（服务端会话只在内存，重启 / 过期即全部登出）：统一回登录页。
+  // 注意：登录失败 / 二次验证错误同样是 401，但错误码不是 api.unauthorized，
+  // 因此不会误触发跳转，登录页自身的表单逻辑不受影响。
+  if (res.status === 401 && data.error === 'api.unauthorized' && !onAuthPage()) {
+    location.replace('/login.html');
+  }
+  return data;
 }
 
 /** GET 请求 */
