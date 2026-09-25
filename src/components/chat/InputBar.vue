@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import { chatState, sendText, uploadFiles, notifyTyping, dmgating, sendShake, canShake, openMyProfile } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import EmojiPanel from './EmojiPanel.vue';
@@ -57,6 +57,26 @@ const mention = computed(() => {
   return list.length ? { start: m.index, list } : null;
 });
 
+// 按会话保存未发送草稿：切换会话时把当前内容存回旧会话、恢复新会话草稿。
+// 既避免「带着上一条没发完的话进了新会话」，也防止误发到错误的对象。会话级内存保存，不落盘。
+const drafts = new Map<string, string>();
+function roomKey(gid: string | null, peer: string | null): string {
+  return gid != null ? 'g:' + gid : peer ? 'd:' + peer : '';
+}
+watch(
+  () => [chatState.activeGid, chatState.activeDmPeer] as const,
+  (nv, ov) => {
+    const oldKey = roomKey(ov[0], ov[1]);
+    if (oldKey) {
+      if (text.value) drafts.set(oldKey, text.value);
+      else drafts.delete(oldKey);
+    }
+    const newKey = roomKey(nv[0], nv[1]);
+    text.value = newKey ? drafts.get(newKey) || '' : '';
+    nextTick(autoGrow);
+  }
+);
+
 function autoGrow(): void {
   const el = textarea.value;
   if (!el) return;
@@ -70,8 +90,10 @@ function onInput(): void {
   notifyTyping();
 }
 function send(): void {
+  const key = roomKey(chatState.activeGid, chatState.activeDmPeer);
   sendText(text.value);
   text.value = '';
+  if (key) drafts.delete(key);
   showMention.value = true;
   nextTick(autoGrow);
   showEmoji.value = false;

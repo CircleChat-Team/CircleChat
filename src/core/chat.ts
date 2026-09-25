@@ -497,11 +497,26 @@ export function mentionsMe(text?: string): boolean {
   return mentionsOf(text).indexOf(state.me) !== -1;
 }
 
-function mentionsOf(text: string): string[] {
-  const out = new Set<string>();
+// @提及的正则按用户名集合缓存：原实现每条文本消息渲染都现拼一个新 RegExp，
+// N 条消息 × 用户数 重复编译，开销随消息数线性放大。只有名单变化才重编译。
+let mentionReCache: { key: string; re: RegExp } | null = null;
+
+function mentionRegex(): RegExp | null {
   const names = state.allUsers.map((u) => u.name);
-  if (!names.length) return [];
-  const re = new RegExp('@(?:' + names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'g');
+  if (!names.length) return null;
+  const key = names.join('');
+  if (!mentionReCache || mentionReCache.key !== key) {
+    const body = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    mentionReCache = { key, re: new RegExp('@(?:' + body + ')', 'g') };
+  }
+  return mentionReCache.re;
+}
+
+function mentionsOf(text: string): string[] {
+  const re = mentionRegex();
+  if (!re) return [];
+  const out = new Set<string>();
+  re.lastIndex = 0; // 复用全局正则前重置游标
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) out.add(m[0].slice(1));
   return [...out];
@@ -509,7 +524,12 @@ function mentionsOf(text: string): string[] {
 
 // ---------------- 历史 / 会话 ----------------
 
+// 历史加载序号：快速连切会话时，前一个会话的慢响应可能在 resetRoom 之后才到达，
+// 若无防护会用旧会话的消息覆盖新会话。每次发起都自增，应用前校验「自己是不是最新一次」。
+let historySeq = 0;
+
 function loadHistory(): void {
+  const seq = ++historySeq;
   // 移除公共频道：未选择任何会话（原先的公共房 gid=null&dm=null）时不加载
   if (state.activeGid == null && state.activeDmPeer == null) {
     state.loadingHistory = false;
@@ -525,10 +545,12 @@ function loadHistory(): void {
       return get(u);
     })
     .then((j) => {
+      if (seq !== historySeq) return; // 已被更新的会话请求取代，丢弃过期响应
       state.loadingHistory = false;
       if (j && j.ok) renderHistory((j.messages as ChatMessage[]) || []);
     })
     .catch(() => {
+      if (seq !== historySeq) return;
       state.loadingHistory = false;
     });
 }

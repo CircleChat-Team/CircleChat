@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { chatState, loadOlder, openForward, toggleSelectMode } from '../../core/chat';
 import { tr } from '../../core/i18n';
+import { fmtDate } from '../../core/format';
+import type { ChatMessage } from '../../types';
 import MessageItem from './MessageItem.vue';
 
 const listEl = ref<HTMLElement | null>(null);
@@ -9,6 +11,30 @@ const nearBottom = ref(true);
 /** 用户离开底部时累计的新消息条数（用于「N 条新消息」提示） */
 const pending = ref(0);
 const visible = computed(() => chatState.messages.slice(chatState.topIndex));
+
+// 日期分隔线：跨天时在两条消息之间插入「今天 / 昨天 / 具体日期」胶囊。
+function tsOf(m: ChatMessage): number {
+  return Number(m.ts || m.time || 0);
+}
+function dayStart(ts: number): number {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+function showDaySep(i: number): boolean {
+  const list = visible.value;
+  const cur = list[i];
+  if (!cur) return false;
+  if (i === 0) return true;
+  return dayStart(tsOf(list[i - 1])) !== dayStart(tsOf(cur));
+}
+function dayLabel(m: ChatMessage): string {
+  const today = dayStart(Date.now());
+  const day = dayStart(tsOf(m));
+  if (day === today) return tr('chat.date.today');
+  if (day === today - 86400000) return tr('chat.date.yesterday');
+  return fmtDate(tsOf(m));
+}
 /** 进入会话后的「强制贴底」截止时刻（ms）：期间媒体/图片异步增高高度也不能打断，直接拉到底 */
 let forceUntil = 0;
 /** 监听滚动容器高度变化（正在输入/上传占位层、软键盘等），贴底时自动重贴，保持最新消息可见 */
@@ -148,12 +174,11 @@ watch(
       {{ chatState.loadingHistory ? '…' : tr('chat.history.empty') }}
     </p>
 
-    <MessageItem
-      v-for="(m, i) in visible"
-      :key="m.idx ?? 'tmp' + i"
-      :msg="m"
-      :prev="i > 0 ? visible[i - 1] : undefined"
-    />
+    <template v-for="(m, i) in visible" :key="m.idx ?? 'tmp' + i">
+      <div v-if="showDaySep(i)" class="day-sep"><span>{{ dayLabel(m) }}</span></div>
+      <!-- 新的一天第一条强制显示头像（prev=undefined 打破跨日 5 分钟合并） -->
+      <MessageItem :msg="m" :prev="i > 0 && !showDaySep(i) ? visible[i - 1] : undefined" />
+    </template>
 
     <!-- 离开底部时才出现：sticky 贴在可视区底部，不依赖输入栏高度 -->
     <button v-if="!nearBottom" type="button" class="jump-latest" @click="scrollToBottom">

@@ -248,6 +248,8 @@ const dict: Record<string, string> = {
   "chat.history.empty": "No messages yet. Say something!",
   "chat.list.toLatest": "Jump to latest",
   "chat.list.newMessages": "{n} new messages",
+  "chat.date.today": "Today",
+  "chat.date.yesterday": "Yesterday",
   "chat.conn.on": "Connected",
   "chat.conn.off": "Disconnected",
   "chat.conn.notReady": "Connection not ready, please wait",

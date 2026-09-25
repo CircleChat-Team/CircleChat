@@ -248,6 +248,8 @@ const dict: Record<string, string> = {
   "chat.history.empty": "暂无消息，说点什么吧～",
   "chat.list.toLatest": "回到最新",
   "chat.list.newMessages": "{n} 条新消息",
+  "chat.date.today": "今天",
+  "chat.date.yesterday": "昨天",
   "chat.conn.on": "已连接",
   "chat.conn.off": "已断开",
   "chat.conn.notReady": "连接未就绪，请稍候",

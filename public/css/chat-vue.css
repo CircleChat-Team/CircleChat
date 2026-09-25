@@ -13,6 +13,20 @@
 }
 /* 撤回 / 系统提示沿用 style.css 的 .sys-msg 胶囊样式（自带左右留白），此处不再覆盖 */
 
+/* ---------- 日期分隔线（今天 / 昨天 / 具体日期）：与 .sys-msg 同款胶囊，略小 ---------- */
+.day-sep {
+  align-self: center;
+  margin: 8px 0 2px;
+  padding: 3px 12px;
+  font-size: 11px;
+  letter-spacing: .3px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: rgba(128, 128, 128, .14);
+  border-radius: 100px;
+  user-select: none;
+}
+
 /* ---------- 消息工具按钮（等价 .msg-tool） ---------- */
 .tool {
   display: inline-flex;
