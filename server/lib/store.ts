@@ -6,7 +6,8 @@ import { DatabaseSync } from 'node:sqlite';
 
 // 路径锚定到运行根目录（package.json 启动目录 = 项目根）
 const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'chatplus.db');
+// 与 auth / migrate / groups / mini 等模块保持一致：允许用 DB_FILE 换库，否则会一半模块写 A 库、一半写 B 库
+const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'chatplus.db');
 const UPLOAD_DIR = path.join(process.cwd(), 'public/uploads');
 
 const MAX_MESSAGES = 500; // 仅保留最近 500 条
@@ -34,7 +35,8 @@ function open(): DatabaseSync {
       reply_to     INTEGER,
       gid          TEXT,
       dm           TEXT,
-      md           INTEGER
+      md           INTEGER,
+      via_app      TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_messages_idx ON messages(idx);
     CREATE TABLE IF NOT EXISTS reactions (
@@ -234,6 +236,8 @@ export interface MsgInput {
   dm?: string | null;
   replyTo?: number;
   md?: number;
+  /** 由哪个小程序代发（小程序 app id）；人工发送为 undefined */
+  viaApp?: string;
 }
 
 export interface StoredMessage {
@@ -255,6 +259,8 @@ export interface StoredMessage {
   reactions?: ReactionSummary[];
   reply?: { idx: number; from: string; snippet: string };
   md?: number;
+  /** 由哪个小程序代发 */
+  viaApp?: string;
 }
 
 interface MsgRow {
@@ -274,6 +280,7 @@ interface MsgRow {
   gid: string | null;
   dm: string | null;
   md: number | null;
+  via_app: string | null;
 }
 
 /**
@@ -299,13 +306,15 @@ export function add(msg: MsgInput): StoredMessage {
   if (msg.size) record.size = Number(msg.size);
   if (msg.replyTo) record.reply_to = Number(msg.replyTo);
   if (msg.md != null) record.md = msg.md ? 1 : 0;
-  d.prepare('INSERT INTO messages (idx, id, "from", type, content, ts, name, size, reply_to, gid, dm, md) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  if (msg.viaApp) record.viaApp = String(msg.viaApp).slice(0, 64);
+  d.prepare('INSERT INTO messages (idx, id, "from", type, content, ts, name, size, reply_to, gid, dm, md, via_app) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(record.idx, record.id, String(record.from), String(record.type), String(record.content), record.ts,
       record.name != null ? record.name : null, record.size != null ? record.size : null,
       record.reply_to != null ? record.reply_to : null,
       record.gid != null ? record.gid : null,
       record.dm != null ? record.dm : null,
-      record.md != null ? record.md : 0);
+      record.md != null ? record.md : 0,
+      record.viaApp != null ? record.viaApp : null);
   // 按房间裁剪到上限（公共 / 各群 / 各私聊独立保留最近 MAX_MESSAGES 条）
   trimRoom(gid, dm);
   // 广播用的记录也带上引用摘要，其他客户端无需再查一次
@@ -360,6 +369,7 @@ function rowToMsg(r: MsgRow): StoredMessage {
   }
   if (r.reply_to != null) o.reply_to = r.reply_to;
   if (r.md) o.md = r.md;
+  if (r.via_app) o.viaApp = r.via_app;
   return o;
 }
 
@@ -377,7 +387,7 @@ function replySnippet(m: StoredMessage): string {
   return t.length > 60 ? t.slice(0, 60) + '…' : t;
 }
 
-const SELECT_COLS = 'idx, id, "from", type, content, ts, name, size, recalled, recalled_by, recalled_at, file_expired, reply_to, gid, dm';
+const SELECT_COLS = 'idx, id, "from", type, content, ts, name, size, recalled, recalled_by, recalled_at, file_expired, reply_to, gid, dm, md, via_app';
 
 /**
  * 获取指定房间的全部消息（按 idx 正序）；gid 为 null 且 dm 为 null 取公共房间；

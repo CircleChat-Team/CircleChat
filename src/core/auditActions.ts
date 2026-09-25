@@ -63,7 +63,13 @@ export const ACTION_KEYS: Record<string, string> = {
   'admin.file.delBatch': 'admin.action.fileDelBatch',
   'key.create': 'admin.action.keyCreate',
   'key.update': 'admin.action.keyUpdate',
-  'key.delete': 'admin.action.keyDelete'
+  'key.delete': 'admin.action.keyDelete',
+  'mini.install': 'admin.action.mini.install',
+  'mini.uninstall': 'admin.action.mini.uninstall',
+  'mini.regrant': 'admin.action.mini.regrant',
+  'mini.invoke': 'admin.action.mini.invoke',
+  'mini.msg': 'admin.action.mini.msg',
+  'mini.sourceConfig': 'admin.action.mini.sourceConfig'
 };
 
 /**
@@ -131,6 +137,11 @@ export const ACTION_GROUPS: ActionGroup[] = [
     key: 'key',
     label: 'admin.logGroup.key',
     actions: ['key.create', 'key.update', 'key.delete']
+  },
+  {
+    key: 'mini',
+    label: 'admin.logGroup.mini',
+    actions: ['mini.install', 'mini.uninstall', 'mini.regrant', 'mini.invoke', 'mini.msg', 'mini.sourceConfig']
   }
 ];
 

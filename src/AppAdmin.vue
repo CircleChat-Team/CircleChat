@@ -11,6 +11,7 @@ import FilesCard from './components/admin/FilesCard.vue';
 import LogsCard from './components/admin/LogsCard.vue';
 import ModerationCard from './components/admin/ModerationCard.vue';
 import SecurityCard from './components/admin/SecurityCard.vue';
+import MiniCard from './components/admin/MiniCard.vue';
 import Dialog from './components/common/Dialog.vue';
 
 const props = defineProps<{ me: string }>();
@@ -36,6 +37,7 @@ const tabs = [
   { id: 'moderation', label: 'admin.tab.moderation' },
   { id: 'files', label: 'admin.tab.files' },
   { id: 'security', label: 'admin.tab.security' },
+  { id: 'mini', label: 'admin.tab.mini' },
   { id: 'logs', label: 'admin.tab.logs' }
 ];
 const active = ref('approvals');
@@ -129,6 +131,7 @@ function logout(): void {
         <ModerationCard v-if="active === 'moderation'" />
         <FilesCard v-if="active === 'files'" />
         <SecurityCard v-if="active === 'security'" />
+        <MiniCard v-if="active === 'mini'" />
         <LogsCard v-if="active === 'logs'" />
       </div>
     </main>

@@ -38,7 +38,8 @@ const SCHEMA: Record<string, TableDef> = {
         reply_to     INTEGER,
         gid          TEXT,
         dm           TEXT,
-        md           INTEGER
+        md           INTEGER,
+        via_app      TEXT
         );
       CREATE INDEX IF NOT EXISTS idx_messages_idx ON messages(idx);
     `,
@@ -46,7 +47,8 @@ const SCHEMA: Record<string, TableDef> = {
       idx: 'INTEGER', id: 'TEXT', 'from': 'TEXT', type: 'TEXT',
       content: 'TEXT', ts: 'INTEGER', name: 'TEXT', size: 'INTEGER',
       recalled: 'INTEGER', recalled_by: 'TEXT', recalled_at: 'INTEGER',
-      file_expired: 'INTEGER', reply_to: 'INTEGER', gid: 'TEXT', dm: 'TEXT', md: 'INTEGER'
+      file_expired: 'INTEGER', reply_to: 'INTEGER', gid: 'TEXT', dm: 'TEXT',
+      md: 'INTEGER', via_app: 'TEXT'
     }
   },
   users: {
@@ -242,6 +244,53 @@ const SCHEMA: Record<string, TableDef> = {
       );
     `,
     columns: { u1: 'TEXT', u2: 'TEXT', remark: 'TEXT', updated: 'INTEGER' }
+  },
+  mini_installs: {
+    create: `
+      CREATE TABLE IF NOT EXISTS mini_installs (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        app_id     TEXT NOT NULL,
+        version    TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        icon       TEXT,
+        entry      TEXT NOT NULL,
+        manifest   TEXT NOT NULL,
+        perms      TEXT NOT NULL,
+        source_id  TEXT,
+        scope_type TEXT NOT NULL,
+        scope_id   TEXT NOT NULL,
+        username   TEXT NOT NULL,
+        enabled    INTEGER DEFAULT 1,
+        created    INTEGER NOT NULL,
+        updated    INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_mini_install_unique ON mini_installs(app_id, scope_type, scope_id);
+      CREATE INDEX IF NOT EXISTS idx_mini_install_scope ON mini_installs(scope_type, scope_id);
+      CREATE INDEX IF NOT EXISTS idx_mini_install_user ON mini_installs(username);
+    `,
+    columns: {
+      id: 'INTEGER', app_id: 'TEXT', version: 'TEXT', name: 'TEXT', icon: 'TEXT',
+      entry: 'TEXT', manifest: 'TEXT', perms: 'TEXT', source_id: 'TEXT',
+      scope_type: 'TEXT', scope_id: 'TEXT', username: 'TEXT',
+      enabled: 'INTEGER', created: 'INTEGER', updated: 'INTEGER'
+    }
+  },
+  mini_kv: {
+    create: `
+      CREATE TABLE IF NOT EXISTS mini_kv (
+        app_id    TEXT NOT NULL,
+        ns        TEXT NOT NULL,
+        k         TEXT NOT NULL,
+        v         TEXT NOT NULL,
+        updated   INTEGER NOT NULL,
+        updated_by TEXT,
+        PRIMARY KEY (app_id, ns, k)
+      );
+      CREATE INDEX IF NOT EXISTS idx_mini_kv_ns ON mini_kv(app_id, ns);
+    `,
+    columns: {
+      app_id: 'TEXT', ns: 'TEXT', k: 'TEXT', v: 'TEXT', updated: 'INTEGER', updated_by: 'TEXT'
+    }
   },
   api_keys: {
     create: `

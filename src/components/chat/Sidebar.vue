@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import type { ChatGroup, Friend } from '../../types';
 import {
   chatState,
@@ -22,6 +22,7 @@ import {
 } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import { prompt } from '../../core/dialog';
+import { loadMiniInstalls, miniState, openMiniApp, openMiniPanel, type MiniInstallItem } from '../../core/mini';
 import AppFooter from '../common/AppFooter.vue';
 import LangMenu from '../common/LangMenu.vue';
 import ThemeToggle from '../common/ThemeToggle.vue';
@@ -78,6 +79,38 @@ const sortedItems = computed<Entry[]>(() => {
   }
   arr.sort((a, b) => b.sort - a.sort);
   return arr.map((x) => x.entry);
+});
+
+/**
+ * 侧栏「小程序」分区：只列个人级安装。
+ * 它们不是好友，只是出现在列表里方便一键打开——点进去是小程序本身，没有聊天窗口。
+ */
+const miniApps = computed<MiniInstallItem[]>(() => {
+  const kw = q.value.trim().toLowerCase();
+  return miniState.installs.filter((i) => {
+    if (i.scopeType !== 'user') return false;
+    if (!kw) return true;
+    return (i.name + ' ' + i.summary).toLowerCase().indexOf(kw) !== -1;
+  });
+});
+
+function openMini(inst: MiniInstallItem): void {
+  emit('navigate');
+  void openMiniApp(inst);
+}
+
+function openMiniStore(): void {
+  menuOpen.value = false;
+  emit('navigate');
+  openMiniPanel('store');
+}
+
+// 小程序列表随「当前群」变化（群级安装不同），启动时也拉一次
+onMounted(() => {
+  void loadMiniInstalls();
+});
+watch(() => chatState.activeGid, () => {
+  void loadMiniInstalls();
 });
 
 function keyOf(e: Entry): string {
@@ -184,6 +217,7 @@ function openHistorySearch(): void {
           <button type="button" class="group-action-btn" @click="openCreateGroup">{{ tr('chat.group.create') }}</button>
           <button type="button" class="group-action-btn" @click="openJoinGroup">{{ tr('chat.group.join') }}</button>
           <button type="button" class="group-action-btn" @click="openFriendSearch">{{ tr('chat.friend.add') }}</button>
+          <button type="button" class="group-action-btn" @click="openMiniStore">{{ tr('mini.store.open') }}</button>
         </div>
       </div>
     </div>
@@ -198,6 +232,28 @@ function openHistorySearch(): void {
             <button type="button" class="mini-btn no" @click="decline(r.from)">{{ tr('chat.friend.reject') }}</button>
           </div>
         </div>
+      </template>
+
+      <!-- 小程序：个人级安装，像好友一样列在这里，点开即运行 -->
+      <template v-if="miniApps.length">
+        <div class="sidebar-section">{{ tr('mini.sidebar.section') }}</div>
+        <button
+          v-for="m in miniApps"
+          :key="'mini:' + m.appId"
+          type="button"
+          class="user-item mini-item"
+          :title="m.summary || m.name"
+          @click="openMini(m)"
+        >
+          <div class="user-avatar">
+            <img v-if="m.icon" :src="m.icon" :alt="m.name" />
+            <span v-else class="avatar-letter" :style="{ background: avatarColor(m.appId) }">{{ initial(m.name) }}</span>
+          </div>
+          <div class="user-meta">
+            <div class="user-name">{{ m.name }}</div>
+            <div class="user-status">{{ m.command ? '#' + m.command : tr('mini.sidebar.hint') }}</div>
+          </div>
+        </button>
       </template>
 
       <div v-for="item in sortedItems" :key="keyOf(item)">

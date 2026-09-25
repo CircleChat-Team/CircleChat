@@ -37,6 +37,8 @@ import FileViewer from './components/chat/FileViewer.vue';
 import MemberPanel from './components/chat/MemberPanel.vue';
 import SearchPanel from './components/chat/SearchPanel.vue';
 import RepoModal from './components/chat/RepoModal.vue';
+import MiniAppPanel from './components/chat/MiniAppPanel.vue';
+import MiniAppFrame from './components/chat/MiniAppFrame.vue';
 import ForceChangePassword from './components/common/ForceChangePassword.vue';
 
 const title = computed(() => {
@@ -329,6 +331,8 @@ onMounted(refreshMailboxBadge);
     <ImageViewer />
     <VideoViewer />
     <FileViewer v-model="chatState.fileView" />
+    <MiniAppPanel />
+    <MiniAppFrame />
 
     <!-- 移动端设置面板：将顶栏散落的按钮统一收纳 -->
     <div class="settings-mask" :class="{ show: settingsOpen }" @click="settingsOpen = false"></div>

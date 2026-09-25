@@ -27,6 +27,7 @@ import * as mailbox from './mailbox';
 import * as appconfig from './appconfig';
 import * as github from './github';
 import * as captcha from './captcha';
+import * as mini from './mini';
 import { fileKindOf } from './filetypes';
 import * as wsproto from './ws';
 import * as logger from './log';
@@ -1057,7 +1058,8 @@ function shutdownClient(client: any, _reason: string): void {
 function createMessage(
   from: string,
   ip: string,
-  raw: any
+  raw: any,
+  viaApp?: string
 ): { ok: true; record: any; gid: string | null; dm: string | null }
   | { ok: false; kind: 'penalty'; error: string; frame: any }
   | { ok: false; kind: 'invalid'; error: string } {
@@ -1137,7 +1139,8 @@ function createMessage(
     replyTo,
     gid,
     dm,
-    md: type === 'text' && d.md ? 1 : 0
+    md: type === 'text' && d.md ? 1 : 0,
+    viaApp: viaApp ? String(viaApp).slice(0, 64) : undefined
   });
   audit.add({
     actor: from,
@@ -1412,6 +1415,13 @@ function redirectTo(res: any, page: string, code?: string): void {
 
 function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string): void {
   const t0 = Date.now();
+
+  // 小程序接口的 CORS 预检：沙箱 iframe 的 Origin 是 null，直连前必须先过预检
+  if (pathname.indexOf('/api/mini/') === 0 && req.method === 'OPTIONS') {
+    sendJSON(res, 200, { ok: true }, MINI_CORS);
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
 
   // POST /api/register —— 提交注册申请（开放注册，需管理员审核通过后才可登录）
   if (pathname === '/api/register' && req.method === 'POST') {
@@ -1816,7 +1826,10 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
   }
 
   // 以下接口均需登录（会话 Cookie 或 API Key）
-  const me = auth.authByRequest(req, ip);
+  // 例外：小程序沙箱内的直连请求带 X-Mini-Token（会话派生的短时令牌），
+  // 该令牌只对 /api/mini/* 生效，不能拿来调其他接口，避免身份外溢。
+  const me = (auth.authByRequest(req, ip) ||
+    (pathname.indexOf('/api/mini/') === 0 ? authFromMiniToken(req, ip) : null)) as MiniRequestAuth | null;
   if (!me) {
     sendJSON(res, 401, { ok: false, error: 'api.unauthorized' });
     logger.write({ ip, method: req.method, url: pathname, status: 401, ms: Date.now() - t0, ua: req.headers['user-agent'] });
@@ -4097,9 +4110,547 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
+  // ---------- 小程序（MiniApp） ----------
+
+  // GET /api/mini/index?scope=&id= —— 合并后的索引（带已安装标记与源状态）
+  if (pathname === '/api/mini/index' && req.method === 'GET') {
+    const gid = urlObj.searchParams.get('id') || '';
+    mini.getIndex().then((idx) => {
+      const marks = new Set<string>();
+      for (const i of mini.listInstalls({ scopeType: 'user', username: me.username })) marks.add('u:' + i.appId);
+      for (const i of (gid ? mini.listInstalls({ scopeType: 'group', scopeId: gid }) : [])) marks.add('g:' + i.appId);
+      const apps = idx.apps.map((a) => Object.assign({}, a, {
+        installedUser: marks.has('u:' + a.id),
+        installedGroup: marks.has('g:' + a.id)
+      }));
+      miniDone(res, 200, {
+        ok: true, apps, sources: idx.sources, updatedAt: idx.updatedAt, cached: idx.cached,
+        permissions: mini.PERMISSIONS, limits: mini.KV_LIMITS
+      }, req, pathname, ip, t0);
+    }).catch(() => {
+      miniDone(res, 200, { ok: true, apps: [], sources: [], updatedAt: 0, cached: false, permissions: mini.PERMISSIONS, limits: mini.KV_LIMITS }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // GET /api/mini/installed?id=<gid> —— 当前会话可见的小程序（个人级 + 该群级）
+  if (pathname === '/api/mini/installed' && req.method === 'GET') {
+    const gid = urlObj.searchParams.get('id') || '';
+    const list = mini.visibleInstalls(me.username, gid || null);
+    miniDone(res, 200, { ok: true, installs: list.map(miniInstallView) }, req, pathname, ip, t0);
+    return;
+  }
+
+  // POST /api/mini/install {appId, scope:'user'|'group', scopeId?, granted[]}
+  if (pathname === '/api/mini/install' && req.method === 'POST') {
+    miniReadBody(req, res, 8192, (o) => {
+      if (!cookieOnly(me)) {
+        miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+        return;
+      }
+      const appId = String(o.appId || '');
+      const { scope, scopeId } = miniScope(o, me.username);
+      if (scope === 'group' && (!scopeId || !groups.isMember(scopeId, me.username))) {
+        miniDone(res, 403, { ok: false, error: 'api.mini.notMember' }, req, pathname, ip, t0);
+        return;
+      }
+      mini.findApp(appId).then((app) => {
+        if (!app) {
+          miniDone(res, 404, { ok: false, error: 'api.mini.appNotFound' }, req, pathname, ip, t0);
+          return;
+        }
+        const granted = (Array.isArray(o.granted) ? o.granted : [])
+          .filter((p: unknown) => app.permissions.indexOf(p as mini.Permission) !== -1) as mini.Permission[];
+        const inst = mini.installApp(me.username, app, scope, scopeId, granted);
+        audit.add({
+          actor: me.username,
+          action: 'mini.install',
+          target: app.id,
+          detail: auditDetail('log.detail.mini.install.' + scope, { name: app.name }),
+          ip
+        });
+        miniDone(res, 200, { ok: true, install: miniInstallView(inst) }, req, pathname, ip, t0);
+      }).catch(() => {
+        miniDone(res, 500, { ok: false, error: 'api.serverError' }, req, pathname, ip, t0);
+      });
+    });
+    return;
+  }
+
+  // POST /api/mini/uninstall {appId, scope, scopeId?}
+  if (pathname === '/api/mini/uninstall' && req.method === 'POST') {
+    miniReadBody(req, res, 4096, (o) => {
+      if (!cookieOnly(me)) {
+        miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+        return;
+      }
+      const { scope, scopeId } = miniScope(o, me.username);
+      const inst = mini.getInstall(String(o.appId || ''), scope, scopeId);
+      if (!inst) {
+        miniDone(res, 404, { ok: false, error: 'api.mini.notInstalled' }, req, pathname, ip, t0);
+        return;
+      }
+      if (!miniManageable(inst, me.username)) {
+        miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+        return;
+      }
+      mini.uninstallApp(inst.appId, scope, scopeId);
+      audit.add({
+        actor: me.username,
+        action: 'mini.uninstall',
+        target: inst.appId,
+        detail: auditDetail('log.detail.mini.uninstall.' + scope, { name: inst.name }),
+        ip
+      });
+      miniDone(res, 200, { ok: true }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // POST /api/mini/regrant {appId, scope, scopeId?, granted[]} —— 重新授权
+  if (pathname === '/api/mini/regrant' && req.method === 'POST') {
+    miniReadBody(req, res, 4096, (o) => {
+      if (!cookieOnly(me)) {
+        miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+        return;
+      }
+      const { scope, scopeId } = miniScope(o, me.username);
+      const inst = mini.getInstall(String(o.appId || ''), scope, scopeId);
+      if (!inst) {
+        miniDone(res, 404, { ok: false, error: 'api.mini.notInstalled' }, req, pathname, ip, t0);
+        return;
+      }
+      if (!miniManageable(inst, me.username)) {
+        miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+        return;
+      }
+      const granted = (Array.isArray(o.granted) ? o.granted : [])
+        .filter((p: unknown) => (inst.manifest.permissions || []).indexOf(p as mini.Permission) !== -1) as mini.Permission[];
+      mini.regrant(inst.appId, scope, scopeId, granted);
+      audit.add({
+        actor: me.username,
+        action: 'mini.regrant',
+        target: inst.appId,
+        detail: auditDetail('log.detail.mini.regrant', { name: inst.name, count: granted.length }),
+        ip
+      });
+      const fresh = mini.getInstall(inst.appId, scope, scopeId);
+      miniDone(res, 200, { ok: true, install: fresh ? miniInstallView(fresh) : null }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // GET /api/mini/context?appId=&scope=&scopeId= —— 下发运行上下文并签发令牌
+  if (pathname === '/api/mini/context' && req.method === 'GET') {
+    if (!cookieOnly(me)) {
+      miniDone(res, 403, { ok: false, error: 'api.forbidden' }, req, pathname, ip, t0);
+      return;
+    }
+    const q = urlObj.searchParams;
+    const { scope, scopeId } = miniScope({ scope: q.get('scope'), scopeId: q.get('scopeId') }, me.username);
+    const inst = mini.getInstall(String(q.get('appId') || ''), scope, scopeId);
+    if (!inst || !miniUsable(inst, me.username)) {
+      miniDone(res, 404, { ok: false, error: 'api.mini.notInstalled' }, req, pathname, ip, t0);
+      return;
+    }
+    const chatId = scope === 'group' ? 'g:' + scopeId : 'u:' + me.username;
+    const signed = mini.signToken({ u: me.username, a: inst.appId, s: scope, c: scopeId, p: inst.perms });
+    miniDone(res, 200, {
+      ok: true,
+      context: {
+        appId: inst.appId,
+        userId: me.username,
+        username: me.username,
+        scope,
+        scopeId,
+        chatId,
+        name: inst.name,
+        icon: inst.icon,
+        entry: inst.entry,
+        command: inst.manifest.command || '',
+        permissions: inst.perms
+      },
+      token: signed.token,
+      expires: signed.expires
+    }, req, pathname, ip, t0);
+    return;
+  }
+
+  // POST /api/mini/message {appId, scope, scopeId?, content, md?, gid?, pm?} —— 代发文本消息
+  if (pathname === '/api/mini/message' && req.method === 'POST') {
+    miniReadBody(req, res, 8192, (o) => {
+      const target = miniTarget(me, o);
+      if (!target.ok) {
+        miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+        return;
+      }
+      const inst = target.inst;
+      const scope = inst.scopeType;
+      const scopeId = inst.scopeId;
+      if (!mini.hasPerm(inst, 'message.send')) {
+        miniDone(res, 403, { ok: false, error: 'api.mini.noPerm' }, req, pathname, ip, t0);
+        return;
+      }
+      if (!miniMsgAllowed(me.username + '|' + inst.appId)) {
+        miniDone(res, 429, { ok: false, error: 'api.mini.rateLimited' }, req, pathname, ip, t0);
+        return;
+      }
+      const content = String(o.content == null ? '' : o.content).slice(0, MAX_TEXT_LEN);
+      // 群级安装只能发到本群；个人级由小程序指定目标，成员/好友校验交给 createMessage
+      const gid = scope === 'group' ? scopeId : (o.gid ? String(o.gid).slice(0, 64) : '');
+      const pm = scope === 'group' ? '' : (o.pm ? String(o.pm).slice(0, 64) : '');
+      if (!gid && !pm) {
+        miniDone(res, 400, { ok: false, error: 'api.mini.noTarget' }, req, pathname, ip, t0);
+        return;
+      }
+      const r = createMessage(me.username, ip, {
+        type: 'text', content, gid: gid || null, pm: pm || null, md: o.md ? 1 : 0
+      }, inst.appId);
+      if (!r.ok) {
+        miniDone(res, r.kind === 'penalty' ? 403 : 400, { ok: false, error: r.error }, req, pathname, ip, t0);
+        return;
+      }
+      audit.add({
+        actor: me.username,
+        action: 'mini.msg',
+        target: String(r.record.idx),
+        detail: auditDetail('log.detail.mini.msg', { name: inst.name, text: content.slice(0, 40) }),
+        ip
+      });
+      miniDone(res, 200, { ok: true, idx: r.record.idx }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // GET /api/mini/chat?appId=&scope=&scopeId=&limit= —— 读取当前会话信息、成员与最近消息
+  if (pathname === '/api/mini/chat' && req.method === 'GET') {
+    const q = urlObj.searchParams;
+    const target = miniTarget(me, Object.fromEntries(q as unknown as Iterable<[string, string]>));
+    if (!target.ok) {
+      miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+      return;
+    }
+    const inst = target.inst;
+    const scope = inst.scopeType;
+    const scopeId = inst.scopeId;
+    if (!mini.hasPerm(inst, 'chat.read')) {
+      miniDone(res, 403, { ok: false, error: 'api.mini.noPerm' }, req, pathname, ip, t0);
+      return;
+    }
+    const limit = Math.min(Math.max(parseInt(q.get('limit') || '50', 10) || 50, 1), 100);
+    const gid = scope === 'group' ? scopeId : (q.get('gid') || '');
+    const pm = scope === 'group' ? '' : (q.get('pm') || '');
+    if (gid && !groups.isMember(gid, me.username)) {
+      miniDone(res, 403, { ok: false, error: 'api.mini.notMember' }, req, pathname, ip, t0);
+      return;
+    }
+    if (pm && !friends.isFriend(me.username, pm)) {
+      miniDone(res, 403, { ok: false, error: 'api.msg.notFriend' }, req, pathname, ip, t0);
+      return;
+    }
+    const g = gid ? groups.getGroup(gid) : null;
+    const members = gid
+      ? groups.groupMembers(gid).map((m) => ({ name: m.name, role: m.role || 'member', nickname: m.nickname || '' }))
+      : [];
+    const all = store.all(gid || null, pm ? friends.pairKey(me.username, pm) : null);
+    const recent = all.slice(-limit).map((m) => ({
+      idx: m.idx, from: m.from, type: m.type, content: m.recalled ? '' : m.content,
+      ts: m.ts, recalled: m.recalled ? 1 : 0, viaApp: m.viaApp || ''
+    }));
+    miniDone(res, 200, {
+      ok: true,
+      chat: {
+        kind: gid ? 'group' : (pm ? 'dm' : 'public'),
+        id: gid || pm || '',
+        chatId: gid ? 'g:' + gid : (pm ? 'd:' + friends.pairKey(me.username, pm) : 'pub'),
+        name: g ? g.name : (pm || ''),
+        memberCount: members.length
+      },
+      members,
+      recent
+    }, req, pathname, ip, t0);
+    return;
+  }
+
+  // GET /api/mini/kv —— 读取（k 为空则列出）；POST 写入；DELETE 删除
+  if (pathname === '/api/mini/kv' && req.method === 'GET') {
+    const q = urlObj.searchParams;
+    const target = miniTarget(me, Object.fromEntries(q as unknown as Iterable<[string, string]>));
+    if (!target.ok) {
+      miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+      return;
+    }
+    const inst = target.inst;
+    if (!mini.hasPerm(inst, 'kv.read')) {
+      miniDone(res, 403, { ok: false, error: 'api.mini.noPerm' }, req, pathname, ip, t0);
+      return;
+    }
+    const ns = mini.kvNamespace(inst.scopeType, inst.scopeId, me.username);
+    const k = q.get('k') || '';
+    if (k) {
+      const v = mini.kvGet(inst.appId, ns, k);
+      miniDone(res, 200, { ok: true, key: k, value: v }, req, pathname, ip, t0);
+    } else {
+      miniDone(res, 200, { ok: true, items: mini.kvList(inst.appId, ns) }, req, pathname, ip, t0);
+    }
+    return;
+  }
+
+  if (pathname === '/api/mini/kv' && req.method === 'POST') {
+    miniReadBody(req, res, 128 * 1024, (o) => {
+      const target = miniTarget(me, o);
+      if (!target.ok) {
+        miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+        return;
+      }
+      const inst = target.inst;
+      if (!mini.hasPerm(inst, 'kv.write')) {
+        miniDone(res, 403, { ok: false, error: 'api.mini.noPerm' }, req, pathname, ip, t0);
+        return;
+      }
+      const ns = mini.kvNamespace(inst.scopeType, inst.scopeId, me.username);
+      const r = mini.kvSet(inst.appId, ns, String(o.k || ''), String(o.v == null ? '' : o.v), me.username);
+      if (!r.ok) {
+        miniDone(res, 400, { ok: false, error: r.error }, req, pathname, ip, t0);
+        return;
+      }
+      miniDone(res, 200, { ok: true }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  if (pathname === '/api/mini/kv' && req.method === 'DELETE') {
+    miniReadBody(req, res, 8192, (o) => {
+      const target = miniTarget(me, o);
+      if (!target.ok) {
+        miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+        return;
+      }
+      const inst = target.inst;
+      if (!mini.hasPerm(inst, 'kv.write')) {
+        miniDone(res, 403, { ok: false, error: 'api.mini.noPerm' }, req, pathname, ip, t0);
+        return;
+      }
+      const ns = mini.kvNamespace(inst.scopeType, inst.scopeId, me.username);
+      mini.kvDel(inst.appId, ns, String(o.k || ''));
+      miniDone(res, 200, { ok: true }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // POST /api/mini/invoke —— 记录一次 #指令 调用（审计用）
+  if (pathname === '/api/mini/invoke' && req.method === 'POST') {
+    miniReadBody(req, res, 4096, (o) => {
+      const target = miniTarget(me, o);
+      if (!target.ok) {
+        miniDone(res, target.status, { ok: false, error: target.error }, req, pathname, ip, t0);
+        return;
+      }
+      const inst = target.inst;
+      audit.add({
+        actor: me.username,
+        action: 'mini.invoke',
+        target: inst.appId,
+        detail: auditDetail('log.detail.mini.invoke', { name: inst.name, command: String(o.command || '') }),
+        ip
+      });
+      miniDone(res, 200, { ok: true }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // GET /api/admin/mini —— 索引源配置与上次加载状态（管理员）
+  if (pathname === '/api/admin/mini' && req.method === 'GET') {
+    mini.getIndex().then((idx) => {
+      miniDone(res, 200, {
+        ok: true,
+        sources: mini.getSources(),
+        status: idx.sources,
+        updatedAt: idx.updatedAt,
+        appCount: idx.apps.length,
+        installCount: mini.listInstalls({}).length
+      }, req, pathname, ip, t0);
+    }).catch(() => {
+      miniDone(res, 200, { ok: true, sources: mini.getSources(), status: [], updatedAt: 0, appCount: 0, installCount: 0 }, req, pathname, ip, t0);
+    });
+    return;
+  }
+
+  // POST /api/admin/mini {sources?: [...]} 或 {refresh: true}
+  if (pathname === '/api/admin/mini' && req.method === 'POST') {
+    miniReadBody(req, res, 16384, (o) => {
+      if (Array.isArray(o.sources) || o.sources !== undefined) {
+        mini.setSources((Array.isArray(o.sources) ? o.sources : []) as mini.MiniSource[]);
+        audit.add({
+          actor: me.username,
+          action: 'mini.sourceConfig',
+          target: 'mini_sources',
+          detail: auditDetail('log.detail.mini.sourceConfig', { count: (Array.isArray(o.sources) ? o.sources : []).length }),
+          ip
+        });
+      }
+      const after = o.refresh ? mini.refreshIndex() : mini.getIndex(true);
+      after.then((idx) => {
+        miniDone(res, 200, {
+          ok: true,
+          sources: mini.getSources(),
+          status: idx.sources,
+          updatedAt: idx.updatedAt,
+          appCount: idx.apps.length
+        }, req, pathname, ip, t0);
+      }).catch(() => {
+        miniDone(res, 200, { ok: true, sources: mini.getSources(), status: [], updatedAt: 0, appCount: 0 }, req, pathname, ip, t0);
+      });
+    });
+    return;
+  }
+
   // GET /api/health
   sendJSON(res, 404, { ok: false, error: 'api.notFound' });
   logger.write({ ip, method: req.method, url: pathname, status: 404, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+}
+
+/* ============================================================
+ * 小程序（MiniApp）接口
+ *
+ * 认证：默认走登录会话 Cookie（父页面代持，同源自动携带）。
+ * 沙箱 iframe（sandbox="allow-scripts"）是不透明源、发不出 Cookie，
+ * 因此额外接受由会话派生的短时 mini_token（X-Mini-Token 头），
+ * 它不是用户可创建/可管理的 API Key，仅用于把会话身份带进沙箱。
+ * ============================================================ */
+
+const MINI_CORS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Mini-Token',
+  'Access-Control-Max-Age': '86400'
+};
+
+/** 个人级安装的作用域 id 就是用户名；群级是 gid */
+function miniScope(o: any, username: string): { scope: mini.MiniScopeType; scopeId: string } {
+  return o && o.scope === 'group'
+    ? { scope: 'group', scopeId: String(o.scopeId || '') }
+    : { scope: 'user', scopeId: username };
+}
+
+/** 调用者是否能使用这条安装记录（群级要求是本群成员，个人级要求是本人） */
+function miniUsable(inst: mini.MiniInstall | null, username: string): boolean {
+  if (!inst || !inst.enabled) return false;
+  return inst.scopeType === 'group' ? groups.isMember(inst.scopeId, username) : inst.scopeId === username;
+}
+
+/** 是否能管理（卸载 / 改授权）这条安装记录：本人安装者，或群主/管理员 */
+function miniManageable(inst: mini.MiniInstall | null, username: string): boolean {
+  if (!inst) return false;
+  if (inst.scopeType === 'group') return groups.isManager(inst.scopeId, username);
+  return inst.username === username;
+}
+
+const MINI_MSG_WINDOW = 60 * 1000;
+const MINI_MSG_MAX = 10; // 每个「用户 + 小程序」每分钟最多代发 10 条
+const miniMsgLog = new Map<string, number[]>();
+
+function miniMsgAllowed(key: string): boolean {
+  const now = Date.now();
+  if (miniMsgLog.size > 5000) miniMsgLog.clear(); // 极简的内存兜底，避免长期驻留
+  const arr = (miniMsgLog.get(key) || []).filter((t) => now - t < MINI_MSG_WINDOW);
+  if (arr.length >= MINI_MSG_MAX) {
+    miniMsgLog.set(key, arr);
+    return false;
+  }
+  arr.push(now);
+  miniMsgLog.set(key, arr);
+  return true;
+}
+
+/** 读取并解析小程序请求的 JSON body（错误统一回 api.badRequest + CORS 头） */
+function miniReadBody(req: any, res: any, limit: number, cb: (o: any) => void): void {
+  readBody(req, limit).then((body) => {
+    let o: any = null;
+    try { o = JSON.parse(body.toString('utf8')); } catch (e) {  }
+    if (!o || typeof o !== 'object') {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' }, MINI_CORS);
+      return;
+    }
+    cb(o);
+  }).catch((e: unknown) => {
+    // 回调里抛出的异常也会走到这里，不能只回 400 就把原因吞掉
+    console.error('[mini] 请求处理失败', e);
+    sendJSON(res, 400, { ok: false, error: 'api.badRequest' }, MINI_CORS);
+  });
+}
+
+/** 小程序接口统一的收尾：回包 + 写访问日志 */
+function miniDone(res: any, status: number, obj: unknown, req: any, pathname: string, ip: string, t0: number): void {
+  sendJSON(res, status, obj, MINI_CORS);
+  logger.write({ ip, method: req.method, url: pathname, status, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+}
+
+/** 会话身份 + 小程序令牌（有 mini 字段表示这次是沙箱里的直连请求） */
+interface MiniRequestAuth extends auth.RequestAuth {
+  mini?: mini.MiniTokenPayload;
+}
+
+/** 由会话派生的短时令牌还原身份；无效返回 null */
+function authFromMiniToken(req: any, ip: string): MiniRequestAuth | null {
+  const raw = req.headers['x-mini-token'];
+  const one = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof one !== 'string' || !one) return null;
+  const t = mini.verifyToken(one);
+  if (!t) return null;
+  return { username: t.u, ip, token: 'mini-token', viaKey: false, scopes: null, mini: t };
+}
+
+/**
+ * 解析小程序请求的作用目标（appId + 作用域 + 安装记录）。
+ * **令牌请求一律以令牌为准**：令牌里写死了 appId / 作用域，请求里再带一个不同的 appId
+ * 一律拒绝——否则 A 小程序可以拿自己的令牌去读写 B 小程序的 KV。
+ */
+function miniTarget(
+  me: MiniRequestAuth,
+  raw: Record<string, unknown>
+): { ok: true; inst: mini.MiniInstall } | { ok: false; status: number; error: string } {
+  const t = me.mini;
+  if (t) {
+    const asked = raw.appId == null ? '' : String(raw.appId);
+    if (asked && asked !== t.a) return { ok: false, status: 403, error: 'api.forbidden' };
+    const inst = mini.getInstall(t.a, t.s, t.c);
+    if (!inst || !miniUsable(inst, me.username)) return { ok: false, status: 404, error: 'api.mini.notInstalled' };
+    return { ok: true, inst };
+  }
+  const { scope, scopeId } = miniScope(raw, me.username);
+  const inst = mini.getInstall(String(raw.appId || ''), scope, scopeId);
+  if (!inst || !miniUsable(inst, me.username)) return { ok: false, status: 404, error: 'api.mini.notInstalled' };
+  return { ok: true, inst };
+}
+
+/** 安装 / 卸载 / 改授权只接受会话 Cookie：这些是用户行为，不该由沙箱里的小程序触发 */
+function cookieOnly(me: MiniRequestAuth): boolean {
+  return !me.mini;
+}
+
+/** 安装记录 -> 前端视图（不回传 manifest 全量，只给展示需要的字段） */
+function miniInstallView(i: mini.MiniInstall): Record<string, unknown> {
+  return {
+    appId: i.appId,
+    name: i.name,
+    icon: i.icon,
+    version: i.version,
+    entry: i.entry,
+    summary: i.manifest.summary || '',
+    description: i.manifest.description || '',
+    author: i.manifest.author || '',
+    homepage: i.manifest.homepage || '',
+    command: i.manifest.command || '',
+    window: i.manifest.window || null,
+    permissions: i.manifest.permissions || [],
+    granted: i.perms,
+    scopeType: i.scopeType,
+    scopeId: i.scopeId,
+    installedBy: i.username,
+    created: i.created,
+    updated: i.updated
+  };
 }
 
 

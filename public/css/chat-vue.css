@@ -2382,3 +2382,54 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 .msg.self .audio-vol-fill { background: rgba(255, 255, 255, .92); }
 .msg.self .audio-vol-thumb { border-color: rgba(255, 255, 255, .75); }
 .msg.self .audio-vol-num { color: rgba(255, 255, 255, .85); }
+
+/* ============================================================
+ * 小程序：侧栏分区条目 + 输入框 #指令候选浮层
+ * ============================================================ */
+.sidebar-section {
+  padding: 8px 10px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .04em;
+}
+/* 侧栏条目原本是 div，小程序条目用 button（可聚焦、可键盘操作），需抹掉默认样式 */
+.user-item.mini-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.mini-item .user-status { color: var(--muted); }
+.mini-item .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.mini-cmd {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .12);
+  z-index: 40;
+}
+.mini-cmd-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mini-cmd-item:hover, .mini-cmd-item.on { background: var(--fill); }
+.mini-cmd-name { font-size: 13px; font-weight: 500; }
+.mini-cmd-sum { flex: 1; overflow: hidden; font-size: 11px; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
