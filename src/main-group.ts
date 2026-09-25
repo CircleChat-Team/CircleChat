@@ -6,6 +6,7 @@ import type { PresencePlatforms } from './core/presence';
 import { initTheme } from './core/theme';
 import { i18n } from './i18n';
 import './styles/tailwind.css';
+import './styles/fileview.css';
 
 initTheme(); // 尽早应用主题，避免首屏闪白
 

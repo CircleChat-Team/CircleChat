@@ -2,7 +2,7 @@
 <!--
   CircleChat 私人聊天 — 聊天页（Vue 3 + TypeScript + Tailwind）
   界面由 src/main-chat.ts 构建出的 /dist/assets/chat.js 挂载，
-  主聊天样式复用 /css/style.css，弹层使用 Tailwind（主题色复用同一套变量）。
+  主聊天样式现由 src/styles/chat.css 经入口打包（与 Tailwind 页面共用同一套 CSS 变量）。
 -->
 <html lang="zh-CN">
 <head>
@@ -12,8 +12,6 @@
   <meta name="theme-color" content="#07c160">
   <title>CircleChat · 聊天</title>
   <link rel="stylesheet" href="/dist/assets/tailwind.css">
-  <link rel="stylesheet" href="/css/chat-vue.css">
-  <link rel="stylesheet" href="/css/fileview.css">
   <style>#app{height:100%}</style>
   <link rel="icon" href="./favicon.svg?v=2">
 </head>
