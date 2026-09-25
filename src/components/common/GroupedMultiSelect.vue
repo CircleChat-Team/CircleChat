@@ -30,7 +30,6 @@ import { useOverlay } from '../../core/useOverlay';
 const props = defineProps<{
   groups: MsGroup[];
   modelValue: string[];
-  /** 未选中任何项时触发器上的文案 */
   allLabel: string;
   selectAllLabel: string;
   clearLabel: string;
@@ -40,7 +39,6 @@ const props = defineProps<{
    * 会把占位符直接吞掉（实测界面显示成「已选  项」），必须由父组件用 tr(key, { n }) 插值。
    */
   selectedText: (n: number) => string;
-  /** 悬停提示（可选） */
   titleLabel?: string;
 }>();
 const emit = defineEmits<{ 'update:modelValue': [string[]] }>();

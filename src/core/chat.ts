@@ -33,11 +33,11 @@ import type {
 /** 搜索范围：room = 当前会话；all = 我的全部会话 */
 export type SearchScope = 'room' | 'all';
 
-const PAGE = 30; // 每批渲染 / 加载条数
-const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
+const PAGE = 30; 
+const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; 
 /** 提示文案里展示的上限，由 MAX_UPLOAD_SIZE 推导，改上限时无需同步改文案 */
 const MAX_UPLOAD_LABEL = Math.round(MAX_UPLOAD_SIZE / 1024 / 1024) + 'MB';
-const GROUP_GAP_MS = 5 * 60 * 1000; // 同一人 5 分钟内连发视为一组
+const GROUP_GAP_MS = 5 * 60 * 1000; 
 
 function clock(ts?: number | null): string {
   const d = new Date(Number(ts) || Date.now());
@@ -73,11 +73,9 @@ export interface ChatState {
   activeDmPeer: string | null;
   /** 当前群内：我是否为管理者（群主或管理员） */
   activeGroupIsManager?: boolean;
-  /** 当前群内：我是否为群主 */
   activeGroupIsOwner?: boolean;
   /** 当前群是否处于「全员禁言」 */
   activeGroupMuteAll?: boolean;
-  /** 我收到的、待我同意的群邀请 */
   myInvites: GroupInvite[];
   messages: ChatMessage[];
   renderedIdx: Record<string, boolean>;
@@ -87,11 +85,9 @@ export interface ChatState {
   notifyOn: boolean;
   sendKey: 'enter' | 'ctrl';
   notifySound: string;
-  /** 接收消息提示音开关 */
   soundIn: boolean;
   /** 允许任何人邀请我入群（无需我同意） */
   allowInvite: boolean;
-  /** 发送消息提示音开关 */
   soundOut: boolean;
   replyTo: ChatMessage | null;
   profileOpen: boolean;
@@ -256,7 +252,6 @@ let typingSentAt = 0;
 let searchSeq = 0; // 搜索请求序号：丢弃过期响应
 let typingHideTimer: number | undefined;
 
-// ---------------- WebSocket ----------------
 
 function wsUrl(): string {
   const base = config.apiBase;
@@ -413,12 +408,10 @@ function connectWs(): void {
     try {
       sock.close();
     } catch {
-      /* 忽略 */
     }
   };
 }
 
-// ---------------- 消息处理 ----------------
 
 export function msgInActiveRoom(m: ChatMessage): boolean {
   if (state.activeGid != null) return String(m.gid) === String(state.activeGid);
@@ -458,14 +451,12 @@ function roomKeyOf(m: ChatMessage): string | null {
   return null;
 }
 
-/** 非当前会话收到消息时累加未读 */
 function addUnread(m: ChatMessage): void {
   const k = roomKeyOf(m);
   if (!k) return;
   state.unread[k] = (state.unread[k] || 0) + 1;
 }
 
-/** 进入某会话时清除其未读 */
 export function clearUnread(key: string): void {
   if (state.unread[key]) delete state.unread[key];
 }
@@ -626,7 +617,6 @@ function resetRoom(): void {
   state.topIndex = 0;
 }
 
-// ---------------- 加载数据 ----------------
 
 function loadMe(): Promise<boolean> {
   return get('/api/me').then((j) => {
@@ -660,7 +650,6 @@ function loadUsers(): Promise<void> {
         }
       })
       .catch(() => {
-        /* 忽略 */
       });
   }
   return usersReady;
@@ -679,7 +668,6 @@ function loadFriends(): Promise<void> {
       state.friendSent = (j.sent as FriendSent[]) || [];
     })
     .catch(() => {
-      /* 忽略 */
     });
 }
 
@@ -693,11 +681,9 @@ export function loadGroups(): Promise<void> {
       }
     })
     .catch(() => {
-      /* 忽略 */
     });
 }
 
-// ---------------- 发送 ----------------
 
 export function sendText(text: string, md?: boolean): void {
   const val = (text || '').trim();
@@ -764,7 +750,6 @@ export interface UploadTask {
   size: number;
   /** 已上传字节数（用于显示「12.3 MB / 45.0 MB」） */
   loaded: number;
-  /** 0-100 */
   percent: number;
   status: 'queued' | 'uploading' | 'done' | 'failed';
   /** 失败原因（i18n 键或直译文案），成功后清空 */
@@ -777,7 +762,6 @@ export interface UploadTask {
   thumbUrl?: string;
   /** 分片总数（仅分片上传的大文件有；用于面板显示「已传/总片数」） */
   chunks?: number;
-  /** 已确认到达服务端的分片数 */
   chunkDone?: number;
   /** 每片进度（0-100；仅分片上传时用于渲染 IDM 式分段进度条）。
    *  每个分片进度事件都会写入，保证分段标记实时刷新。 */
@@ -788,11 +772,9 @@ export interface UploadTask {
 interface ChunkSession {
   /** 服务端会话 id；首次上传前为空串 */
   uploadId: string;
-  /** 分片总数 */
   chunks: number;
   /** 每片当前已传字节数（在途/已确认），用于聚合出 task.loaded */
   loaded: number[];
-  /** 每片是否已被服务端确认 */
   done: boolean[];
 }
 
@@ -801,7 +783,6 @@ let uploadSeq = 0;
 const MAX_CONCURRENT_UPLOADS = 3;
 /** 分片大小（必须与服务端 server/lib/runtime.ts 的 CHUNK_SIZE 一致） */
 const CHUNK_SIZE = 5 * 1024 * 1024;
-/** 单个文件同时并发的分片数 */
 const MAX_CONCURRENT_CHUNKS = 10;
 /** 任务 id → 待上传文件；不放进响应式状态，避免 Vue 代理 DOM 对象 */
 const pendingFiles = new Map<number, File>();
@@ -956,7 +937,7 @@ function abortInFlight(id: number): void {
   const set = uploadXhr.get(id);
   if (!set) return;
   for (const xhr of Array.from(set)) {
-    try { xhr.abort(); } catch { /* 忽略 */ }
+    try { xhr.abort(); } catch {  }
   }
 }
 
@@ -983,7 +964,7 @@ async function uploadChunk(id: number, file: File, sess: ChunkSession, index: nu
   const end = Math.min(file.size, start + CHUNK_SIZE);
   const blob = file.slice(start, end);
   const sha = await sha256Hex(blob);
-  if (!taskById(id)) throw new Error('abort'); // 校验期间被取消
+  if (!taskById(id)) throw new Error('abort'); 
   const fd = new FormData();
   fd.append('file', blob, 'chunk');
   const url = api('/api/upload/chunk?uploadId=' + encodeURIComponent(sess.uploadId)
@@ -1115,7 +1096,7 @@ function dispatchUpload(id: number, r: { kind: string; url: string; name: string
 function pumpQueue(): void {
   while (runningUploads < MAX_CONCURRENT_UPLOADS && waitQueue.length) {
     const id = waitQueue.shift() as number;
-    if (!pendingFiles.has(id) || !taskById(id)) continue; // 已被取消 / 已移除
+    if (!pendingFiles.has(id) || !taskById(id)) continue; 
     runningUploads++;
     void runUpload(id).finally(() => {
       runningUploads--;
@@ -1170,7 +1151,7 @@ async function runUploadChunked(id: number, file: File, sess: ChunkSession): Pro
     size: file.size,
     uploadId: sess.uploadId
   });
-  if (!taskById(id)) return; // init 期间被取消
+  if (!taskById(id)) return; 
   if (!init.ok || !init.uploadId) {
     failUpload(id, String(init.error || 'chat.upload.retry'));
     return;
@@ -1286,13 +1267,12 @@ export function retryAllFailed(): void {
   }
 }
 
-/** 关闭（移除）一条上传任务 */
 export function dismissUpload(id: number): void {
   const i = state.uploads.findIndex((t) => t.id === id);
   if (i >= 0) {
     const t = state.uploads[i];
     if (t.thumbUrl) {
-      try { URL.revokeObjectURL(t.thumbUrl); } catch { /* 忽略 */ }
+      try { URL.revokeObjectURL(t.thumbUrl); } catch {  }
     }
     state.uploads.splice(i, 1);
   }
@@ -1322,7 +1302,6 @@ function showTyping(name: string): void {
   }, 3500);
 }
 
-// ---------------- 操作 ----------------
 
 export function react(idx: number, emoji: string): void {
   send({ type: 'react', data: { idx, emoji } });
@@ -1332,7 +1311,6 @@ export function recall(idx: number): void {
   send({ type: 'recall', data: { idx } });
 }
 
-// ---------------- 右键菜单 / 多选 / 转发 ----------------
 
 export function openContextMenu(idx: number, x: number, y: number): void {
   state.contextMenu = { idx, x, y };
@@ -1374,7 +1352,6 @@ export function closeForward(): void {
   state.forwardOpen = false;
 }
 
-/** 打开「合并转发」查看模态框 */
 export function openMergeView(idx: number): void {
   const m = state.messages.find((x) => x.idx === idx);
   if (!m || m.type !== 'merge') return;
@@ -1382,7 +1359,6 @@ export function openMergeView(idx: number): void {
     const o = JSON.parse(m.content || '');
     if (o && Array.isArray(o.items)) state.mergeView = { title: o.title || '', items: o.items as MergeItem[] };
   } catch {
-    /* 忽略非法内容 */
   }
 }
 
@@ -1390,7 +1366,6 @@ export function closeMergeView(): void {
   state.mergeView = null;
 }
 
-/** 打开图片灯箱查看 */
 export function openImageView(src: string): void {
   if (src) state.imageView = src;
 }
@@ -1428,7 +1403,6 @@ export function closeRepoView(): void {
   state.repoView = null;
 }
 
-// ---------------- 媒体播放音量 ----------------
 
 /** 上一次的非零音量：拖动到 0（静音）后再点喇叭能回到原来的大小，而不是直接满音量 */
 let lastVolume = 1;
@@ -1572,7 +1546,6 @@ export function closeMyProfile(): void {
   state.myProfileOpen = false;
 }
 
-// ---------------- 个人资料编辑（本人：改名 / 头像 / 两步验证） ----------------
 
 export function updateProfileName(name: string): Promise<{ ok: boolean; error?: string; newName?: string }> {
   return post('/api/profile', { name });
@@ -1620,7 +1593,7 @@ export async function uploadAvatar(file: File): Promise<string | null> {
   try {
     payload = await cropAvatarImage(file);
   } catch {
-    return null; // 用户取消裁剪
+    return null; 
   }
   const fd = new FormData();
   fd.append('file', payload, 'avatar.png');
@@ -1633,7 +1606,6 @@ export async function uploadAvatar(file: File): Promise<string | null> {
   return String(body.url);
 }
 
-/** 上传并设为本人头像 */
 export async function updateAvatar(file: File): Promise<boolean> {
   const url = await uploadAvatar(file);
   if (!url) return false;
@@ -1646,7 +1618,6 @@ export async function updateAvatar(file: File): Promise<boolean> {
   return !!(j && j.ok);
 }
 
-/** 清除本人头像 */
 export function clearAvatar(): Promise<boolean> {
   return post('/api/profile', { image: '' }).then((j) => {
     if (j && j.ok) {
@@ -1738,7 +1709,6 @@ export async function saveSettings(patch: Record<string, unknown>): Promise<void
 export function setSendKey(mode: 'enter' | 'ctrl'): void {
   state.sendKey = mode === 'ctrl' ? 'ctrl' : 'enter';
   void post('/api/settings', { sendKey: state.sendKey }).catch(() => {
-    /* 忽略 */
   });
 }
 
@@ -1748,7 +1718,6 @@ export function setNotifySound(file: string): void {
   state.notifySound = file;
   soundSetNotify(file);
   void post('/api/settings', { notifySound: file }).catch(() => {
-    /* 忽略 */
   });
 }
 
@@ -1756,7 +1725,6 @@ export function setNotifySound(file: string): void {
 export function setAllowInvite(on: boolean): void {
   state.allowInvite = on;
   void post('/api/settings', { allowInvite: on }).catch(() => {
-    /* 忽略 */
   });
 }
 
@@ -1764,7 +1732,6 @@ export function setAllowInvite(on: boolean): void {
 export function setSoundIn(on: boolean): void {
   state.soundIn = !!on;
   void post('/api/settings', { soundIn: state.soundIn }).catch(() => {
-    /* 忽略 */
   });
 }
 
@@ -1772,7 +1739,6 @@ export function setSoundIn(on: boolean): void {
 export function setSoundOut(on: boolean): void {
   state.soundOut = !!on;
   void post('/api/settings', { soundOut: state.soundOut }).catch(() => {
-    /* 忽略 */
   });
 }
 
@@ -1785,7 +1751,6 @@ export async function setNotify(enabled: boolean): Promise<boolean> {
   const on = enabled && canSystemNotify();
   state.notifyOn = on;
   void post('/api/settings', { notify: on }).catch(() => {
-    /* 忽略 */
   });
   return on;
 }
@@ -1844,7 +1809,6 @@ function handleOauthResult(): void {
   try {
     history.replaceState(null, '', location.pathname);
   } catch (e) {
-    /* 忽略 */
   }
 }
 
@@ -1884,19 +1848,16 @@ export function initChat(): void {
         }
       })
       .catch(() => {
-        /* 忽略 */
       });
   });
 }
 
 export function logout(): void {
   post('/api/logout', {}).catch(() => {
-    /* 忽略 */
   });
   location.replace('/login.html');
 }
 
-// ---------------- 工具（组件复用） ----------------
 
 const PALETTE = ['#07c160', '#10aeff', '#f76260', '#ffc300', '#6467f0', '#ff7a45', '#34c759', '#ff2d55', '#5ac8fa', '#a2845e', '#5856d6', '#ff9500'];
 
@@ -1938,7 +1899,6 @@ export function statusText(name: string): string {
   return presenceText(isOnline(name), isAway(name), state.platforms[name], state.lastSeen[name]);
 }
 
-// ---------------- 聊天记录搜索 ----------------
 
 /** 打开搜索面板；scope=room 搜当前会话，all 搜全部会话 */
 export function openSearch(scope: SearchScope = 'room'): void {
@@ -2087,7 +2047,6 @@ try {
   window.addEventListener('focus', syncVisibility);
   window.addEventListener('blur', syncVisibility);
 } catch {
-  /* 忽略 */
 }
 
 export function copyToClipboard(text: string): void {
@@ -2113,7 +2072,6 @@ export function copyToClipboard(text: string): void {
     document.execCommand('copy');
     document.body.removeChild(ta);
   } catch {
-    /* 忽略 */
   }
 }
 
@@ -2136,7 +2094,6 @@ export function loadGroupMembers(gid: string): void {
       });
     })
     .catch(() => {
-      /* 忽略 */
     });
 }
 
@@ -2147,7 +2104,6 @@ export function loadMyInvites(): void {
       if (j && j.ok) state.myInvites = (j.invites as GroupInvite[]) || [];
     })
     .catch(() => {
-      /* 忽略 */
     });
 }
 

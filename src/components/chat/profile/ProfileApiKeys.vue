@@ -22,21 +22,27 @@ interface ApiKeyItem {
 }
 
 const keys = ref<ApiKeyItem[]>([]);
-const allScopes = ref<string[]>(['profile', 'friends', 'messages', 'groups', 'files', 'admin']);
+const allScopes = ref<string[]>([
+  'profile.read', 'profile.write', 'security',
+  'users.read',
+  'friends.read', 'friends.write',
+  'messages.read', 'messages.send',
+  'groups.read', 'groups.write', 'groups.manage',
+  'files.upload',
+  'admin'
+]);
 const defaultRate = ref(60);
 const isAdmin = ref(false);
 const loading = ref(true);
 
-// 新建表单
 const name = ref('');
-const picked = ref<string[]>(['profile']);
+const picked = ref<string[]>(['profile.read']);
 const rateLimit = ref<string>('');
 const expiresDays = ref<string>('');
 const busy = ref(false);
 const err = ref('');
 const createdPlaintext = ref('');
 
-// 行内编辑
 const editId = ref<number | null>(null);
 const eName = ref('');
 const eScopes = ref<string[]>([]);
@@ -95,7 +101,7 @@ function create(): void {
     }
     createdPlaintext.value = String(j.plaintext || '');
     name.value = '';
-    picked.value = ['profile'];
+    picked.value = ['profile.read'];
     rateLimit.value = '';
     expiresDays.value = '';
     load();
@@ -113,7 +119,7 @@ function copy(text: string): void {
     ta.style.opacity = '0';
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand('copy'); } catch { /* 忽略 */ }
+    try { document.execCommand('copy'); } catch {  }
     document.body.removeChild(ta);
   };
   if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).catch(fallback);
@@ -182,7 +188,6 @@ onMounted(load);
   <section class="space-y-5">
     <p class="text-xs text-muted">{{ tr('profile.apikey.desc') }}</p>
 
-    <!-- 新建 -->
     <section class="rounded-xl border border-line bg-fill/40 p-3">
       <div class="mb-2 text-[13px] font-semibold">{{ tr('profile.apikey.create') }}</div>
 
@@ -264,7 +269,6 @@ onMounted(load);
       </div>
     </section>
 
-    <!-- 列表 -->
     <section>
       <div class="mb-2 text-[13px] font-semibold">{{ tr('profile.apikey.list') }}</div>
       <p v-if="loading" class="py-2 text-center text-xs text-muted">{{ tr('common.loading') }}</p>
@@ -302,7 +306,6 @@ onMounted(load);
           </div>
         </template>
 
-        <!-- 行内编辑 -->
         <template v-else>
           <div class="flex flex-wrap items-end gap-2">
             <div class="min-w-0 flex-1">

@@ -135,7 +135,7 @@ function cleanupFiles(removedRows: { type: string; content: string | null }[]): 
       const base = path.basename(String(m.content));
       if (keep.has(base) || prot.has(base)) continue;
       const fp = path.join(UPLOAD_DIR, base);
-      try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch { /* 忽略 */ }
+      try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {  }
       dropUpload(base); // 物理文件已删，去重记录一并清掉，避免残留指向空文件
     }
   }
@@ -154,7 +154,6 @@ function trim(): void {
   pruneReactions();
 }
 
-// ---------- 表情回应 ----------
 
 export interface ReactionSummary {
   emoji: string;
@@ -566,7 +565,7 @@ export function cleanupExpired(ttlDays: number, protect?: Set<string>): number {
     const base = path.basename(String(r.content));
     if (!base || keep.has(base) || prot.has(base)) continue;
     const fp = path.join(UPLOAD_DIR, base);
-    try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch { /* 忽略 */ }
+    try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {  }
     dropUpload(base);
   }
   return rows.length;
@@ -579,7 +578,6 @@ export function dissolveMessages(gid: string | null): void {
   const removed = d.prepare('SELECT * FROM messages WHERE gid = ? AND dm IS NULL').all(String(gid)) as unknown as MsgRow[];
   d.prepare('DELETE FROM messages WHERE gid = ? AND dm IS NULL').run(String(gid));
   cleanupFiles(removed);
-  // 同步清理该群消息上的表情回应
   for (const r of removed) {
     d.prepare('DELETE FROM reactions WHERE msg_idx = ?').run(r.idx);
   }

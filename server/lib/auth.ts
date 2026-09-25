@@ -11,9 +11,7 @@ const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'chatplus.db');
 
 const SESSION_TTL = 7 * 24 * 3600 * 1000; // 会话有效期 7 天
 
-// ---------- 密码哈希 ----------
 
-/** SHA256 摘要（hex） */
 export function sha256(str: string): string {
   return crypto.createHash('sha256').update(str, 'utf8').digest('hex');
 }
@@ -24,7 +22,6 @@ export function hashPassword(password: string): string {
   return salt + '$' + sha256(salt + password);
 }
 
-/** 校验密码 */
 export function verifyPassword(password: string, stored: string): boolean {
   const idx = stored.indexOf('$');
   if (idx <= 0) return false;
@@ -33,7 +30,6 @@ export function verifyPassword(password: string, stored: string): boolean {
   return sha256(salt + password) === hash;
 }
 
-// ---------- 数据库 ----------
 
 let db: DatabaseSync | null = null;
 
@@ -144,7 +140,6 @@ function migrateFromJson(): void {
   }
 }
 
-// ---------- 用户存储 ----------
 
 /** 返回 { name: StoredUser } 供接口层使用 */
 export function loadUsers(): Record<string, StoredUser> {
@@ -154,7 +149,6 @@ export function loadUsers(): Record<string, StoredUser> {
   return map;
 }
 
-// ---------- 内置账号 ----------
 
 /** 内置管理员账号（role=admin：可管理用户、可撤回任意人的消息） */
 const BUILTIN_ADMIN = { name: 'admin', pass: 'Admin1234', role: 'admin', mustChange: true };
@@ -247,7 +241,6 @@ export function setPassword(username: string, newPassword: string): boolean {
   return true;
 }
 
-/** 该账号是否仍需强制改密 */
 export function mustChange(name: string): boolean {
   const r = open().prepare('SELECT mustChange FROM users WHERE name = ?').get(name) as { mustChange: number | null } | undefined;
   return !!(r && r.mustChange);
@@ -260,7 +253,6 @@ export function defaultAdminPassword(): string | null {
   return verifyPassword(BUILTIN_ADMIN.pass, r.pass) ? BUILTIN_ADMIN.pass : null;
 }
 
-/** 读取用户设置 */
 export function getSettings(username: string): Record<string, unknown> {
   const r = open().prepare('SELECT settings FROM users WHERE name = ?').get(username) as { settings: string | null } | undefined;
   if (!r || !r.settings) return {};
@@ -279,7 +271,7 @@ export function avatarFiles(): Set<string> {
   for (const r of rows) {
     add(r.image);
     if (r.settings) {
-      try { add((JSON.parse(r.settings) || {}).avatar); } catch { /* 忽略非法设置 */ }
+      try { add((JSON.parse(r.settings) || {}).avatar); } catch {  }
     }
   }
   return set;
@@ -297,7 +289,6 @@ export function setSettings(username: string, patch: Record<string, unknown>): b
   return true;
 }
 
-// ---------- 角色与用户管理 ----------
 
 /** 读取角色（默认 user） */
 export function getRole(username: string): string {
@@ -305,7 +296,6 @@ export function getRole(username: string): string {
   return r && r.role ? String(r.role) : 'user';
 }
 
-/** 是否管理员 */
 export function isAdmin(username: string): boolean {
   return getRole(username) === 'admin';
 }
@@ -334,7 +324,6 @@ export function setImage(name: string, image: string | null): boolean {
   return true;
 }
 
-// ---------- 第三方登录绑定（GitHub） ----------
 
 /**
  * 设置/清除某账号的 GitHub 绑定：id 传 null 表示解绑。
@@ -357,7 +346,6 @@ export function getGithubLogin(name: string): string | null {
   return r && r.github_login ? String(r.github_login) : null;
 }
 
-// ---------- 两步验证（TOTP，RFC6238 / HMAC-SHA1） ----------
 
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
@@ -449,7 +437,6 @@ export function setTotpEnabled(name: string, enabled: boolean, secret: string | 
   return true;
 }
 
-// ---------- 用户改名（全局引用一次性事务更新） ----------
 
 /** 将用户 oldName 改名为 newName，并同步所有关联表中的引用；成功返回 true */
 export function renameUser(oldName: string, newName: string): boolean {
@@ -457,7 +444,7 @@ export function renameUser(oldName: string, newName: string): boolean {
   const neu = String(newName);
   if (!old || !neu || old === neu) return false;
   const d = open();
-  if (d.prepare('SELECT 1 AS x FROM users WHERE name = ?').get(neu)) return false; // 新名已被占用
+  if (d.prepare('SELECT 1 AS x FROM users WHERE name = ?').get(neu)) return false; 
   if (!d.prepare('SELECT 1 AS x FROM users WHERE name = ?').get(old)) return false;
   const now = Date.now();
   d.prepare('BEGIN').run();
@@ -500,7 +487,6 @@ export function renameSession(oldName: string, newName: string): void {
   }
 }
 
-// ---------- 开放注册（需管理员审核） ----------
 
 /** 提交注册申请：创建 status=pending 的账号；用户名已存在返回 false（邮箱存于 settings） */
 export function submitRegistration(name: string, password: string, email?: string): boolean {
@@ -550,7 +536,6 @@ export function reviewReject(name: string): boolean {
   return true;
 }
 
-// ---------- 会话管理（内存存储） ----------
 
 const sessions = new Map<string, { username: string; ip: string; expires: number }>();
 
@@ -605,8 +590,19 @@ export function authByCookie(cookieHeader: string | undefined): { username: stri
 
 // ---------- API Key（对外接口凭据；仅存哈希，明文只在创建时展示一次） ----------
 
-/** 可授予的 scope 分组；'admin' 仅管理员账号可授（在接口层校验） */
-export const API_SCOPES = ['profile', 'friends', 'messages', 'groups', 'files', 'admin'] as const;
+/**
+ * 可授予的 scope 分组（按「功能 + 读/写/管理」细分）。
+ * 'admin' 仅管理员账号可授（接口层校验）。顺序即前端展示顺序。
+ */
+export const API_SCOPES = [
+  'profile.read', 'profile.write', 'security',
+  'users.read',
+  'friends.read', 'friends.write',
+  'messages.read', 'messages.send',
+  'groups.read', 'groups.write', 'groups.manage',
+  'files.upload',
+  'admin'
+] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
 
 export interface ApiKeyInfo {
@@ -771,7 +767,7 @@ export function authByApiKey(raw: string, ip: string): ApiKeyAuth | null {
   const now = Date.now();
   // last_used 节流写：每 60s 至多一次，避免每条请求都写库
   if (row.last_used == null || now - Number(row.last_used) > 60000) {
-    try { open().prepare('UPDATE api_keys SET last_used = ? WHERE id = ?').run(now, row.id); } catch { /* 忽略 */ }
+    try { open().prepare('UPDATE api_keys SET last_used = ? WHERE id = ?').run(now, row.id); } catch {  }
   }
   const u = loadUsers()[row.username];
   if (!u) return null;
@@ -838,7 +834,6 @@ export function apiKeyRateLimited(keyId: number, limit: number | null | undefine
   return rec.count > perMin;
 }
 
-// ---------- 登录限速（防暴力破解） ----------
 
 const failMap = new Map<string, { count: number; until: number }>(); // ip -> {count, until}
 const MAX_FAILS = 5;

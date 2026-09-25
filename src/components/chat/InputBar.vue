@@ -8,7 +8,7 @@ import UploadProgress from './UploadProgress.vue';
 const text = ref('');
 const textarea = ref<HTMLTextAreaElement | null>(null);
 const bigEl = ref<HTMLTextAreaElement | null>(null);
-const editOpen = ref(false); // 放大编辑器
+const editOpen = ref(false); 
 const showEmoji = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const showMention = ref(true);
@@ -329,7 +329,6 @@ function onShake(): void {
     <input ref="fileInput" type="file" hidden multiple @change="onFile" />
   </footer>
 
-  <!-- 放大编辑器（按钮控制） -->
   <div v-if="editOpen" class="editor-overlay" @click.self="closeEditor">
     <div class="editor-card">
       <textarea

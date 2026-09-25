@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 注册申请表单（提交后需管理员审核）
- * ============================================================ */
+// 注册申请表单（提交后需管理员审核）
 import { ref } from 'vue';
 import { post } from '../../core/api';
 import { tr } from '../../core/i18n';
@@ -23,7 +21,6 @@ const captcha = ref<InstanceType<typeof CaptchaField> | null>(null);
 /** 管理面板里可以关掉注册页的人机验证 */
 const captchaOn = ref(true);
 
-// 简单邮箱格式校验
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 async function submit(): Promise<void> {
@@ -68,12 +65,12 @@ async function submit(): Promise<void> {
         pass.value = '';
         pass2.value = '';
         hint.value = tr(j.message || 'reg.ok');
-        emit('submitted', u); // 回填用户名并切回登录表单
+        emit('submitted', u); 
         return;
       }
       hint.value = tr(j.error || 'reg.fail');
       captchaText.value = '';
-      captcha.value?.refresh(); // 验证码已被这次提交消费掉
+      captcha.value?.refresh(); 
     })
     .catch(() => {
       loading.value = false;

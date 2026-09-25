@@ -74,7 +74,6 @@ export const ACTION_KEYS: Record<string, string> = {
  */
 export interface ActionGroup {
   key: string;
-  /** 组名文案 key */
   label: string;
   actions: string[];
 }
@@ -145,7 +144,6 @@ export function formatAuditDetail(
     const o = JSON.parse(d) as { k?: string; v?: Record<string, string | number> };
     if (o && typeof o === 'object' && typeof o.k === 'string') return t(o.k, o.v || {});
   } catch {
-    /* 旧版详情，原样显示 */
   }
   return d;
 }

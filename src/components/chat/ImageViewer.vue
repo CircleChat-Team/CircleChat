@@ -1,9 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 图片灯箱：站内大图查看
- * - 桌面：Esc / 点击背景关闭
- * - 移动：双击或双指捏合缩放，放大后可拖动，向下滑动关闭
- * ============================================================ */
+// 图片灯箱：站内大图查看 - 桌面：Esc / 点击背景关闭 - 移动：双击或双指捏合缩放，放大后可拖动，向下滑动关闭
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { chatState, closeImageView } from '../../core/chat';
 import { tr } from '../../core/i18n';
@@ -16,10 +12,10 @@ const ty = ref(0);
 const dragging = ref(false);
 
 const MAX_SCALE = 4;
-const CLOSE_DY = 90; // 向下滑动多少像素算关闭
+const CLOSE_DY = 90; 
 
 const pointers = new Map<number, { x: number; y: number }>();
-let pinchBase = 0; // 捏合起始距离
+let pinchBase = 0; 
 let panStart = { x: 0, y: 0, tx: 0, ty: 0 };
 let dragStart = { x: 0, y: 0 };
 let lastTapAt = 0;
@@ -46,7 +42,6 @@ function onPointerDown(e: PointerEvent): void {
 
   const now = Date.now();
   if (pointers.size === 1) {
-    // 双击：放大 ↔ 还原
     if (now - lastTapAt < 300) {
       if (scale.value > 1) reset();
       else scale.value = 2.5;
@@ -92,7 +87,6 @@ function onPointerMove(e: PointerEvent): void {
     return;
   }
 
-  // 未放大时：向下滑动关闭
   const dy = e.clientY - dragStart.y;
   if (dy > 12 && Math.abs(e.clientX - dragStart.x) < 40) {
     ty.value = dy;

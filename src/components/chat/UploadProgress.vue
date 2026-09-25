@@ -53,7 +53,6 @@ function sizeText(t: UploadTask): string {
   return fmtSize(t.size);
 }
 
-/** 排队中与传输中都可以取消 */
 function canCancel(t: UploadTask): boolean {
   return t.status === 'queued' || t.status === 'uploading';
 }

@@ -18,7 +18,7 @@ export function url(path: string): string {
  * 放在这里而不是各页面各写一份：聊天页、群管理页、管理面板都要用。
  */
 export function asset(u: string): string {
-  if (/^[a-z]+:/i.test(u)) return u; // 已是绝对地址
+  if (/^[a-z]+:/i.test(u)) return u; 
   return url(u);
 }
 
@@ -48,7 +48,6 @@ async function toJson(res: Response): Promise<ApiResult> {
   return data;
 }
 
-/** GET 请求 */
 export function get(path: string): Promise<ApiResult> {
   return fetch(url(path), { credentials: 'same-origin' }).then(toJson);
 }

@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 个人资料 - 名称编辑块：改名
- * ============================================================ */
+// 个人资料 - 名称编辑块：改名
 import { ref } from 'vue';
 import { tr } from '../../../core/i18n';
 import { chatState, updateProfileName } from '../../../core/chat';

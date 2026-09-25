@@ -14,13 +14,11 @@ import { tr } from '../../core/i18n';
 type ToastFn = (msg: string, ms?: number) => void;
 const toast = inject<ToastFn>('toast', () => {});
 
-// ---------------- 人机验证（图形验证码） ----------------
 const login = ref(true);
 const register = ref(true);
 const capFailed = ref('');
 const capBusy = ref(false);
 
-// ---------------- 第三方登录（GitHub OAuth） ----------------
 const clientId = ref('');
 const secret = ref('');
 const hasSecret = ref(false);
@@ -63,7 +61,6 @@ function load(): void {
 
 onMounted(load);
 
-// ---------------- 验证码保存 ----------------
 function saveCaptcha(): void {
   capBusy.value = true;
   post('/api/admin/captcha', { login: login.value, register: register.value })
@@ -83,7 +80,6 @@ function saveCaptcha(): void {
     });
 }
 
-// ---------------- 第三方登录保存 / 清空 ----------------
 function saveOauth(): void {
   oaBusy.value = true;
   post('/api/admin/oauth', { clientId: clientId.value.trim(), secret: secret.value.trim() })
@@ -127,7 +123,6 @@ function copyRedirect(): void {
 </script>
 
 <template>
-  <!-- 人机验证 -->
   <section class="rounded-card border border-line bg-panel p-4">
     <h2 class="text-[13px] font-semibold text-muted">{{ tr('admin.captcha.title') }}</h2>
     <p class="mt-1.5 text-xs text-muted">{{ tr('admin.captcha.hint') }}</p>
@@ -156,7 +151,6 @@ function copyRedirect(): void {
     </div>
   </section>
 
-  <!-- 第三方登录 -->
   <section class="rounded-card border border-line bg-panel p-4">
     <h2 class="mb-1 text-[13px] font-semibold text-muted">{{ tr('admin.oauth.title') }}</h2>
     <p class="mb-3 text-[11px] leading-relaxed text-muted">{{ tr('admin.oauth.tip') }}</p>

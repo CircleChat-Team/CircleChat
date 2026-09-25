@@ -59,7 +59,6 @@ for (const [lang, dict] of Object.entries(files)) {
 
 // ---------- 源码里引用的键必须存在 ----------
 
-/** 会拿字符串当翻译键用的函数 */
 const KEY_FUNCS = ['tr', 'trn', 'auditDetail', 'notify', 'toast'];
 const SRC_DIRS = ['src', path.join('server', 'lib')];
 const SKIP_DIRS = ['public', 'node_modules', 'dist', '.output'];
@@ -89,7 +88,7 @@ for (const f of sources) {
     const t = raw.trim();
     // 注释里写的键不算引用（文档里常写用法示例）
     if (t.startsWith('*') || t.startsWith('/*') || t.startsWith('//')) return;
-    const line = raw.replace(/\/\/.*$/, ''); // 去掉行尾注释
+    const line = raw.replace(/\/\/.*$/, ''); 
     for (const m of line.matchAll(callRe)) {
       const key = m[2];
       // 带空格或中日文 → 那已经是文案而不是键，交给运行时的 warn

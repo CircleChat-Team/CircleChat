@@ -6,7 +6,6 @@
 import { nextTick, onBeforeUnmount, watch } from 'vue';
 
 export interface OverlayOptions {
-  /** 弹层是否处于打开状态 */
   isOpen: () => boolean;
   /** 请求关闭（Esc / 归还焦点时调用） */
   onClose: () => void;

@@ -23,7 +23,7 @@ const pip = ref(false);
 function close(): void {
   const v = video.value;
   if (v) {
-    try { v.pause(); } catch { /* 忽略 */ }
+    try { v.pause(); } catch {  }
     // 关掉模态时一并退出全屏 / 小窗，避免留下一个"孤零零"的播放窗口
     try {
       const d = document as Document & {
@@ -34,7 +34,7 @@ function close(): void {
       };
       if (d.pictureInPictureElement === v && d.exitPictureInPicture) void d.exitPictureInPicture().catch(() => {});
       if (d.fullscreenElement === v && d.exitFullscreen) void d.exitFullscreen().catch(() => {});
-    } catch { /* 忽略 */ }
+    } catch {  }
   }
   pip.value = false;
   closeVideoView();

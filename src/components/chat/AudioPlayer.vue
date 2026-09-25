@@ -1,9 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 音频消息：点击才播放（不自动播放）。
- * 展示 文件名 / 格式 · 大小 · 时长；未播放时也绘制静态音谱条，
- * 播放中切换为 Web Audio AnalyserNode 的实时频谱。
- * ============================================================ */
+// 音频消息：点击才播放（不自动播放）；未播放画静态音谱条，播放中切 Web Audio 实时频谱。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { chatState, setVolume, toggleMuteVolume } from '../../core/chat';
 import { tr } from '../../core/i18n';
@@ -16,7 +12,6 @@ const audio = ref<HTMLAudioElement | null>(null);
 const canvas = ref<HTMLCanvasElement | null>(null);
 const playing = ref(false);
 const duration = ref(0);
-/** 当前播放位置（秒），用于进度条与时间显示 */
 const current = ref(0);
 const seekEl = ref<HTMLElement | null>(null);
 /** 是否正在拖动进度（拖动期间忽略 timeupdate，避免进度条被播放位置顶回） */
@@ -25,7 +20,6 @@ let resumeAfterSeek = false;
 
 const BARS = 28;
 
-/** 进度百分比 0-100 */
 const pct = computed(() => {
   const d = duration.value;
   return d > 0 ? Math.min(100, Math.max(0, (current.value / d) * 100)) : 0;
@@ -36,7 +30,6 @@ function onTime(): void {
   if (a && isFinite(a.currentTime)) current.value = a.currentTime;
 }
 
-/** 把指针位置换算成时间并写入播放器 */
 function applySeek(e: PointerEvent): void {
   const el = seekEl.value;
   const a = audio.value;
@@ -72,16 +65,12 @@ function onSeekEnd(e: PointerEvent): void {
   applySeek(e);
   const a = audio.value;
   if (!a) return;
-  if (resumeAfterSeek) a.play().catch(() => { /* 被策略拦下则保持暂停 */ });
+  if (resumeAfterSeek) a.play().catch(() => {  });
   else current.value = a.currentTime;
 }
 
-/* ---------- 音量 ----------
- * 音量是**全局设置**（chatState.volume，落库到用户设置），
- * 所以调节一次，页面上所有音频消息都跟着变，刷新后也保留。
- * 每个 <audio> 各自设一次 volume —— 音量是元素级属性，没有全局的。
- * 注意本组件的音频还接了 Web Audio（AnalyserNode 画频谱），
- * 但 createMediaElementSource 取的是**元素输出**，volume 依旧在它之前生效。 */
+/* 音量是全局设置（chatState.volume，落库），但 volume 是元素级属性，每个 <audio> 都要各自设一次；
+ * 接了 Web Audio 时 createMediaElementSource 取的是元素输出，volume 仍在其之前生效。 */
 const volOpen = ref(false);
 const volPct = computed(() => Math.round(chatState.volume * 100));
 const volMuted = computed(() => chatState.volume <= 0);
@@ -94,7 +83,6 @@ function applyVolume(): void {
 }
 watch(() => chatState.volume, applyVolume);
 
-/** 指针位置 → 0~1 音量 */
 function applyVolFromEvent(e: PointerEvent): void {
   const el = volEl.value;
   if (!el) return;
@@ -153,10 +141,8 @@ let analyser: AnalyserNode | null = null;
 let raf = 0;
 let freq: Uint8Array<ArrayBuffer> | null = null;
 
-/**
- * 频谱条颜色：优先读 canvas 上的 --bars（CSS 会在自己发的消息里覆盖成浅色）。
- * 原来的实现固定取 --primary，而自己发的气泡背景也是主题色，导致条与底同色看不见。
- */
+/* 频谱条颜色：优先读 canvas 上的 --bars（自己发的消息里 CSS 覆盖成浅色）——
+ * 固定取 --primary 会与自己气泡背景同色而看不见。 */
 function barColor(): string {
   const c = canvas.value;
   if (c) {
@@ -246,7 +232,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   if (raf) cancelAnimationFrame(raf);
-  if (actx) { try { void actx.close(); } catch { /* 忽略 */ } }
+  if (actx) { try { void actx.close(); } catch {  } }
   window.removeEventListener('pointermove', onVolMove);
   window.removeEventListener('pointerup', onVolEnd);
 });
@@ -284,7 +270,6 @@ onBeforeUnmount(() => {
         <span v-if="tag" class="media-tag">{{ tag }}</span>
       </div>
       <canvas ref="canvas" class="audio-bars" width="240" height="30"></canvas>
-      <!-- 可拖拽/点击的播放进度条 -->
       <div ref="seekEl" class="audio-progress" @pointerdown.stop="onSeekStart" @click.stop>
         <i class="audio-seek-track"></i>
         <span class="audio-seek-fill" :style="{ width: pct + '%' }"></span>

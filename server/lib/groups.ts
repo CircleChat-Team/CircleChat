@@ -57,7 +57,6 @@ export function createGroup(name: string, owner: string): GroupInfo {
   return { id, name: String(name), owner: String(owner), created: now };
 }
 
-/** 该用户加入的所有群 */
 export function listGroupsOf(name: string): GroupInfo[] {
   const d = open();
   const rows = d.prepare(
@@ -74,7 +73,6 @@ export function listGroupsOf(name: string): GroupInfo[] {
   });
 }
 
-/** 按 id 取群信息 */
 export function getGroup(id: string): GroupInfo | null {
   const r = open().prepare('SELECT id, name, owner, created, updated, avatar, announcement, mute_all, member_invite_approve FROM groups WHERE id = ?').get(String(id)) as
     | (GroupInfo & { created: number | null; mute_all: number | null; member_invite_approve: number | null })
@@ -89,7 +87,6 @@ export function getGroup(id: string): GroupInfo | null {
   return o;
 }
 
-/** 群成员列表 */
 export function groupMembers(id: string): GroupMember[] {
   const rows = open().prepare('SELECT name, joined, role, nickname, muted FROM group_members WHERE gid = ? ORDER BY joined ASC').all(String(id)) as
     | { name: string; joined: number | null; role: string | null; nickname: string | null; muted: number | null }[]
@@ -105,14 +102,12 @@ export function groupMembers(id: string): GroupMember[] {
   });
 }
 
-/** 是否成员 */
 export function isMember(id: string, name: string): boolean {
   if (!id || !name) return false;
   const r = open().prepare('SELECT 1 AS x FROM group_members WHERE gid = ? AND name = ?').get(String(id), String(name));
   return !!r;
 }
 
-/** 是否群主 */
 export function isOwner(id: string, name: string): boolean {
   if (!id || !name) return false;
   const r = open().prepare('SELECT 1 AS x FROM groups WHERE id = ? AND owner = ?').get(String(id), String(name));
@@ -139,7 +134,6 @@ export function removeMember(id: string, name: string): boolean {
   return !!(r && r.changes > 0);
 }
 
-/** 重命名群 */
 export function renameGroup(id: string, name: string): boolean {
   const d = open();
   const g = d.prepare('SELECT 1 AS x FROM groups WHERE id = ?').get(String(id));
@@ -167,7 +161,6 @@ export function removeUserAll(name: string): void {
   d.prepare('DELETE FROM friend_remarks WHERE u1 = ? OR u2 = ?').run(n, n);
 }
 
-// ---------- 入群申请与审核（申请 → 群主/管理员审核） ----------
 
 const REQ_PENDING = 'pending';
 const REQ_APPROVED = 'approved';
@@ -397,7 +390,6 @@ export function isMutedMember(gid: string, name: string): boolean {
   return !!r && !!r.muted;
 }
 
-// ---------- 群级开关 ----------
 
 export function setMuteAll(gid: string, val: boolean): boolean {
   const d = open();
@@ -438,7 +430,6 @@ export function speakBlocked(gid: string, name: string): boolean {
   return false;
 }
 
-// ---------- 群邀请（需被邀请人同意；可设群主/管理员审批） ----------
 
 export const INV_PENDING = 'pending';
 export const INV_NEEDS_APPROVAL = 'needs_approval';
@@ -505,7 +496,6 @@ export function rejectInvite(id: number, who: string): boolean {
   return true;
 }
 
-/** 被邀请人接受邀请 → 入群 */
 export function acceptInvite(id: number, invitee: string): boolean {
   const d = open();
   const r = d.prepare('SELECT gid, invitee, status FROM group_invites WHERE id = ?').get(Number(id)) as
@@ -520,14 +510,12 @@ export function acceptInvite(id: number, invitee: string): boolean {
   return true;
 }
 
-/** 我收到的、待我同意的邀请 */
 export function invitesForMe(name: string): GroupInvite[] {
   const rows = open().prepare('SELECT id, gid, inviter, created, status, note FROM group_invites WHERE invitee = ? AND status = ? ORDER BY created DESC')
     .all(String(name), INV_PENDING) as { id: number; gid: string; inviter: string; created: number | null; status: string; note: string | null }[];
   return rows.map((r) => ({ id: r.id, gid: r.gid, inviter: r.inviter, invitee: String(name), created: r.created != null ? r.created : undefined, status: r.status, note: r.note }));
 }
 
-/** 某群待群主/管理员审批的邀请 */
 export function pendingApprovals(gid: string): GroupInvite[] {
   const rows = open().prepare('SELECT id, inviter, invitee, created, status, note FROM group_invites WHERE gid = ? AND status = ? ORDER BY created ASC')
     .all(String(gid), INV_NEEDS_APPROVAL) as { id: number; inviter: string; invitee: string; created: number | null; status: string; note: string | null }[];

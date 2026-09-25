@@ -19,7 +19,6 @@ import { get as cfgGet, set as cfgSet } from './appconfig';
 /** 开关存在 app_config（整站级，管理员在管理面板改） */
 const CFG = { login: 'captcha.login', register: 'captcha.register' } as const;
 
-/** 需要人机验证的页面 */
 export type CaptchaScope = 'login' | 'register';
 
 /**

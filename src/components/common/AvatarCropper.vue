@@ -1,8 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 头像裁剪：上传图片后弹出，拖动定位 + 缩放，确认时导出 512×512 正方形 PNG。
- * 由 core/chat.ts 的 cropAvatarImage() 通过 createApp 挂到 body 上调用。
- * ============================================================ */
+// 头像裁剪：上传图片后弹出，拖动定位 + 缩放，确认时导出 512×512 正方形 PNG。 由 core/chat.ts 的 cropAvatarImage() 通过 createApp 挂到 body 上调用。
 import { ref, computed, onMounted } from 'vue';
 import { tr } from '../../core/i18n';
 

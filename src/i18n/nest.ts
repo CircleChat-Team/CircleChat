@@ -37,11 +37,8 @@ export function nest(flat: Dict): any {
 }
 
 export interface ScalarPrefixConflict {
-  /** 既当标量又当父节点的那把键 */
   parent: string;
-  /** 被挤掉的标量取值 */
   scalarValue: string;
-  /** 把标量挤掉的子键 */
   children: string[];
   /**
    * 子键是否只有 `*.one` / `*.other`（复数形式）。

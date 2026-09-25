@@ -140,7 +140,7 @@ const emit = defineEmits(['navigate']);
 /** 打开「全部会话」的聊天记录搜索（面板在聊天主区里，这里只负责打开） */
 function openHistorySearch(): void {
   openSearch('all');
-  emit('navigate'); // 移动端顺手收起侧栏抽屉
+  emit('navigate'); 
 }
 </script>
 
@@ -160,7 +160,6 @@ function openHistorySearch(): void {
           <path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z" />
         </svg>
       </button>
-      <!-- 我的群邀请（待我同意） -->
       <button
         type="button"
         class="sidebar-search-history"
@@ -202,7 +201,6 @@ function openHistorySearch(): void {
       </template>
 
       <div v-for="item in sortedItems" :key="keyOf(item)">
-        <!-- 群聊 -->
         <div v-if="item.kind === 'group'" class="group-item-wrap">
           <button
             type="button"
@@ -227,7 +225,6 @@ function openHistorySearch(): void {
           >⚙</button>
         </div>
 
-        <!-- 好友 / 私聊 -->
         <div
           v-else
           class="user-item"
@@ -293,7 +290,6 @@ function openHistorySearch(): void {
       </div>
     </div>
 
-    <!-- 我的群邀请（待我同意） -->
     <MyInvitesDialog v-if="invitesOpen" @close="invitesOpen = false" />
 
     <!-- 版权与项目地址：侧栏最底部独立一行，与侧栏内容同为左对齐 -->

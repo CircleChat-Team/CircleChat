@@ -254,7 +254,6 @@ onMounted(refreshMailboxBadge);
             </svg>
             <span>{{ tr('chat.adminPanel') }}</span>
           </a>
-          <!-- 搜当前会话的聊天记录 -->
           <button
             v-if="chatState.activeGid != null || chatState.activeDmPeer != null"
             type="button"

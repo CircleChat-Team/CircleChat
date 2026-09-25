@@ -91,10 +91,8 @@ function close(): void {
   view.value = null;
 }
 
-// ---------- 虚拟滚动共用状态 ----------
 /** 行高，必须与 CSS 的 --row-h 一致 */
 const ROW_H = 22;
-/** 可视区上下各多渲染几行 */
 const BUFFER_ROWS = 6;
 /** 文本行数超过它才虚拟滚动（不多时整篇渲染，换行也照旧可用） */
 const TEXT_VIRTUAL_LINES = 2000;
@@ -131,7 +129,6 @@ watch(phase, (p) => {
   });
 });
 
-// ---------- 文本 ----------
 
 /** 高亮器：按需动态加载（hljs 一百多 KB，群页/管理页不该为了打开一次文件就全量下载） */
 interface HljsLike {
@@ -183,7 +180,6 @@ const txRows = computed(() => {
   for (let i = w.first; i < w.last; i++) out.push({ no: i + 1, html: all[i] === undefined ? '' : all[i] });
   return out;
 });
-/** 行号列宽度按最大行号算 */
 const noWidth = computed(() => Math.max(3, String(totalLines.value).length) + 'ch');
 
 /** 超限时给人看的说明（带上该类型的上限） */
@@ -243,13 +239,10 @@ const tagTitle = computed(() => {
   return tr('fileview.noHighlight');
 });
 
-// ---------- Hex ----------
 
 const hexBytes = shallowRef<Uint8Array | null>(null);
-const perLine = ref(16); // 每行字节数，16 / 8 可切换
-/** 鼠标划过的字节 */
+const perLine = ref(16); 
 const hxHover = ref<{ row: number; col: number } | null>(null);
-/** 点击固定的字节（光标） */
 const hxPick = ref<{ row: number; col: number } | null>(null);
 /** 当前聚焦的字节：划过的优先，其次是点住的 */
 const hxCur = computed(() => hxHover.value || hxPick.value);
@@ -329,7 +322,6 @@ function togglePerLine(): void {
   });
 }
 
-// ---------- 加载 ----------
 
 /**
  * 只读文件头：够判类型就行。
@@ -362,7 +354,6 @@ async function fetchHead(u: string, bytes = 4096): Promise<Uint8Array> {
   try {
     await reader.cancel();
   } catch (e) {
-    /* 已经读够了，取消失败无所谓 */
   }
   const out = new Uint8Array(Math.min(got, bytes));
   let off = 0;
@@ -443,7 +434,6 @@ function revokeSvg(): void {
   try {
     URL.revokeObjectURL(svgUrl.value);
   } catch (e) {
-    /* 忽略 */
   }
   svgUrl.value = '';
 }
@@ -478,7 +468,7 @@ async function load(): Promise<void> {
     // 1) 先看文件头：媒体（图片/音频/视频）交给标签自己流式加载，多大的文件都能看，
     //    也不必把内容读进内存
     const head = await fetchHead(url.value);
-    if (view.value !== v) return; // 等待期间用户关了或换了文件
+    if (view.value !== v) return; 
     const media = sniffMedia(head);
     if (media) {
       phase.value = media;
@@ -545,7 +535,7 @@ watch(view, (v) => {
     void load();
     return;
   }
-  revokeSvg(); // 关窗
+  revokeSvg(); 
 }, { immediate: true });
 
 // 主题变了要重建文档：markdown 预览的配色是写进文档里的

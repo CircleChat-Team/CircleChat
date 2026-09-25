@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 全服文件管理（列表 / 搜索 / 下载 / 删除）
- * ============================================================ */
+// 全服文件管理（列表 / 搜索 / 下载 / 删除）
 import { computed, ref, inject, onMounted } from 'vue';
 import { get, post, url } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
@@ -67,7 +65,6 @@ function fileUrl(name: string): string {
   return url('/uploads/' + name);
 }
 
-/** 悬停提示：存储名 + 原始名 */
 function titleOf(f: FileItem): string {
   return f.origin ? f.name + String.fromCharCode(10) + f.origin : f.name;
 }
@@ -99,8 +96,6 @@ function remove(f: FileItem): void {
   });
 }
 
-// ---------- 批量管理 ----------
-/** 已勾选的文件（存存储名） */
 const selected = ref<string[]>([]);
 
 const allChecked = computed(() => view.value.length > 0 && selected.value.length === view.value.length);
@@ -172,7 +167,6 @@ onMounted(load);
       </h2>
 
       <div class="ml-auto flex items-center gap-1.5">
-        <!-- 按文件类型筛选 -->
         <select
           v-model="filterKind"
           class="h-[30px] rounded-lg border border-line bg-fill px-2 text-xs outline-none transition-colors focus:border-primary"
@@ -209,7 +203,6 @@ onMounted(load);
       </div>
     </div>
 
-    <!-- 选中后出现的批量操作条 -->
     <div v-if="selected.length" class="mb-2 flex flex-wrap items-center gap-2 rounded-lg bg-fill px-3 py-2 text-xs">
       <span class="font-medium">{{ tr('admin.files.selected', { n: selected.length }) }}</span>
       <div class="ml-auto flex items-center gap-1.5">

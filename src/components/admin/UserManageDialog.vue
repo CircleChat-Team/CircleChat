@@ -182,7 +182,6 @@ const actions = computed(() => {
         <!-- 头像上传：与本人头像同一套流程（只接受上传，不接受外链） -->
         <input ref="avatarInput" type="file" accept="image/*" class="hidden" @change="onAvatarPicked">
 
-        <!-- 头部：身份信息 -->
         <div class="flex items-center gap-3 border-b border-line px-5 py-4">
           <img
             v-if="user.image"

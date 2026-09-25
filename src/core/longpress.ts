@@ -66,7 +66,6 @@ export function useLongPress(el: Ref<HTMLElement | null>, opts: LongPressOptions
       try {
         window.getSelection()?.removeAllRanges();
       } catch {
-        /* 忽略 */
       }
       opts.onLongPress(x, y);
     }, delay);

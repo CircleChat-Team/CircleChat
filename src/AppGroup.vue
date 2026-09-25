@@ -1,8 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 群管理页根组件
- * 群主本人或系统管理员可用；管理员可管理任意群。
- * ============================================================ */
+// 群管理页根组件 群主本人或系统管理员可用；管理员可管理任意群。
 import { ref, computed, provide, watchEffect, onMounted, onBeforeUnmount } from 'vue';
 import { get, post } from './core/api';
 import { tr } from './core/i18n';
@@ -56,7 +53,6 @@ const tab = ref('info');
 
 /** 待审核条数：在页签上直接显示，免得还要点进去才发现有人申请 */
 const pendingCount = computed(() => (detail.value ? detail.value.requests.length : 0));
-/** 待群主/管理员审批的邀请数 */
 const inviteCount = computed(() => {
   const inv = detail.value && detail.value.invites ? detail.value.invites : [];
   return inv.filter((i) => i.status === 'needs_approval').length;
@@ -67,7 +63,6 @@ const online = ref<string[]>(props.online || []);
 // 在线用户的连接来源（网页端 / 桌面客户端），与 online 同步更新
 const platforms = ref<PresencePlatforms>(props.platforms || {});
 
-// ---------------- 在线状态（WebSocket presence 实时同步） ----------------
 let ws: WebSocket | null = null;
 let reconnectTimer: number | undefined;
 let reconnectDelay = 1000;
@@ -147,7 +142,6 @@ function connectPresence(): void {
     try {
       sock.close();
     } catch {
-      /* 忽略 */
     }
   };
 }
@@ -221,7 +215,6 @@ function persistGid(id: string): void {
     else u.searchParams.delete('gid');
     history.replaceState(null, '', u);
   } catch {
-    /* 忽略 */
   }
 }
 
@@ -241,7 +234,6 @@ function back(): void {
 
 function logout(): void {
   post('/api/logout', {}).catch(() => {
-    /* 忽略 */
   });
   location.replace('/login.html');
 }
@@ -261,7 +253,6 @@ onBeforeUnmount(() => {
     try {
       ws.close();
     } catch {
-      /* 忽略 */
     }
     ws = null;
   }

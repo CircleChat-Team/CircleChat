@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 账号管理（新建 + 列表：改密 / 头像 / 删除）
- * ============================================================ */
+// 账号管理（新建 + 列表：改密 / 头像 / 删除）
 import { ref, computed, inject, onMounted } from 'vue';
 import { get, post } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
@@ -85,7 +83,6 @@ onMounted(load);
 </script>
 
 <template>
-  <!-- 新建账号 -->
   <section class="rounded-card border border-line bg-panel p-4">
     <h2 class="mb-3 text-[13px] font-semibold text-muted">{{ tr('admin.add.title') }}</h2>
     <div class="flex items-center gap-2">
@@ -126,7 +123,6 @@ onMounted(load);
     </div>
   </section>
 
-  <!-- 账号列表 -->
   <section class="rounded-card border border-line bg-panel p-4">
     <h2 class="mb-3 text-[13px] font-semibold text-muted">
       {{ tr('admin.users.title') }}

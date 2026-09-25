@@ -302,7 +302,6 @@ export function run(): void {
     const def = SCHEMA[table];
     // 1) 确保表 / 索引存在
     db.exec(def.create);
-    // 2) 比对列，补齐缺失列
     const actual = actualColumns(db, table);
     if (!actual) {
       console.error('[migrate] 表 ' + table + ' 创建后仍无法读取，请检查数据库文件。');

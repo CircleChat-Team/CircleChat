@@ -35,7 +35,6 @@ export interface RepoEntry<T> {
   code: string;
   /** 数据来自服务端的过期缓存（GitHub 此刻不可用） */
   stale: boolean;
-  /** 取到数据的时间（ms） */
   at: number;
 }
 

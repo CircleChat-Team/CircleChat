@@ -3,12 +3,10 @@
  * 与服务端 /api 返回结构对应；error 字段是 i18n 文案键而非中文。
  * ============================================================ */
 
-/** 所有接口的通用返回外壳 */
 export interface ApiResult {
   ok: boolean;
   /** 失败时的文案（i18n 键，也可能是服务端直出的中文） */
   error?: string;
-  /** 成功时的提示文案键 */
   message?: string;
   [key: string]: unknown;
 }
@@ -94,7 +92,6 @@ export interface GroupMember {
   lastSeen?: number | null;
 }
 
-/** 群邀请 */
 export interface GroupInvite {
   id: number;
   gid: string;
@@ -177,7 +174,6 @@ export interface AppealItem {
   status: string;
   handled_by?: string | null;
   handled_at?: number | null;
-  /** 管理员处理备注（驳回理由等） */
   note?: string | null;
   /** 关联处罚的快照（管理端列表用，来自 LEFT JOIN） */
   penalty_type?: string | null;
@@ -280,13 +276,11 @@ export interface MergeItem {
   size?: number | null;
 }
 
-/** 合并转发数据结构 */
 export interface MergeData {
   title?: string;
   items: MergeItem[];
 }
 
-/** 在线/全部账号（侧栏） */
 export interface ChatUser {
   name: string;
   online?: boolean;
@@ -312,7 +306,6 @@ export interface FriendSent {
   created?: number | null;
 }
 
-/** 群（侧栏会话） */
 export interface ChatGroup {
   id: string;
   name: string;

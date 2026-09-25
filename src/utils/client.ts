@@ -36,7 +36,6 @@ export function getDesktopClient(): DesktopClientInfo | null {
   const marker = window.__CIRCLECHAT_CLIENT__;
   if (marker && marker.version) return { version: marker.version, platform: marker.platform };
 
-  // 退化到 UA 判断
   const ua = navigator.userAgent;
   const m = CLIENT_UA_RE.exec(ua);
   if (!m) return null;

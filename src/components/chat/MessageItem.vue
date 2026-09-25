@@ -57,7 +57,6 @@ const quoteText = computed(() => {
   return String(r.snippet || '').replace(/\s+/g, ' ').trim();
 });
 
-// 合并转发卡片
 const mergeData = computed<MergeData | null>(() => {
   if (props.msg.type !== 'merge') return null;
   try {

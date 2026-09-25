@@ -40,7 +40,6 @@ const hidden = computed(() => !entry.value.loading && !data.value && entry.value
       <span v-if="entry.stale" class="rc-stale">{{ tr('github.stale') }}</span>
     </div>
 
-    <!-- 加载中 -->
     <div v-if="entry.loading && !data" class="rc-skel">
       <span class="rc-skel-line w70"></span>
       <span class="rc-skel-line w40"></span>
@@ -54,7 +53,6 @@ const hidden = computed(() => !entry.value.loading && !data.value && entry.value
       </a>
     </template>
 
-    <!-- 正常 -->
     <template v-else>
       <p v-if="data.description" class="rc-desc">{{ data.description }}</p>
       <div class="rc-stats">

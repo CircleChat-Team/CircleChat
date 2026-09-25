@@ -24,7 +24,6 @@ const detailEntry = computed(() => (full.value ? repoDetail(full.value) : null))
 const repo = computed(() => (basicEntry.value ? basicEntry.value.data : null));
 const detail = computed(() => (detailEntry.value ? detailEntry.value.data : null));
 
-/** 语言占比（按字节数降序） */
 const langs = computed(() => {
   const rows = Object.entries((detail.value && detail.value.languages) || {});
   const total = rows.reduce((sum, r) => sum + (Number(r[1]) || 0), 0);
@@ -83,7 +82,6 @@ useOverlay({
           </div>
         </section>
 
-        <!-- 统计卡片 -->
         <div class="repo-grid">
           <div class="repo-stat">
             <span class="repo-stat-k">{{ tr('github.stars') }}</span>
@@ -111,7 +109,6 @@ useOverlay({
           </div>
         </div>
 
-        <!-- 语言构成 -->
         <section class="repo-sec">
           <div class="repo-sec-head">
             <h4 class="repo-sec-t">{{ tr('github.languages') }}</h4>
@@ -176,7 +173,6 @@ useOverlay({
           <p v-else class="repo-empty">{{ tr(secFailed('commits') ? 'github.sectionFailed' : 'github.noCommits') }}</p>
         </section>
 
-        <!-- 贡献者 -->
         <section class="repo-sec">
           <div class="repo-sec-head">
             <h4 class="repo-sec-t">{{ tr('github.contributors') }}</h4>

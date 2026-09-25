@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 语言切换菜单
- * ============================================================ */
+// 语言切换菜单
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { languages, setLang, langState, tr } from '../../core/i18n';
 

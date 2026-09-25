@@ -1,8 +1,4 @@
-/* ============================================================
- * CircleChat 群管理页入口
- * 群主本人或系统管理员可用；页面 HTML 在 public/group.html。
- * ============================================================ */
-
+// 群管理页入口：群主本人或系统管理员可用；HTML 壳在 public/group.html。
 import { createApp } from 'vue';
 import AppGroup from './AppGroup.vue';
 import { get } from './core/api';

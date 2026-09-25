@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 待审核注册申请
- * ============================================================ */
+// 待审核注册申请
 import { ref, inject, onMounted } from 'vue';
 import { get, post } from '../../core/api';
 import { tr, trn } from '../../core/i18n';

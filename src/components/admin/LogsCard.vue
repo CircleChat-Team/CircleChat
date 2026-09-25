@@ -37,7 +37,7 @@ const pages = computed(() => Math.max(1, Math.ceil(total.value / PAGE)));
 function load(reset = false): void {
   if (reset) page.value = 0;
   const maxPage = Math.max(0, Math.ceil(total.value / PAGE) - 1);
-  if (page.value > maxPage) page.value = maxPage; // 删减筛选后页码可能越界
+  if (page.value > maxPage) page.value = maxPage; 
   let path = '/api/admin/logs?limit=' + PAGE + '&offset=' + page.value * PAGE;
   const a = actor.value.trim();
   if (a) path += '&actor=' + encodeURIComponent(a);
@@ -68,7 +68,6 @@ const groups = computed<MsGroup[]>(() =>
   }))
 );
 
-/** 选择变化即重查（回到第一页） */
 function onActions(v: string[]): void {
   actions.value = v;
   load(true);

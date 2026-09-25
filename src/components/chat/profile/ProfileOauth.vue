@@ -1,10 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 个人资料 - 第三方登录（GitHub）绑定
- *
- * 绑定后即可用 GitHub 一键登录；解绑后仍可用账号密码登录（永远有退路）。
- * 是否可用取决于管理员有没有在管理面板里配好 GitHub OAuth 应用。
- * ============================================================ */
+// 个人资料 - 第三方登录（GitHub）绑定 绑定后即可用 GitHub 一键登录；解绑后仍可用账号密码登录（永远有退路）。 是否可用取决于管理员有没有在管理面板里配好 GitHub OAuth 应用。
 import { onMounted, ref } from 'vue';
 import { get, post } from '../../../core/api';
 import { tr } from '../../../core/i18n';
@@ -12,7 +7,7 @@ import { notify } from '../../../core/chat';
 
 const loading = ref(true);
 const enabled = ref(false); // 管理员是否配置了 GitHub 登录
-const login = ref<string | null>(null); // 已绑定的 GitHub 登录名
+const login = ref<string | null>(null); 
 const busy = ref(false);
 
 function load(): void {

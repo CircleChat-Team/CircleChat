@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 登录表单
- * ============================================================ */
+// 登录表单
 import { computed, ref, onMounted } from 'vue';
 import { get, post } from '../../core/api';
 import { tr } from '../../core/i18n';
@@ -33,7 +31,6 @@ function refreshCaptcha(): void {
   captcha.value?.refresh();
 }
 
-// ---------- 第三方登录（GitHub） ----------
 // 是否显示入口取决于管理员是否在管理面板里配好了 OAuth 应用
 const githubOn = ref(false);
 
@@ -50,7 +47,7 @@ onMounted(() => {
   if (code && code !== 'bound') {
     err.value = tr('oauth.err.' + (KNOWN.indexOf(code) !== -1 ? code : 'failed'));
   }
-  if (code) history.replaceState(null, '', location.pathname); // 免得刷新后重复提示
+  if (code) history.replaceState(null, '', location.pathname); 
 });
 const pendingForce = ref(false);
 const need2fa = ref(false);
@@ -100,7 +97,7 @@ async function submit(): Promise<void> {
       // I18N.t 对未知键原样返回，两种情况都能正确显示
       errKey.value = String(j.error || '');
       err.value = tr(j.error || 'login.err.failed');
-      refreshCaptcha(); // 这次提交已经把验证码用掉了
+      refreshCaptcha(); 
     })
     .catch(() => {
       loading.value = false;
@@ -109,7 +106,6 @@ async function submit(): Promise<void> {
     });
 }
 
-// 两步验证第二步：提交验证码
 async function verify2fa(): Promise<void> {
   const c = code.value.trim();
   if (!/^\d{6}$/.test(c)) {

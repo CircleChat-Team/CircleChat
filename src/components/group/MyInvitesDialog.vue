@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 我的群邀请：列出待我同意的邀请，可接受 / 拒绝。
- * ============================================================ */
+// 我的群邀请：列出待我同意的邀请，可接受 / 拒绝。
 import { onMounted, computed } from 'vue';
 import { tr } from '../../core/i18n';
 import { chatState, loadMyInvites, acceptInvite, rejectInvite, loadGroups, notify } from '../../core/chat';

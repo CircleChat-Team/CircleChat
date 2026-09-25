@@ -23,7 +23,6 @@
  * ============================================================ */
 import { detectLanguage } from './fileview';
 
-/** 可渲染预览的类型 */
 export type PreviewKind = 'svg' | 'html' | 'markdown';
 
 /**
@@ -41,7 +40,6 @@ export function previewLimitFor(kind: PreviewKind): number {
 
 // ---------- 类型嗅探 ----------
 
-/** 去掉开头的 BOM 与空白 */
 function ltrim(s: string): string {
   return String(s || '').replace(/^\uFEFF/, '').trimStart();
 }
@@ -79,13 +77,13 @@ const HTML_HINTS = ['<body', '<div', '<span', '<table', '<ul', '<ol', '<li', '<f
 
 /** markdown 特征（要求同时命中若干个，避免把普通笔记误判成 markdown） */
 const MD_MARKERS: RegExp[] = [
-  /^#{1,6}\s+\S/m,                          // 标题
-  /^```/m,                                  // 围栏代码块
-  /^\s*(?:[-*+]|\d+\.)\s+\S/m,              // 列表
-  /^>\s+\S/m,                               // 引用
-  /\[[^\]]+\]\([^)\s]+\)/,                  // 行内链接
-  /(?:\*\*|__)[^\n]+(?:\*\*|__)/,           // 粗体
-  /^\s*(-{3,}|\*{3,}|_{3,})\s*$/m           // 分隔线
+  /^#{1,6}\s+\S/m,                          
+  /^```/m,                                  
+  /^\s*(?:[-*+]|\d+\.)\s+\S/m,              
+  /^>\s+\S/m,                               
+  /\[[^\]]+\]\([^)\s]+\)/,                  
+  /(?:\*\*|__)[^\n]+(?:\*\*|__)/,           
+  /^\s*(-{3,}|\*{3,}|_{3,})\s*$/m           
 ];
 
 function looksLikeMarkdown(text: string): boolean {
@@ -147,7 +145,6 @@ export function detectPreview(text: string): PreviewKind | null {
   return null;
 }
 
-// ---------- SVG 清理 ----------
 
 /** 直接删掉的元素：脚本、外部文档、可嵌入内容 */
 const SVG_DROP = new Set(['script', 'foreignobject', 'iframe', 'embed', 'object', 'audio', 'video', 'canvas', 'handler', 'listener', 'set']);
@@ -219,7 +216,6 @@ export function sanitizeSvg(src: string): SvgSanitizeResult | null {
   }
 }
 
-// ---------- 最小 markdown 渲染 ----------
 
 function esc(s: string): string {
   return String(s ?? '')
@@ -294,7 +290,7 @@ export function renderMarkdown(text: string): string {
         body.push(lines[i]);
         i++;
       }
-      i++; // 吃掉收尾的那行
+      i++; 
       out.push('<pre' + (langName ? ' data-lang="' + esc(langName) + '"' : '') + '><code>' + esc(body.join('\n')) + '</code></pre>');
       continue;
     }
@@ -355,7 +351,6 @@ export function renderMarkdown(text: string): string {
   return out.join('\n');
 }
 
-// ---------- 沙箱文档 ----------
 
 /** 文档内的第二把锁：禁脚本、禁一切外部请求，只放开内联样式与内联图片 */
 const PREVIEW_CSP =

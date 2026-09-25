@@ -1,7 +1,4 @@
-/* ============================================================
- * CircleChat 前端 — 深色模式
- * 偏好存在 localStorage，与登录页 / 聊天页共用。
- * ============================================================ */
+// CircleChat 前端 — 深色模式 偏好存在 localStorage，与登录页 / 聊天页共用。
 
 import { ref } from 'vue';
 
@@ -15,9 +12,9 @@ export const accent = ref<string>(readAccent());
 
 /** 自定义配色（按主题分开，"" 表示不覆盖该 CSS 变量），persist 到 localStorage */
 export interface StyleSet {
-  bg: string;    // 背景 --bg
-  panel: string; // 面板 --panel
-  text: string;  // 文字 --text
+  bg: string;    
+  panel: string; 
+  text: string;  
 }
 export interface CustomStyles {
   light: StyleSet;
@@ -69,7 +66,6 @@ function customStyleTag(): HTMLStyleElement {
 /** 被拒绝的自定义文字色（对比度过低），供弹窗提示 */
 export const styleWarning = ref('');
 
-// ---- WCAG 相对亮度 / 对比度 ----
 function channelLinear(v: number): number {
   const c = v / 255;
   return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -94,7 +90,7 @@ function effectivePanel(): string {
     const cs = getComputedStyle(document.documentElement);
     const pv = cs.getPropertyValue('--panel').trim();
     if (VALID_HEX.test(pv)) return pv;
-  } catch { /* 忽略 */ }
+  } catch {  }
   return '#202024';
 }
 
@@ -211,7 +207,6 @@ export function applyTheme(t: ThemeName): void {
   applyCustom();
 }
 
-/** 在明暗之间切换 */
 export function toggleTheme(): void {
   const t: ThemeName = theme.value === 'dark' ? 'light' : 'dark';
   try {

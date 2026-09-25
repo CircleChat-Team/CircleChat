@@ -4,7 +4,6 @@ import type { Duplex } from 'node:stream';
 import { handleWsUpgrade } from '../lib/runtime';
 
 // 挂接 WebSocket 升级处理（server.js 的 1:1 搬迁）。
-//
 // 说明：本版本 Nitro 不发出 'listen' 钩子，无法直接拿到 http.Server 实例来挂 upgrade；
 // 而 WebSocket 升级请求若只由 h3 的 request 处理，会被误当作普通请求（静态/路由），无法握手。
 // 做法：在 http.Server 原型上拦截 'request' 监听的注册（Nitro 启动时构造服务器会注册 h3 的

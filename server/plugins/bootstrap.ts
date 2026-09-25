@@ -16,7 +16,7 @@ export default defineNitroPlugin(() => {
   run();                      // 校验并自动迁移数据库结构（兼容旧库）
   auth.init(false);
   store.load();
-  audit.load();               // 初始化审计日志表
+  audit.load();               
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   purgeUploadTmp(); // 清理上次进程被强杀遗留的上传半成品
 
@@ -39,7 +39,6 @@ export default defineNitroPlugin(() => {
       //  没有这行说明信号没到，客户端只能靠重连时的 401 自己回登录页）
       console.log('[shutdown] 已通知在线客户端退出登录，准备退出');
     } catch (e) {
-      /* 忽略 */
     }
     // 留一点时间把帧写出去，再退出（不挡着进程，也不无限等）
     setTimeout(() => process.exit(0), 300);

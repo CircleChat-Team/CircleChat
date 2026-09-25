@@ -1,8 +1,4 @@
-/* ============================================================
- * CircleChat 聊天页入口（Vue 3 + TypeScript + Tailwind）
- * 页面 HTML 在 public/chat.html，后端零改动（server.js 仍做会话鉴权）。
- * ============================================================ */
-
+// 聊天页入口；HTML 壳在 public/chat.html，会话鉴权仍在服务端。
 import { createApp } from 'vue';
 import AppChat from './AppChat.vue';
 import { initTheme } from './core/theme';

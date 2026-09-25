@@ -73,7 +73,6 @@ export function canView(size?: number | null): boolean {
   return !(n > MAX_VIEW_BYTES);
 }
 
-// ---------- 文本 / 二进制判定 ----------
 
 /** 常见二进制格式的魔数（只看文件头，与后缀无关） */
 const BINARY_MAGIC: { offset?: number; bytes: number[] }[] = [
@@ -114,7 +113,6 @@ export function bomOf(head: Uint8Array): 'utf-8' | 'utf-16le' | 'utf-16be' | nul
   return null;
 }
 
-/** 读文件头判断是文本还是二进制 */
 export function sniffKind(head: Uint8Array): 'text' | 'binary' {
   if (!head.length) return 'text';
   if (bomOf(head)) return 'text';
@@ -124,7 +122,7 @@ export function sniffKind(head: Uint8Array): 'text' | 'binary' {
     const b = head[i];
     if (b === 0) return 'binary'; // NUL：文本里不该出现
     if (b === 9 || b === 10 || b === 13 || b === 12 || b === 8 || b === 27) continue;
-    if (b < 32) suspicious++; // 其它控制字符
+    if (b < 32) suspicious++; 
   }
   return suspicious / head.length > 0.05 ? 'binary' : 'text';
 }
@@ -144,7 +142,6 @@ export function sniffMedia(head: Uint8Array): MediaKind | null {
   // UTF-16 带 BOM 的文本别被下面的「帧同步」误判成音频
   if (bomOf(b)) return null;
 
-  // 图片
   if (at(0, 0x89, 0x50, 0x4e, 0x47)) return 'image'; // PNG
   if (at(0, 0xff, 0xd8, 0xff)) return 'image';       // JPEG
   if (at(0, 0x47, 0x49, 0x46, 0x38)) return 'image'; // GIF8
@@ -152,7 +149,6 @@ export function sniffMedia(head: Uint8Array): MediaKind | null {
   if (at(0, 0x00, 0x00, 0x01, 0x00)) return 'image'; // ICO
   if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return 'image'; // RIFF/WEBP
 
-  // 视频
   if (at(4, 0x66, 0x74, 0x79, 0x70)) return 'video'; // MP4 / MOV / M4V（ftyp）
   if (at(0, 0x1a, 0x45, 0xdf, 0xa3)) return 'video'; // Matroska / WebM
   if (at(0, 0x46, 0x4c, 0x56, 0x01)) return 'video'; // FLV
@@ -160,7 +156,6 @@ export function sniffMedia(head: Uint8Array): MediaKind | null {
   if (at(0, 0x00, 0x00, 0x01, 0xba) || at(0, 0x00, 0x00, 0x01, 0xb3)) return 'video'; // MPEG PS / ES
   if (at(0, 0x52, 0x49, 0x46, 0x46) && (at(8, 0x41, 0x56, 0x49, 0x20) || at(8, 0x41, 0x43, 0x4f, 0x4e))) return 'video'; // AVI / ANI
 
-  // 音频
   if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x41, 0x56, 0x45)) return 'audio'; // WAV
   if (at(0, 0x49, 0x44, 0x33)) return 'audio';       // MP3（带 ID3 头）
   if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return 'audio'; // MP3 / AAC 帧同步
@@ -202,7 +197,6 @@ export function detectLanguage(text: string): string | null {
   const t = head.replace(/^\uFEFF/, '').trimStart();
   if (!t) return null;
 
-  // 1) shebang：最可靠。
   //    分隔符必须用 [ \t] 而不是 \s——\s 能匹配换行，会把下一行的第一个词
   //    当成解释器参数（`#!/bin/bash\nset -e` 被当成解释器 set，白名单里没有就漏判）
   const sh = /^#!\s*(\S+)(?:[ \t]+(\S+))?/.exec(t);
@@ -212,7 +206,6 @@ export function detectLanguage(text: string): string | null {
     if (SHEBANG_LANG[key]) return SHEBANG_LANG[key];
   }
 
-  // 2) 一看开头就知道的
   if (/^<\?php\b/i.test(t)) return 'php';
   if (/^<!DOCTYPE html/i.test(t) || /^<html[\s>]/i.test(t)) return 'xml'; // hljs 用 xml 覆盖 html
   if (/^<\?xml\b/i.test(t) || /^<svg[\s>]/i.test(t)) return 'xml';
@@ -334,7 +327,6 @@ export function shouldHighlight(text: string, bytesLength: number): boolean {
   return true;
 }
 
-// ---------- Hex 视图 ----------
 
 /**
  * 可视行窗口（文本视图与 Hex 视图共用）：2MB 文件有十几万行，全量渲染 DOM 会卡死，
@@ -371,7 +363,6 @@ export function hexOffset(offset: number): string {
   return (Number(offset) || 0).toString(16).padStart(8, '0');
 }
 
-/** 单字节 → 两位小写十六进制 */
 export function byteHex(b: number): string {
   return (Number(b) & 0xff).toString(16).padStart(2, '0');
 }

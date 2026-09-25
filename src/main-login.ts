@@ -1,8 +1,4 @@
-/* ============================================================
- * CircleChat 登录页入口
- * 页面 HTML 在 public/login.html，界面由本入口挂载。
- * ============================================================ */
-
+// 登录页入口；HTML 壳在 public/login.html。
 import { createApp } from 'vue';
 import AppLogin from './AppLogin.vue';
 import { get } from './core/api';
@@ -21,5 +17,4 @@ get('/api/me')
     if (j.ok) redirectAfterLogin();
   })
   .catch(() => {
-    /* 忽略，停留在登录页 */
   });

@@ -1,7 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 群信息（重命名 / 转让群主 / 解散群）
- * ============================================================ */
+// 群信息（重命名 / 转让群主 / 解散群）
 import { inject, ref } from 'vue';
 import { post, del } from '../../core/api';
 import { tr } from '../../core/i18n';
@@ -89,7 +87,7 @@ function setAvatar(): void {
 function onAvatarPicked(e: Event): void {
   const el = e.target as HTMLInputElement;
   const file = el.files && el.files[0];
-  el.value = ''; // 同一个文件也能再次选中
+  el.value = ''; 
   if (!file) return;
   avatarBusy.value = true;
   uploadAvatar(file).then((url) => {
@@ -148,7 +146,7 @@ function copyGid(): void {
     ta.style.opacity = '0';
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand('copy'); done(); } catch { /* 忽略，用户可手动选中复制 */ }
+    try { document.execCommand('copy'); done(); } catch {  }
     document.body.removeChild(ta);
   };
   if (navigator.clipboard?.writeText) {

@@ -1,8 +1,4 @@
-/* ============================================================
- * CircleChat 前端 — 国际化桥接（基于 vue-i18n）
- * 对外暴露 tr / trn / languages / setLang / langState，
- * 旧代码里对 window.I18N 的调用全部被这里收口。
- * ============================================================ */
+// CircleChat 前端 — 国际化桥接（基于 vue-i18n） 对外暴露 tr / trn / languages / setLang / langState， 旧代码里对 window.I18N 的调用全部被这里收口。
 
 import { reactive, watch } from 'vue';
 import { i18n, rawMessages, SUPPORTED } from '../i18n';

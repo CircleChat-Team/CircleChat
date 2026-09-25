@@ -59,7 +59,6 @@ export interface RepoBasic {
   html: string;
 }
 
-/** 展开后的详细信息 */
 export interface RepoDetail {
   contributors: { login: string; avatar: string; url: string; contributions: number }[];
   languages: Record<string, number>;

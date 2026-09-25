@@ -1,8 +1,5 @@
 <script setup lang="ts">
-/* ============================================================
- * 管理页根组件
- * 顶栏（返回 / 语言 / 主题 / 退出）、卡片编排、全局轻提示。
- * ============================================================ */
+// 管理页根组件 顶栏（返回 / 语言 / 主题 / 退出）、卡片编排、全局轻提示。
 import { ref, provide, watchEffect, onMounted, onBeforeUnmount } from 'vue';
 import { get, post } from './core/api';
 import { tr } from './core/i18n';
@@ -68,7 +65,6 @@ function back(): void {
 
 function logout(): void {
   post('/api/logout', {}).catch(() => {
-    /* 忽略 */
   });
   location.replace('/login.html');
 }

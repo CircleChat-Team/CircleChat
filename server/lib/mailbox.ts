@@ -39,9 +39,7 @@ function open(): DatabaseSync {
   return db;
 }
 
-// ---------- 系统公告 ----------
 
-/** 公告列表（新→旧）。 */
 export function listAnnouncements(): Record<string, unknown>[] {
   const rows = open().prepare('SELECT * FROM announcements ORDER BY created DESC').all() as Record<string, unknown>[];
   return rows.map((r) => ({
@@ -60,7 +58,6 @@ export function createAnnouncement(params: { title: string; content?: string; ac
   return { ok: true, id: Number(res.lastInsertRowid) };
 }
 
-/** 删除公告。 */
 export function deleteAnnouncement(id: number): boolean {
   const r = open().prepare('DELETE FROM announcements WHERE id = ?').run(Number(id));
   return Number(r.changes) > 0;

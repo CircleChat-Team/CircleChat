@@ -166,7 +166,6 @@ function mdInline(s: string): string {
   if (alt) {
     out = out.replace(new RegExp('@(' + alt + ')(?=[\\s，。；！？、<]|$)', 'g'), '<span class="mention">@$1</span>');
   }
-  // 4) 还原被保护的代码 / 链接
   out = out.replace(/\u0001(\d+)\u0001/g, (_a, i: string) => html[Number(i)] || '');
   return out;
 }
@@ -245,7 +244,7 @@ function renderMd(src: string, depth = 0): string {
   const math: { html: string; display: boolean }[] = [];
   const lines = extractMath(String(src || '').replace(/\r\n?/g, '\n'), math).split('\n');
   const html: string[] = [];
-  let para: string[] = []; // 待合并的普通段落行
+  let para: string[] = []; 
 
   const flush = (): void => {
     if (!para.length) return;
@@ -293,7 +292,6 @@ function renderMd(src: string, depth = 0): string {
       }
     }
 
-    // 围栏代码块
     const fence = /^\s*```\s*(\w*)\s*$/.exec(line);
     if (fence) {
       flush();
@@ -304,7 +302,7 @@ function renderMd(src: string, depth = 0): string {
         buf.push(lines[i]);
         i++;
       }
-      i++; // 跳过收尾 ```
+      i++; 
       const code = buf.join('\n');
       // mermaid 图表：先只放占位节点（内含源码），等 mermaid 分块加载完再由
       // 组件把 SVG 画进去；加载/渲染失败就一直显示源码，不会白屏。
@@ -319,7 +317,6 @@ function renderMd(src: string, depth = 0): string {
       continue;
     }
 
-    // 标题
     const head = /^\s*(#{1,6})\s+(.*)$/.exec(line);
     if (head) {
       flush();
@@ -329,7 +326,6 @@ function renderMd(src: string, depth = 0): string {
       continue;
     }
 
-    // 分隔线
     if (/^\s*(?:\*{3,}|-{3,}|_{3,})\s*$/.test(line)) {
       flush();
       html.push('<hr>');
@@ -406,7 +402,6 @@ function renderMd(src: string, depth = 0): string {
       continue;
     }
 
-    // 引用（连续收集）
     if (/^\s*>/.test(line)) {
       flush();
       const buf: string[] = [];
@@ -418,7 +413,6 @@ function renderMd(src: string, depth = 0): string {
       continue;
     }
 
-    // 空行：结束当前段落
     if (line.trim() === '') {
       flush();
       i++;
@@ -436,7 +430,7 @@ function renderMd(src: string, depth = 0): string {
 /** Markdown 渲染出的 HTML（仅当 md=true 时使用；已整体转义，安全） */
 const mdHtml = computed<string>(() => {
   if (!props.md) return '';
-  void mathReady.value; // 公式模块加载完成后触发重渲染
+  void mathReady.value; 
   return renderMd(props.text || '');
 });
 
