@@ -106,6 +106,7 @@ const dict: Record<string, string> = {
   "common.online": "在线",
   "common.away": "离开",
   "common.offline": "离线",
+  "common.lastSeen": "最后在线 {time}",
   "common.me": "（我）",
   "common.admin": "管理员",
   "common.user": "用户",

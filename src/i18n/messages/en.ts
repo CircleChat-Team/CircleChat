@@ -106,6 +106,7 @@ const dict: Record<string, string> = {
   "common.online": "Online",
   "common.away": "Away",
   "common.offline": "Offline",
+  "common.lastSeen": "Last seen {time}",
   "common.me": " (me)",
   "common.admin": "Admin",
   "common.user": "User",
