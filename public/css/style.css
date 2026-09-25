@@ -2494,3 +2494,17 @@ body {
     transition-duration: .01ms !important;
   }
 }
+
+/* ============================================================
+ * 统一按钮静止态底色（与 chat-vue.css 同款说明）
+ * 让 style.css 内的按钮在静止时也带浅灰底（--fill），更“实心”。
+ * 刻意保持透明的：.login-link（纯文字链接）、.code-copy（深色代码块上的描边按钮）。
+ * ============================================================ */
+:is(
+  .icon-btn, .lang-item, .field-toggle, .sidebar-user, .user-menu-item,
+  .user-item, .friend-item, .friend-search-item,
+  .group-item, .group-gear, .group-action-btn, .msg-tool, .react-pick,
+  .emoji-tab, .emoji-item, .reply-cancel, .mention-item, .tool-btn
+) {
+  background: var(--fill);
+}

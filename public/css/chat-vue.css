@@ -450,6 +450,32 @@
 }
 .mp-empty { padding: 24px 8px; text-align: center; font-size: 12px; color: var(--muted); }
 
+/* 底部操作行：我的昵称 / 群备注 / 邀请成员 / 退出群聊 */
+.mp-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+.mp-foot-btn {
+  flex: 1 1 auto;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--muted);
+  background: var(--fill);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.mp-foot-btn:hover { background: var(--fill-hover); color: var(--text); }
+.mp-foot-btn.primary { background: var(--primary); color: #fff; }
+.mp-foot-btn.primary:hover { background: var(--primary-dark); }
+.mp-foot-btn.danger:hover { background: rgba(229, 72, 77, .12); color: #e5484d; }
+
 /* 窄屏：面板铺满（顶栏按钮在移动端已被 .chat-actions 隐藏） */
 @media (max-width: 640px) {
   .member-panel { width: 100%; }
@@ -2433,3 +2459,20 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 .mini-cmd-item:hover, .mini-cmd-item.on { background: var(--fill); }
 .mini-cmd-name { font-size: 13px; font-weight: 500; }
 .mini-cmd-sum { flex: 1; overflow: hidden; font-size: 11px; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+
+/* ============================================================
+ * 统一按钮静止态底色
+ * 让“内容为文字”的按钮与圆形图标按钮在静止时也带浅灰底（--fill），
+ * 视觉上更“实心”（与 .tool / .mp-foot-btn 一致）。悬停态仍由各按钮自身规则接管。
+ * 已自带填充色的按钮（.tool / .btn-primary / .btn-mini / .btn-danger / .mp-foot-btn 等）
+ * 与刻意保持透明的元素（.btn-ghost 文字按钮、.file-card .file-main 卡片区、.app-notice-x 彩色提示上的关闭键）不在此列。
+ * ============================================================ */
+:is(
+  .group-item, .group-gear, .tab-btn, .sidebar-toggle, .header-btn,
+  .mp-close, .mp-item, .settings-close, .settings-link, .merge-x,
+  .mention-item, .ctx-item, .forward-x, .forward-target, .upload-act,
+  .sidebar-search-history, .sp-close, .sp-hit, .audio-vol-btn, .audio-vol-mute,
+  .mini-item, .mini-cmd-item
+) {
+  background: var(--fill);
+}
