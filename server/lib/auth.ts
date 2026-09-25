@@ -603,6 +603,241 @@ export function authByCookie(cookieHeader: string | undefined): { username: stri
   return s ? { username: s.username, ip: s.ip, token: token as string } : null;
 }
 
+// ---------- API Key（对外接口凭据；仅存哈希，明文只在创建时展示一次） ----------
+
+/** 可授予的 scope 分组；'admin' 仅管理员账号可授（在接口层校验） */
+export const API_SCOPES = ['profile', 'friends', 'messages', 'groups', 'files', 'admin'] as const;
+export type ApiScope = (typeof API_SCOPES)[number];
+
+export interface ApiKeyInfo {
+  id: number;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  rateLimit: number | null;
+  created: number;
+  lastUsed: number | null;
+  expires: number | null;
+  revoked: boolean;
+}
+
+interface ApiKeyRow {
+  id: number;
+  username: string;
+  name: string;
+  key_hash: string;
+  prefix: string;
+  scopes: string | null;
+  rate_limit: number | null;
+  created: number | null;
+  last_used: number | null;
+  expires: number | null;
+  revoked: number | null;
+}
+
+function parseScopes(s: string | null): string[] {
+  if (!s) return [];
+  try {
+    const a = JSON.parse(s);
+    return Array.isArray(a) ? a.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 过滤出合法 scope，并按固定顺序返回（去重） */
+function sanitizeScopes(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const set = new Set<string>();
+  for (const x of input) if (typeof x === 'string' && (API_SCOPES as readonly string[]).indexOf(x) !== -1) set.add(x);
+  return API_SCOPES.filter((s) => set.has(s));
+}
+
+function rowToKeyInfo(r: ApiKeyRow): ApiKeyInfo {
+  return {
+    id: r.id,
+    name: r.name,
+    prefix: r.prefix,
+    scopes: parseScopes(r.scopes),
+    rateLimit: r.rate_limit != null ? Number(r.rate_limit) : null,
+    created: r.created != null ? Number(r.created) : 0,
+    lastUsed: r.last_used != null ? Number(r.last_used) : null,
+    expires: r.expires != null ? Number(r.expires) : null,
+    revoked: !!r.revoked
+  };
+}
+
+function getApiKeyRow(id: number): ApiKeyRow | undefined {
+  return open().prepare('SELECT * FROM api_keys WHERE id = ?').get(Number(id)) as ApiKeyRow | undefined;
+}
+
+/** 创建 API Key，返回明文（仅此一次）与信息；参数非法返回 null */
+export function createApiKey(
+  username: string,
+  opts: { name: unknown; scopes: unknown; rateLimit?: unknown; expiresDays?: unknown }
+): { plaintext: string; info: ApiKeyInfo } | null {
+  const name = String(opts.name == null ? '' : opts.name).trim().slice(0, 40);
+  if (!name) return null;
+  const scopes = sanitizeScopes(opts.scopes);
+  if (!scopes.length) return null;
+  const rl = Number(opts.rateLimit);
+  const rateLimit = Number.isFinite(rl) && rl > 0 ? Math.min(Math.floor(rl), 6000) : null;
+  const days = Number(opts.expiresDays);
+  const expires = Number.isFinite(days) && days > 0 ? Date.now() + Math.floor(days) * 86400000 : null;
+  const prefix = crypto.randomBytes(4).toString('hex'); // 8 位，便于识别
+  const secret = crypto.randomBytes(24).toString('hex');
+  const plaintext = 'cc_' + prefix + '_' + secret;
+  const res = open().prepare(
+    'INSERT INTO api_keys (username, name, key_hash, prefix, scopes, rate_limit, created, expires, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)'
+  ).run(String(username), name, sha256(plaintext), prefix, JSON.stringify(scopes), rateLimit, Date.now(), expires);
+  const row = getApiKeyRow(Number(res.lastInsertRowid));
+  return row ? { plaintext, info: rowToKeyInfo(row) } : null;
+}
+
+export function listApiKeys(username: string): ApiKeyInfo[] {
+  const rows = open().prepare('SELECT * FROM api_keys WHERE username = ? ORDER BY created DESC').all(String(username)) as unknown as ApiKeyRow[];
+  return rows.map(rowToKeyInfo);
+}
+
+/** 修改：改名 / 改 scope / 改限速 / 改过期 / 吊销 */
+export function updateApiKey(
+  username: string,
+  id: number,
+  patch: { name?: unknown; scopes?: unknown; rateLimit?: unknown; expiresDays?: unknown; revoked?: unknown }
+): boolean {
+  const row = getApiKeyRow(id);
+  if (!row || row.username !== String(username)) return false;
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  if (patch.name !== undefined) {
+    const name = String(patch.name == null ? '' : patch.name).trim().slice(0, 40);
+    if (!name) return false;
+    sets.push('name = ?');
+    vals.push(name);
+  }
+  if (patch.scopes !== undefined) {
+    const scopes = sanitizeScopes(patch.scopes);
+    if (!scopes.length) return false;
+    sets.push('scopes = ?');
+    vals.push(JSON.stringify(scopes));
+  }
+  if (patch.rateLimit !== undefined) {
+    const rl = Number(patch.rateLimit);
+    sets.push('rate_limit = ?');
+    vals.push(Number.isFinite(rl) && rl > 0 ? Math.min(Math.floor(rl), 6000) : null);
+  }
+  if (patch.expiresDays !== undefined) {
+    const days = Number(patch.expiresDays);
+    sets.push('expires = ?');
+    vals.push(Number.isFinite(days) && days > 0 ? Date.now() + Math.floor(days) * 86400000 : null);
+  }
+  if (patch.revoked !== undefined) {
+    sets.push('revoked = ?');
+    vals.push(patch.revoked ? 1 : 0);
+  }
+  if (!sets.length) return false;
+  vals.push(Number(id), String(username));
+  open().prepare('UPDATE api_keys SET ' + sets.join(', ') + ' WHERE id = ? AND username = ?').run(...(vals as (string | number | null)[]));
+  return true;
+}
+
+export function deleteApiKey(username: string, id: number): boolean {
+  const res = open().prepare('DELETE FROM api_keys WHERE id = ? AND username = ?').run(Number(id), String(username));
+  return Number(res.changes) > 0;
+}
+
+/** 用户被删除时清理其全部 API Key */
+export function removeUserApiKeys(username: string): void {
+  open().prepare('DELETE FROM api_keys WHERE username = ?').run(String(username));
+}
+
+export interface ApiKeyAuth {
+  username: string;
+  ip: string;
+  token: string;
+  viaKey: true;
+  keyId: number;
+  scopes: string[];
+  rateLimit: number | null;
+}
+
+/** 用明文 key 鉴权（哈希比对；吊销/过期/账号异常一律失效） */
+export function authByApiKey(raw: string, ip: string): ApiKeyAuth | null {
+  const key = (raw || '').trim();
+  if (!key) return null;
+  const row = open().prepare('SELECT * FROM api_keys WHERE key_hash = ?').get(sha256(key)) as ApiKeyRow | undefined;
+  if (!row || row.revoked) return null;
+  if (row.expires != null && Date.now() > Number(row.expires)) return null;
+  const now = Date.now();
+  // last_used 节流写：每 60s 至多一次，避免每条请求都写库
+  if (row.last_used == null || now - Number(row.last_used) > 60000) {
+    try { open().prepare('UPDATE api_keys SET last_used = ? WHERE id = ?').run(now, row.id); } catch { /* 忽略 */ }
+  }
+  const u = loadUsers()[row.username];
+  if (!u) return null;
+  const st = u.status != null ? u.status : STATUS.ACTIVE;
+  if (st !== STATUS.ACTIVE) return null; // 封禁 / 未激活账号的 key 立即失效
+  return {
+    username: row.username,
+    ip,
+    token: '',
+    viaKey: true,
+    keyId: row.id,
+    scopes: parseScopes(row.scopes),
+    rateLimit: row.rate_limit != null ? Number(row.rate_limit) : null
+  };
+}
+
+/** 从请求头解析 API Key：Authorization: Bearer xxx 或 X-API-Key: xxx */
+export function apiKeyFromHeaders(headers: Record<string, unknown>): string | null {
+  const authz = headers['authorization'];
+  if (typeof authz === 'string') {
+    const m = /^Bearer\s+(.+)$/i.exec(authz.trim());
+    if (m) return m[1].trim();
+  }
+  const xk = headers['x-api-key'];
+  if (typeof xk === 'string' && xk.trim()) return xk.trim();
+  return null;
+}
+
+export interface RequestAuth {
+  username: string;
+  ip: string;
+  token: string;
+  viaKey: boolean;
+  keyId?: number;
+  /** null = 会话（全权）；数组 = API Key 的 scope 集合 */
+  scopes: string[] | null;
+  rateLimit?: number | null;
+}
+
+/** 统一鉴权：先会话 Cookie，再 API Key */
+export function authByRequest(req: { headers: Record<string, unknown> }, ip: string): RequestAuth | null {
+  const byCookie = authByCookie(req.headers['cookie'] as string | undefined);
+  if (byCookie) return { ...byCookie, viaKey: false, scopes: null };
+  const raw = apiKeyFromHeaders(req.headers);
+  if (!raw) return null;
+  return authByApiKey(raw, ip);
+}
+
+// ---------- API Key 限速（按 key 的固定窗口，超限返 429） ----------
+const keyRate = new Map<number, { windowStart: number; count: number }>();
+const KEY_RATE_WINDOW = 60000; // 1 分钟窗口
+export const API_KEY_DEFAULT_RATE = 60; // 默认每分钟请求数
+
+/** 该 key 本次请求是否已超限（超限返回 true，且不再累加） */
+export function apiKeyRateLimited(keyId: number, limit: number | null | undefined): boolean {
+  const perMin = limit != null && Number(limit) > 0 ? Math.floor(Number(limit)) : API_KEY_DEFAULT_RATE;
+  const now = Date.now();
+  const rec = keyRate.get(keyId);
+  if (!rec || now - rec.windowStart >= KEY_RATE_WINDOW) {
+    keyRate.set(keyId, { windowStart: now, count: 1 });
+    return false;
+  }
+  rec.count++;
+  return rec.count > perMin;
+}
+
 // ---------- 登录限速（防暴力破解） ----------
 
 const failMap = new Map<string, { count: number; until: number }>(); // ip -> {count, until}

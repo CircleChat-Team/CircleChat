@@ -770,6 +770,20 @@ function hasOtherConn(name: string, except: any): boolean {
   return false;
 }
 
+/**
+ * API Key 的 scope 校验：返回该请求所需 scope；'__session' 表示必须用会话 Cookie（key 不允许）。
+ * 会话 Cookie 鉴权不校验 scope（全权）；新接口默认归入 profile，管理端归 admin。
+ */
+function requiredScope(_method: string, pathname: string): string {
+  if (pathname.indexOf('/api/admin/') === 0) return 'admin';
+  if (pathname.indexOf('/api/keys') === 0) return '__session'; // key 不能管理 key（防止提权）
+  if (pathname.indexOf('/api/friends') === 0) return 'friends';
+  if (pathname.indexOf('/api/messages') === 0) return 'messages';
+  if (pathname.indexOf('/api/groups') === 0) return 'groups';
+  if (pathname.indexOf('/api/upload') === 0) return 'files';
+  return 'profile';
+}
+
 /** 给一批带 name 的条目补上 lastSeen（群成员列表等；groups 模块只管成员关系，不碰在线状态） */
 function withLastSeen<T extends { name: string }>(list: T[]): (T & { lastSeen: number | null })[] {
   const ls = ensureLastSeen();
@@ -1754,11 +1768,125 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
-  // 以下接口均需登录
-  const me = auth.authByCookie(req.headers.cookie);
+  // 以下接口均需登录（会话 Cookie 或 API Key）
+  const me = auth.authByRequest(req, ip);
   if (!me) {
     sendJSON(res, 401, { ok: false, error: 'api.unauthorized' });
     logger.write({ ip, method: req.method, url: pathname, status: 401, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+  // API Key：先限速（429），再校验 scope（403）；会话 Cookie 为全权，跳过这两步
+  if (me.viaKey) {
+    if (auth.apiKeyRateLimited(me.keyId as number, me.rateLimit)) {
+      sendJSON(res, 429, { ok: false, error: 'api.rateLimited' }, { 'Retry-After': '60' });
+      logger.write({ ip, method: req.method, url: pathname, status: 429, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const need = requiredScope(req.method || 'GET', pathname);
+    if (need === '__session' || !me.scopes || me.scopes.indexOf(need) === -1) {
+      sendJSON(res, 403, { ok: false, error: 'api.forbidden' });
+      logger.write({ ip, method: req.method, url: pathname, status: 403, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+  }
+
+  // ---------- API Key 管理（仅会话 Cookie；key 不能管理 key，防提权） ----------
+
+  // GET /api/keys —— 我的 API Key 列表 + 可选 scope
+  if (pathname === '/api/keys' && req.method === 'GET') {
+    sendJSON(res, 200, {
+      ok: true,
+      keys: auth.listApiKeys(me.username),
+      scopes: auth.API_SCOPES,
+      defaultRate: auth.API_KEY_DEFAULT_RATE,
+      isAdmin: auth.isAdmin(me.username)
+    });
+    logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    return;
+  }
+
+  // POST /api/keys {name, scopes[], rateLimit?, expiresDays?}
+  if (pathname === '/api/keys' && req.method === 'POST') {
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      if (!o || typeof o !== 'object') {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        return;
+      }
+      // admin scope 仅管理员账号可授
+      if (Array.isArray(o.scopes) && o.scopes.indexOf('admin') !== -1 && !auth.isAdmin(me.username)) {
+        sendJSON(res, 403, { ok: false, error: 'api.forbidden' });
+        return;
+      }
+      const created = auth.createApiKey(me.username, { name: o.name, scopes: o.scopes, rateLimit: o.rateLimit, expiresDays: o.expiresDays });
+      if (!created) {
+        sendJSON(res, 400, { ok: false, error: 'api.key.invalid' });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'key.create', target: created.info.prefix, detail: auditDetail('log.detail.key.create', { name: created.info.name }), ip });
+      sendJSON(res, 200, { ok: true, key: created.info, plaintext: created.plaintext });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
+  // POST /api/keys/update {id, name?, scopes?, rateLimit?, expiresDays?, revoked?}
+  if (pathname === '/api/keys/update' && req.method === 'POST') {
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const id = o && o.id != null ? Number(o.id) : NaN;
+      if (!Number.isInteger(id) || id <= 0) {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        return;
+      }
+      if (o && Array.isArray(o.scopes) && o.scopes.indexOf('admin') !== -1 && !auth.isAdmin(me.username)) {
+        sendJSON(res, 403, { ok: false, error: 'api.forbidden' });
+        return;
+      }
+      const ok = auth.updateApiKey(me.username, id, {
+        name: o && o.name,
+        scopes: o && o.scopes,
+        rateLimit: o && o.rateLimit,
+        expiresDays: o && o.expiresDays,
+        revoked: o && o.revoked
+      });
+      if (!ok) {
+        sendJSON(res, 400, { ok: false, error: 'api.key.invalid' });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'key.update', target: String(id), detail: auditDetail('log.detail.key.update', { id }), ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
+    return;
+  }
+
+  // POST /api/keys/delete {id}
+  if (pathname === '/api/keys/delete' && req.method === 'POST') {
+    readBody(req, 4096).then((body) => {
+      let o: any = null;
+      try { o = JSON.parse(body.toString('utf8')); } catch (e) { /* 校验统一走下面 */ }
+      const id = o && o.id != null ? Number(o.id) : NaN;
+      if (!Number.isInteger(id) || id <= 0) {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        return;
+      }
+      if (!auth.deleteApiKey(me.username, id)) {
+        sendJSON(res, 404, { ok: false, error: 'api.key.notFound' });
+        return;
+      }
+      audit.add({ actor: me.username, action: 'key.delete', target: String(id), detail: auditDetail('log.detail.key.delete', { id }), ip });
+      sendJSON(res, 200, { ok: true });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch((e) => {
+      sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+    });
     return;
   }
 
@@ -2688,6 +2816,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         groups.removeUserAll(name); // 清理该用户在各群的全部成员关系，避免遗留孤儿
         groups.removeRequestsOfUser(name); // 清理该用户的全部入群申请
         friends.removeUserAll(name); // 清理该用户全部好友关系与好友申请
+        auth.removeUserApiKeys(name); // 清理该用户全部 API Key
         broadcast({ type: 'friends.changed' });
         audit.add({ actor: me.username, action: 'admin.user.del', target: name, detail: auditDetail('log.detail.user.del', { name }), ip });
         // 立即断开该用户的所有在线连接

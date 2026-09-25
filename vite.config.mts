@@ -47,6 +47,7 @@ export default defineConfig({
         admin: 'src/main-admin.ts',
         login: 'src/main-login.ts',
         group: 'src/main-group.ts',
+        profile: 'src/main-profile.ts',
         chat: 'src/main-chat.ts'
       },
       output: {

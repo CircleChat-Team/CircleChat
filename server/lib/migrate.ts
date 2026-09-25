@@ -242,6 +242,30 @@ const SCHEMA: Record<string, TableDef> = {
       );
     `,
     columns: { u1: 'TEXT', u2: 'TEXT', remark: 'TEXT', updated: 'INTEGER' }
+  },
+  api_keys: {
+    create: `
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        username   TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        key_hash   TEXT NOT NULL,
+        prefix     TEXT NOT NULL,
+        scopes     TEXT NOT NULL,
+        rate_limit INTEGER,
+        created    INTEGER NOT NULL,
+        last_used  INTEGER,
+        expires    INTEGER,
+        revoked    INTEGER DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_ak_username ON api_keys(username);
+      CREATE INDEX IF NOT EXISTS idx_ak_hash ON api_keys(key_hash);
+    `,
+    columns: {
+      id: 'INTEGER', username: 'TEXT', name: 'TEXT', key_hash: 'TEXT', prefix: 'TEXT',
+      scopes: 'TEXT', rate_limit: 'INTEGER', created: 'INTEGER', last_used: 'INTEGER',
+      expires: 'INTEGER', revoked: 'INTEGER'
+    }
   }
 };
 

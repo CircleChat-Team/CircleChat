@@ -60,7 +60,10 @@ export const ACTION_KEYS: Record<string, string> = {
   'oauth.unbind': 'admin.action.oauthUnbind',
   'oauth.config': 'admin.action.oauthConfig',
   'admin.captcha': 'admin.action.captcha',
-  'admin.file.delBatch': 'admin.action.fileDelBatch'
+  'admin.file.delBatch': 'admin.action.fileDelBatch',
+  'key.create': 'admin.action.keyCreate',
+  'key.update': 'admin.action.keyUpdate',
+  'key.delete': 'admin.action.keyDelete'
 };
 
 /**
@@ -124,6 +127,11 @@ export const ACTION_GROUPS: ActionGroup[] = [
     key: 'mod',
     label: 'admin.logGroup.mod',
     actions: ['mod.dismiss', 'mod.punish', 'mod.revoke', 'mod.appeal', 'mod.appeal.approve', 'mod.appeal.reject']
+  },
+  {
+    key: 'key',
+    label: 'admin.logGroup.key',
+    actions: ['key.create', 'key.update', 'key.delete']
   }
 ];
 

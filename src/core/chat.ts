@@ -98,7 +98,7 @@ export interface ChatState {
   profile: ProfileData | null;
   myProfileOpen: boolean;
   /** 打开个人资料时想直接落到哪个页签（输入区禁言横幅的「申诉」用它） */
-  profileTab: 'profile' | 'security' | 'penalty' | null;
+  profileTab: 'profile' | 'security' | 'penalty' | 'apikey' | null;
   styleOpen: boolean;
   friendSearchOpen: boolean;
   groupDialogOpen: boolean;
@@ -1540,9 +1540,27 @@ export function closeProfile(): void {
   state.profile = null;
 }
 
-export function openMyProfile(tab?: 'profile' | 'security' | 'penalty'): void {
+export function openMyProfile(tab?: 'profile' | 'security' | 'penalty' | 'apikey'): void {
+  // 个人资料/设置已改为独立页面：这里直接跳转
   state.profileTab = tab || null;
-  state.myProfileOpen = true;
+  location.href = '/profile.html' + (tab ? '?tab=' + encodeURIComponent(tab) : '');
+}
+
+/** 独立资料页启动：设置当前用户并加载头像等基础数据（不建立 WebSocket） */
+export function bootProfilePage(): Promise<boolean> {
+  return get('/api/me')
+    .then((j) => {
+      if (!j.ok) {
+        location.replace('/login.html');
+        return false;
+      }
+      state.me = String(j.username || '');
+      return loadUsers().then(() => true);
+    })
+    .catch(() => {
+      location.replace('/login.html');
+      return false;
+    });
 }
 export function openStyle(): void {
   state.styleOpen = true;

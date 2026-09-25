@@ -23,7 +23,6 @@ import Sidebar from './components/chat/Sidebar.vue';
 import MessageList from './components/chat/MessageList.vue';
 import InputBar from './components/chat/InputBar.vue';
 import ProfileCard from './components/chat/ProfileCard.vue';
-import MyProfile from './components/chat/MyProfile.vue';
 import StyleDialog from './components/chat/StyleDialog.vue';
 import FriendSearch from './components/chat/FriendSearch.vue';
 import GroupDialog from './components/chat/GroupDialog.vue';
@@ -320,7 +319,6 @@ onMounted(refreshMailboxBadge);
     </main>
 
     <ProfileCard />
-    <MyProfile />
     <Dialog />
     <MailboxPanel v-if="mailboxOpen" @close="onMailboxClose" @read="onMailboxRead" />
     <StyleDialog />
