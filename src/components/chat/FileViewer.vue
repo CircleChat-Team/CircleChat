@@ -628,7 +628,7 @@ useOverlay({
           <p v-else class="media-fail">{{ tr('fileview.previewFailed') }}</p>
         </div>
         <div v-else-if="phase === 'video'" class="media-wrap">
-          <video v-if="!mediaFailed" :src="url" controls @error="mediaFailed = true"></video>
+          <video v-if="!mediaFailed" :src="url" controls @error="mediaFailed = true" style="width: 80%;"></video>
           <p v-else class="media-fail">{{ tr('fileview.previewFailed') }}</p>
         </div>
         <div v-else-if="phase === 'audio'" class="media-wrap media-audio">
