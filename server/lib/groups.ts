@@ -34,6 +34,8 @@ export interface GroupInfo {
   announcement?: string | null;
   muteAll?: boolean;
   memberInviteApprove?: boolean;
+  /** 成员人数（仅列表接口带出，管理面板要显示） */
+  members?: number;
 }
 
 export interface GroupMember {
@@ -183,15 +185,29 @@ export function searchGroups(keyword: string): GroupInfo[] {
 
 /** 列出全部群（仅管理员接口使用） */
 export function listAllGroups(): GroupInfo[] {
-  const rows = open().prepare('SELECT id, name, owner, created FROM groups ORDER BY created ASC').all() as {
+  const rows = open()
+    .prepare(
+      'SELECT g.id, g.name, g.owner, g.created, g.mute_all, ' +
+        '(SELECT COUNT(*) FROM group_members gm WHERE gm.gid = g.id) AS members ' +
+        'FROM groups g ORDER BY g.created ASC'
+    )
+    .all() as {
     id: string;
     name: string;
     owner: string;
     created: number | null;
+    mute_all: number | null;
+    members: number | null;
   }[];
   return rows.map((r) => {
-    const o: GroupInfo = { id: r.id, name: r.name, owner: r.owner };
+    const o: GroupInfo = {
+      id: r.id,
+      name: r.name,
+      owner: r.owner,
+      members: Number(r.members) || 0
+    };
     if (r.created != null) o.created = r.created;
+    if (r.mute_all) o.muteAll = true;
     return o;
   });
 }

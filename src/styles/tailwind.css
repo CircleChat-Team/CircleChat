@@ -37,7 +37,20 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
 
-  --radius-card: 14px;
+  /* ---------- 圆角刻度（扁平化统一，2026-10-17） ----------
+   * 全部收敛到 chat-base.css 里的 4 档令牌 + 胶囊：
+   *   xs 4px / sm 6px / md 8px / lg 12px / pill 999px（50% 仍是正圆）
+   * 于是 rounded-sm|md = 6px、rounded-lg = 8px、rounded-xl|2xl|3xl|card = 12px，
+   * 模板里不再出现「同一个页面 7px、9px、14px、18px 各写各的」情况。 */
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-sm);
+  --radius-lg: var(--r-md);
+  --radius-xl: var(--r-lg);
+  --radius-2xl: var(--r-lg);
+  --radius-3xl: var(--r-lg);
+  --radius-4xl: var(--r-lg);
+  --radius-card: var(--r-lg);
 }
 
 @layer base {

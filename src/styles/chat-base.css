@@ -19,7 +19,7 @@
    这里只写 background / border-radius：已有的类规则会覆盖同名属性，
    所以聊天页里那些自定义滚动条的样子不会被这层默认值改动。 */
 ::-webkit-scrollbar-thumb {
-  border-radius: 8px;
+  border-radius: var(--r-md);
   background: rgba(128, 128, 128, .3);
 }
 ::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 128, .5); }
@@ -37,7 +37,7 @@
 :where(button, a[href], input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--primary, #07c160);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
 }
 
 /* ---------- 无障碍：系统开启「减少动态效果」时收敛动画 ---------- */
@@ -83,9 +83,18 @@
   --shadow-card: 0 16px 48px rgba(0, 0, 0, .08), 0 2px 10px rgba(0, 0, 0, .03);
   --shadow-pop: 0 8px 40px rgba(0, 0, 0, .05);
 
+  /* 圆角刻度：全站统一的 4 档 + 胶囊。
+     任何地方都不要再写死具体像素 —— 扁平化后所有大圆角收敛到同一档，
+     避免出现「卡片 14px、气泡 18px、面板 20px」这种各写各的情况。 */
+  --r-xs: 4px;    /* 小标签 / 徽标 / 进度条 */
+  --r-sm: 6px;    /* 小按钮 / 输入框 / 紧凑控件 */
+  --r-md: 8px;    /* 默认：卡片 / 气泡 / 菜单 / 弹出层 */
+  --r-lg: 12px;   /* 大容器：模态 / 抽屉 / 大面板 */
+  --r-pill: 999px;/* 胶囊（日期分隔线、提示条等） */
+
   /* 动效 */
   --ease: cubic-bezier(.32, .72, 0, 1);
-  --radius: 12px;
+  --radius: var(--r-lg);
 
   /* 等宽字体（代码块 / 行内代码） */
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Courier New", monospace;

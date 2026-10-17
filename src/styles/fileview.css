@@ -32,7 +32,7 @@
   overflow: hidden;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--r-lg);
   outline: none;
 }
 .fileview-head {
@@ -54,7 +54,7 @@
 .fileview-tag {
   flex-shrink: 0;
   padding: 2px 7px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   font-size: 11px;
   color: var(--muted);
   background: var(--fill);
@@ -66,7 +66,7 @@
   max-width: 150px;
   padding: 2px 4px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   font-size: 11px;
   color: var(--muted);
   background: var(--fill);
@@ -81,7 +81,7 @@
   height: 26px;
   padding: 0 9px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   background: var(--panel);
   color: var(--text);
   font-size: 12px;
@@ -177,7 +177,7 @@
 .hx-c.on {
   background: var(--primary);
   color: #04120b;
-  border-radius: 3px;
+  border-radius: var(--r-xs);
 }
 .hx-status {
   flex-shrink: 0;
@@ -204,12 +204,12 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: var(--r-md);
 }
 .media-wrap video {
   max-width: 100%;
   max-height: 100%;
-  border-radius: 8px;
+  border-radius: var(--r-md);
   background: #000;
 }
 .media-audio { flex-direction: column; gap: 14px; }

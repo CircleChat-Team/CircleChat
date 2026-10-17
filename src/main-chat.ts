@@ -6,6 +6,8 @@ import { initChat } from './core/chat';
 import { i18n } from './i18n';
 import './styles/tailwind.css';
 import './styles/chat.css';
+// 按钮样式按「界面功能区」分块独立维护（每个块自包含，改一块不波及其它块）
+import './styles/buttons.css';
 import './styles/fileview.css';
 
 initTheme(); // 尽早应用主题，避免首屏闪白

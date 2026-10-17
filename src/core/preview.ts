@@ -390,7 +390,7 @@ a { color: ${dark ? '#6cb6ff' : '#0b6bcb'}; text-decoration: none; }
 a:hover { text-decoration: underline; }
 code {
   padding: .15em .38em;
-  border-radius: 5px;
+  border-radius: 4px;
   background: ${dark ? '#2c2c2e' : '#f2f3f5'};
   font: .92em/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }

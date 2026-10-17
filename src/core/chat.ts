@@ -33,6 +33,17 @@ import type {
 /** 搜索范围：room = 当前会话；all = 我的全部会话 */
 export type SearchScope = 'room' | 'all';
 
+/**
+ * 新成员入群提示：有人在**我正在看的群**里加入时，消息区中间插一条小提示。
+ * 只活在前端（不落库、不进消息历史），切换会话即清空。
+ */
+export interface JoinHint {
+  id: number;
+  gid: string;
+  name: string;
+  ts: number;
+}
+
 const PAGE = 30; 
 const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; 
 /** 提示文案里展示的上限，由 MAX_UPLOAD_SIZE 推导，改上限时无需同步改文案 */
@@ -71,6 +82,8 @@ export interface ChatState {
   activeGroupMembers: GroupMember[];
   activeGid: string | null;
   activeDmPeer: string | null;
+  /** 当前会话里「新成员入群」的小提示（仅前端展示，不入消息历史） */
+  joinHints: JoinHint[];
   /** 当前群内：我是否为管理者（群主或管理员） */
   activeGroupIsManager?: boolean;
   activeGroupIsOwner?: boolean;
@@ -162,6 +175,7 @@ const state = reactive<ChatState>({
   activeGroupMembers: [],
   activeGid: null,
   activeDmPeer: null,
+  joinHints: [],
   activeGroupIsManager: false,
   activeGroupIsOwner: false,
   activeGroupMuteAll: false,
@@ -364,7 +378,11 @@ function connectWs(): void {
         const d = (obj.data || {}) as { gid?: string; name?: string; action?: string };
         const gid = d.gid ? String(d.gid) : '';
         if (!gid) break;
-        if (gid === state.activeGid) loadGroupMembers(gid);
+        if (gid === state.activeGid) {
+          loadGroupMembers(gid);
+          // 别人加入我正在看的群：插一条「xxx 加入了群聊」小提示，带一键发送欢迎
+          if (d.action === 'join' && d.name && d.name !== state.me) addJoinHint(gid, d.name);
+        }
         if (d.name === state.me && d.action !== 'join') {
           // 自己被移出（或自己退出）：刷新群列表；还赖在这个群里就撤出去
           loadGroups();
@@ -652,6 +670,7 @@ function resetRoom(): void {
   state.messages = [];
   state.renderedIdx = {};
   state.topIndex = 0;
+  state.joinHints = [];
   state.typingWho = null; // 切换会话清掉上一个房间的「正在输入」，避免带过来
 }
 
@@ -2148,6 +2167,44 @@ export function loadMyInvites(): void {
     })
     .catch(() => {
     });
+}
+
+// ---------- 新成员入群提示 ----------
+
+let joinHintSeq = 0;
+
+/** 记一条入群提示（只在正看着该群时调用） */
+function addJoinHint(gid: string, name: string): void {
+  state.joinHints.push({ id: ++joinHintSeq, gid, name, ts: Date.now() });
+  // 防止无人清理时无限堆积：只保留最近 20 条
+  if (state.joinHints.length > 20) state.joinHints.splice(0, state.joinHints.length - 20);
+}
+
+/** 手动关闭一条提示（发了欢迎消息 / 点了关闭） */
+export function dismissJoinHint(id: number): void {
+  const i = state.joinHints.findIndex((h) => h.id === id);
+  if (i >= 0) state.joinHints.splice(i, 1);
+}
+
+/** 当前会话我能否发言（被禁言 / 群禁言且非管理者时，欢迎链接要隐藏） */
+export function canSpeakInActiveRoom(): boolean {
+  if (state.muted) return false;
+  if (state.activeGid != null) return !(state.activeGroupMuteAll && !state.activeGroupIsManager);
+  return true;
+}
+
+/**
+ * 给刚入群的成员发一句欢迎（@他 + 欢迎语）。
+ * 走正常发消息通道，所以会被全员看到、也能被撤回 / 举报，与其它消息无差别。
+ */
+export function sendWelcome(hint: JoinHint): void {
+  if (!hint || (state.activeGid != null && hint.gid !== state.activeGid)) return;
+  if (!canSpeakInActiveRoom()) {
+    notify(state.muted ? 'chat.muted.banner' : 'group.muteAll');
+    return;
+  }
+  sendText(tr('chat.group.welcomeMsg', { name: hint.name }));
+  dismissJoinHint(hint.id);
 }
 
 // ---------- 群管理：角色 / 禁言 / 昵称 / 备注 / 邀请 ----------

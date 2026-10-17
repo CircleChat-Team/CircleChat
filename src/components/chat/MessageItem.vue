@@ -156,6 +156,7 @@ watch(
     class="msg"
     :class="[self ? 'self' : 'other', { grouped: grouped, 'mention-me': mentionMe }]"
     :data-idx="msg.idx"
+    data-msg-row
     @contextmenu.prevent="onCtx"
     @click="onMsgClick"
   >

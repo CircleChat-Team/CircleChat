@@ -7,6 +7,7 @@ import LangMenu from './components/common/LangMenu.vue';
 import ThemeToggle from './components/common/ThemeToggle.vue';
 import ApprovalsCard from './components/admin/ApprovalsCard.vue';
 import UsersCard from './components/admin/UsersCard.vue';
+import GroupsCard from './components/admin/GroupsCard.vue';
 import FilesCard from './components/admin/FilesCard.vue';
 import LogsCard from './components/admin/LogsCard.vue';
 import ModerationCard from './components/admin/ModerationCard.vue';
@@ -34,6 +35,7 @@ provide('toast', toast);
 const tabs = [
   { id: 'approvals', label: 'admin.tab.approvals' },
   { id: 'users', label: 'admin.tab.users' },
+  { id: 'groups', label: 'admin.tab.groups' },
   { id: 'moderation', label: 'admin.tab.moderation' },
   { id: 'files', label: 'admin.tab.files' },
   { id: 'security', label: 'admin.tab.security' },
@@ -128,6 +130,7 @@ function logout(): void {
       <div class="mx-auto max-w-190 px-4 py-5 pb-10 lg:max-w-[1120px] xl:max-w-[1400px]">
         <ApprovalsCard v-if="active === 'approvals'" />
         <UsersCard v-if="active === 'users'" :me="me" />
+        <GroupsCard v-if="active === 'groups'" />
         <ModerationCard v-if="active === 'moderation'" />
         <FilesCard v-if="active === 'files'" />
         <SecurityCard v-if="active === 'security'" />
