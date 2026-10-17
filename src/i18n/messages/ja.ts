@@ -176,6 +176,7 @@ const dict: Record<string, string> = {
   "common.onlineBoth": "デスクトップ版 + ウェブ版オンライン",
   "common.away": "離席中",
   "common.offline": "オフライン",
+  "common.lastSeen": "最終オンライン: {time}",
   "common.me": " (自分)",
   "common.admin": "管理者",
   "common.user": "ユーザー",
