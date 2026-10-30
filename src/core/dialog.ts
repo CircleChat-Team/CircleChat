@@ -14,6 +14,8 @@ export interface DialogInput {
   placeholder?: string;
   maxLength?: number;
   value?: string;
+  /** 必须逐字输入这段文字才允许点确定（危险操作的二次确认） */
+  mustEqual?: string;
 }
 
 export interface DialogOptions {

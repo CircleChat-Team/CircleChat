@@ -1,11 +1,17 @@
 <script setup lang="ts">
 // 通用确认 / 输入弹窗视图（对应 src/core/dialog.ts 的状态） 在根组件挂载一次即可：<Dialog />
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { dialogState, resolveDialog } from '../../core/dialog';
 import { tr } from '../../core/i18n';
 
 const inputVal = ref('');
 const inputEl = ref<HTMLInputElement | null>(null);
+
+/** 危险操作要求逐字输入指定文字；未输入正确前禁用「确定」 */
+const canOk = computed(() => {
+  const need = dialogState.input?.mustEqual;
+  return !need || inputVal.value === need;
+});
 
 watch(
   () => dialogState.open,
@@ -20,6 +26,10 @@ watch(
 );
 
 function onOk(): void {
+  if (!canOk.value) {
+    inputEl.value?.focus();
+    return;
+  }
   if (dialogState.input) {
     if (!inputVal.value) {
       inputEl.value?.focus();
@@ -89,8 +99,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKey, true));
           </button>
           <button
             type="button"
-            class="flex-1 rounded-xl px-3 py-2 text-sm font-medium text-white transition-colors active:scale-[.97]"
+            class="flex-1 rounded-xl px-3 py-2 text-sm font-medium text-white transition-colors active:scale-[.97] disabled:cursor-not-allowed disabled:opacity-40"
             :class="dialogState.danger ? 'bg-danger hover:bg-[#d13b40]' : 'bg-primary hover:bg-primary-dark'"
+            :disabled="!canOk"
             @click="onOk"
           >
             {{ dialogState.okText || tr('common.ok') }}

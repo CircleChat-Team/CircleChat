@@ -61,6 +61,7 @@ export const ACTION_KEYS: Record<string, string> = {
   'oauth.config': 'admin.action.oauthConfig',
   'admin.captcha': 'admin.action.captcha',
   'admin.file.delBatch': 'admin.action.fileDelBatch',
+  'admin.log.clear': 'admin.action.logClear',
   'key.create': 'admin.action.keyCreate',
   'key.update': 'admin.action.keyUpdate',
   'key.delete': 'admin.action.keyDelete',
@@ -125,7 +126,7 @@ export const ACTION_GROUPS: ActionGroup[] = [
     actions: [
       'admin.review.approve', 'admin.review.reject', 'admin.user.add', 'admin.user.del',
       'admin.user.pass', 'admin.user.role', 'admin.user.image', 'admin.user.rename',
-      'admin.file.del', 'admin.file.delBatch', 'admin.captcha'
+      'admin.file.del', 'admin.file.delBatch', 'admin.log.clear', 'admin.captcha'
     ]
   },
   {

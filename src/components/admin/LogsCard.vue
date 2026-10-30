@@ -3,14 +3,18 @@
  * 审计日志
  * 动作标签与下拉选项共用同一份 ACTION_KEYS，避免两处维护。
  * ============================================================ */
-import { ref, computed, onMounted } from 'vue';
-import { get } from '../../core/api';
+import { ref, computed, inject, onMounted } from 'vue';
+import { get, post } from '../../core/api';
 import { tr, trn } from '../../core/i18n';
 import { fmtDateTime } from '../../core/format';
+import { prompt } from '../../core/dialog';
 import { ACTION_KEYS, ACTION_GROUPS, formatAuditDetail } from '../../core/auditActions';
 import GroupedMultiSelect from '../common/GroupedMultiSelect.vue';
 import type { MsGroup } from '../common/GroupedMultiSelect.vue';
 import type { LogItem } from '../../types';
+
+type ToastFn = (msg: string, ms?: number) => void;
+const toast = inject<ToastFn>('toast', () => {});
 
 /**
  * 每页条数：原来一次拉 200 条全部铺进 DOM，滚动时页面要做大量布局/绘制，
@@ -96,6 +100,117 @@ function tip(e: LogItem): string {
   return tr('admin.log.ip', { ip: e.ip }) + (e.target ? tr('admin.log.target') + e.target : '');
 }
 
+/* ============================================================
+ * 导出：按当前筛选条件取全量，在本地生成 txt / csv / json。
+ * 动作名与详情用当前语言渲染（服务端存的是 i18n 键），导出文件才可读。
+ * ============================================================ */
+type ExportFormat = 'txt' | 'csv' | 'json';
+const EXPORT_FORMATS: ExportFormat[] = ['txt', 'csv', 'json'];
+
+/** CSV 单元格转义：含逗号/引号/换行时整体加引号，内部引号翻倍 */
+function csvCell(v: unknown): string {
+  const s = String(v ?? '');
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+/** 文件名时间戳：20261030-153000 */
+function stamp(): string {
+  const d = new Date();
+  const p = (n: number): string => (n < 10 ? '0' + n : String(n));
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+}
+
+function download(filename: string, content: string, mime: string): void {
+  const blob = new Blob([content], { type: mime + ';charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportLogs(format: ExportFormat): void {
+  let path = '/api/admin/logs/export?';
+  const a = actor.value.trim();
+  if (a) path += '&actor=' + encodeURIComponent(a);
+  if (actions.value.length) path += '&actions=' + encodeURIComponent(actions.value.join(','));
+  get(path)
+    .then((j) => {
+      if (!j.ok) {
+        toast(tr(j.error || 'common.opFailed'));
+        return;
+      }
+      const rows = (j.logs as LogItem[]) || [];
+      if (!rows.length) {
+        toast(tr('admin.log.exportEmpty'));
+        return;
+      }
+      const data = rows.map((e) => ({
+        ts: Number(e.ts) || 0,
+        time: fmtDateTime(e.ts),
+        actor: e.actor || '',
+        action: actionLabel(e.action),
+        actionCode: e.action,
+        target: e.target || '',
+        detail: formatDetail(e.detail),
+        ip: e.ip || ''
+      }));
+      const base = 'audit-logs-' + stamp();
+      if (format === 'json') {
+        download(
+          base + '.json',
+          JSON.stringify({ exportedAt: fmtDateTime(Date.now()), total: data.length, logs: data }, null, 2),
+          'application/json'
+        );
+        return;
+      }
+      if (format === 'csv') {
+        const head = ['time', 'actor', 'action', 'target', 'detail', 'ip'].join(',');
+        const body = data
+          .map((r) => [r.time, r.actor, r.action, r.target, r.detail, r.ip].map(csvCell).join(','))
+          .join('\r\n');
+        // 前置 BOM：Excel 才能正确识别 UTF-8（中文不乱码）
+        download(base + '.csv', '\uFEFF' + head + '\r\n' + body + '\r\n', 'text/csv');
+        return;
+      }
+      const lines = [
+        tr('admin.log.title') + ' · ' + tr('admin.log.exportedAt', { time: fmtDateTime(Date.now()) }) +
+          ' · ' + trn('admin.count.items', data.length),
+        ''
+      ];
+      for (const r of data) {
+        lines.push([r.time, r.actor, r.action, r.target, r.detail, r.ip].filter((x) => !!x).join(' | '));
+      }
+      download(base + '.txt', lines.join('\r\n') + '\r\n', 'text/plain');
+    })
+    .catch(() => toast(tr('common.opFailed')));
+}
+
+/** 清空全部日志：必须逐字输入确认文字，确定按钮才会亮起 */
+async function clearLogs(): Promise<void> {
+  const phrase = tr('admin.log.clearPhrase');
+  const v = await prompt({
+    title: tr('admin.log.clearTitle'),
+    text: tr('admin.log.clearText', { phrase }),
+    okText: tr('admin.log.clearConfirm'),
+    cancelText: tr('common.cancel'),
+    danger: true,
+    input: { placeholder: phrase, maxLength: 32, mustEqual: phrase }
+  });
+  if (v !== phrase) return;
+  post('/api/admin/logs/clear', {}).then((j) => {
+    if (!j.ok) {
+      toast(tr(j.error || 'common.opFailed'));
+      return;
+    }
+    toast(tr('admin.log.cleared', { n: Number(j.removed) || 0 }));
+    load(true);
+  }).catch(() => toast(tr('common.opFailed')));
+}
+
 onMounted(load);
 </script>
 
@@ -107,7 +222,7 @@ onMounted(load);
         <span class="log-total font-normal">{{ trn('admin.count.items', total) }}</span>
       </h2>
 
-      <div class="ml-auto flex items-center gap-1.5">
+      <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
         <input
           v-model="actor"
           type="text"
@@ -127,6 +242,24 @@ onMounted(load);
           :selected-text="(n: number) => tr('admin.log.selectedN', { n })"
           @update:model-value="onActions"
         />
+        <!-- 导出：按当前筛选条件全量导出 txt / csv / json -->
+        <div class="flex shrink-0 items-center overflow-hidden rounded-lg border border-line bg-panel">
+          <span class="px-2 text-[11px] text-muted">{{ tr('admin.log.export') }}</span>
+          <button
+            v-for="fmt in EXPORT_FORMATS"
+            :key="fmt"
+            type="button"
+            class="border-l border-line px-2 py-1 text-[11px] font-medium uppercase transition-colors hover:bg-fill hover:text-primary"
+            @click="exportLogs(fmt)"
+          >{{ fmt }}</button>
+        </div>
+        <button
+          type="button"
+          class="shrink-0 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs text-danger transition-colors hover:border-danger hover:bg-danger/10"
+          @click="clearLogs"
+        >
+          {{ tr('admin.log.clearBtn') }}
+        </button>
         <button
           type="button"
           class="shrink-0 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs transition-colors hover:border-primary hover:text-primary"

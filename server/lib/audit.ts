@@ -100,14 +100,8 @@ export interface ListOpt {
   excludeActions?: string[];
 }
 
-/**
- * 查询日志（按时间倒序，最新在前）
- */
-export function list(opt: ListOpt): { total: number; logs: AuditRow[] } {
-  const o = opt || {};
-  const limit = Math.min(Math.max(parseInt(String(o.limit), 10) || 100, 1), 500);
-  const offset = Math.max(parseInt(String(o.offset), 10) || 0, 0);
-
+/** 把筛选条件编译成 WHERE 子句（列表 / 导出共用，避免两处口径不一致） */
+function buildWhere(o: ListOpt): { whereSql: string; args: string[] } {
   const where: string[] = [];
   const args: string[] = [];
   if (o.actor) {
@@ -136,7 +130,17 @@ export function list(opt: ListOpt): { total: number; logs: AuditRow[] } {
     where.push('action NOT IN (' + list.map(() => '?').join(',') + ')');
     args.push(...list);
   }
-  const whereSql = where.length ? ' WHERE ' + where.join(' AND ') : '';
+  return { whereSql: where.length ? ' WHERE ' + where.join(' AND ') : '', args };
+}
+
+/**
+ * 查询日志（按时间倒序，最新在前）
+ */
+export function list(opt: ListOpt): { total: number; logs: AuditRow[] } {
+  const o = opt || {};
+  const limit = Math.min(Math.max(parseInt(String(o.limit), 10) || 100, 1), 500);
+  const offset = Math.max(parseInt(String(o.offset), 10) || 0, 0);
+  const { whereSql, args } = buildWhere(o);
 
   const d = open();
   const total = (d.prepare('SELECT COUNT(*) AS c FROM audit_logs' + whereSql).get(...args) as { c: number }).c;
@@ -144,6 +148,25 @@ export function list(opt: ListOpt): { total: number; logs: AuditRow[] } {
     .prepare('SELECT id, ts, actor, action, target, detail, ip FROM audit_logs' + whereSql + ' ORDER BY id DESC LIMIT ? OFFSET ?')
     .all(...args, limit, offset) as unknown as AuditRow[];
   return { total, logs };
+}
+
+/**
+ * 导出用：一次取出全部匹配记录（不分页，上限 MAX_LOGS）。
+ * 前端拿到后在本地生成 txt / csv / json，动作名与详情才能按当前语言翻译。
+ */
+export function exportRows(opt: Omit<ListOpt, 'limit' | 'offset'>): AuditRow[] {
+  const { whereSql, args } = buildWhere(opt || {});
+  return open()
+    .prepare('SELECT id, ts, actor, action, target, detail, ip FROM audit_logs' + whereSql + ' ORDER BY id DESC LIMIT ?')
+    .all(...args, MAX_LOGS) as unknown as AuditRow[];
+}
+
+/** 清空全部审计日志；返回删除条数 */
+export function clear(): number {
+  const d = open();
+  const c = (d.prepare('SELECT COUNT(*) AS c FROM audit_logs').get() as { c: number }).c;
+  d.prepare('DELETE FROM audit_logs').run();
+  return c;
 }
 
 export { MAX_LOGS, DB_FILE };

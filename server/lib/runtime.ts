@@ -2806,6 +2806,43 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       return;
     }
 
+    // GET /api/admin/logs/export —— 导出全部匹配日志（不分页）
+    //   前端拿到行数据后在本地生成 txt / csv / json，动作名与详情才能按当前语言翻译
+    if (pathname === '/api/admin/logs/export' && req.method === 'GET') {
+      const q = urlObj.searchParams;
+      const rawActions: string[] = String(q.get('actions') || '')
+        .split(',')
+        .map((x: string) => x.trim())
+        .filter((x: string) => !!x);
+      if (rawActions.length > 100 || rawActions.some((a: string) => !/^[a-zA-Z0-9._]{1,40}$/.test(a))) {
+        sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+        logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+        return;
+      }
+      const logs = audit.exportRows({
+        actor: (q.get('actor') || '').trim() || undefined,
+        actions: rawActions.length ? rawActions : undefined
+      });
+      sendJSON(res, 200, { ok: true, total: logs.length, logs, max: audit.MAX_LOGS });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
+    // POST /api/admin/logs/clear —— 清空全部审计日志（危险操作；前端要求输入确认文字）
+    //   清空后补记一条「清空日志」动作，保留是谁在什么时候清了多少条的痕迹
+    if (pathname === '/api/admin/logs/clear' && req.method === 'POST') {
+      const removed = audit.clear();
+      audit.add({
+        actor: me.username,
+        action: 'admin.log.clear',
+        detail: auditDetail('log.detail.log.clear', { n: removed }),
+        ip
+      });
+      sendJSON(res, 200, { ok: true, removed });
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+
     // POST /api/admin/user/add —— 新建用户 {name, password, role?}
     if (pathname === '/api/admin/user/add' && req.method === 'POST') {
       readBody(req, 2048).then((body) => {
