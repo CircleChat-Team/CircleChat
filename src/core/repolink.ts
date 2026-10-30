@@ -9,11 +9,32 @@
 export const MAX_PER_MESSAGE = 3;
 
 /**
- * github.com/owner/name —— 后面的子路径（/issues/12、/blob/main/a.ts）会被自然截掉。
+ * 从 github.com 链接里识别「仓库 / Issue / PR / commit」。
+ *
+ * 一条 URL 可能同时长着仓库前缀（github.com/owner/name/issues/12），所以要**优先**
+ * 匹配更具体的子路径，再退回仓库本身，否则 issue/commit 链接会被当成普通仓库卡：
+ *
+ *   github.com/owner/name                 → { type: 'repo' }
+ *   github.com/owner/name/issues/12       → { type: 'issue', num: 12 }
+ *   github.com/owner/name/pull/34         → { type: 'pr', num: 34 }
+ *   github.com/owner/name/commit/abc1234  → { type: 'commit', sha: 'abc1234' }
+ *
  * 前面的 `(?<![\w.-])` 很关键：没有它，`mygithub.com/a/b`、`foo.github.com/a/b`
  * 也会从中间匹到 `github.com/a/b`，凭空长出一张卡片。
  */
-const REPO_RE = /(?<![\w.-])(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9](?:[A-Za-z0-9._-]{0,38}))\/([A-Za-z0-9._-]{1,100})/gi;
+export type GithubType = 'repo' | 'issue' | 'pr' | 'commit';
+export interface GithubRef {
+  type: GithubType;
+  /** owner/name */
+  repo: string;
+  /** issue / pr 的编号 */
+  num?: number;
+  /** commit 的（短/长）哈希 */
+  sha?: string;
+}
+
+const GH_RE =
+  /(?<![\w.-])(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9](?:[A-Za-z0-9._-]{0,38}))\/([A-Za-z0-9._-]{1,100})(?:\.git)?(?:\/(issues|pull)\/(\d+)(?:\/[^\s]*)?|\/commit\/([0-9a-f]{7,40})(?:\/[^\s]*)?|\/)?/gi;
 
 /** 这些「第一段」是 GitHub 自己的页面路径，后面跟的不是仓库 */
 const RESERVED_OWNERS = new Set([
@@ -34,32 +55,57 @@ function stripCode(text: string): string {
     .replace(/`[^`\n]*`/g, ' ');
 }
 
+/** 去重键：类型 + 仓库 + 编号/哈希，保证同一仓库的不同 issue 各自成卡 */
+function refKey(r: GithubRef): string {
+  return r.type + ':' + r.repo.toLowerCase() + (r.num != null ? '#' + r.num : '') + (r.sha ? '@' + r.sha : '');
+}
+
 /**
- * 提取消息里的 GitHub 仓库：去重（大小写不敏感）、保持出现顺序、最多 MAX_PER_MESSAGE 个。
- * 返回 `owner/name`，不是完整 URL。
+ * 提取消息里的 GitHub 引用：去重（大小写不敏感）、保持出现顺序、最多 MAX_PER_MESSAGE 个。
+ * 返回结构化的引述（仓库 / issue / PR / commit），由卡片按类型分别展示。
  */
-export function extractRepos(text: string): string[] {
+export function extractGithub(text: string): GithubRef[] {
   const raw = String(text || '');
   if (!raw || raw.indexOf('github.com') === -1) return [];
   const src = stripCode(raw);
-  const out: string[] = [];
+  const out: GithubRef[] = [];
   const seen = new Set<string>();
-  REPO_RE.lastIndex = 0;
+  GH_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = REPO_RE.exec(src)) !== null) {
+  while ((m = GH_RE.exec(src)) !== null) {
     const owner = m[1];
     let name = m[2];
-    if (RESERVED_OWNERS.has(owner.toLowerCase())) continue;
     if (name.toLowerCase().endsWith('.git')) name = name.slice(0, -4);
     if (!name) continue;
     const full = owner + '/' + name;
-    const key = full.toLowerCase();
+    const kind = m[3] ? m[3].toLowerCase() : '';
+    let ref: GithubRef | null = null;
+    if (kind === 'issues' && m[4]) {
+      ref = { type: 'issue', repo: full, num: Number(m[4]) };
+    } else if (kind === 'pull' && m[4]) {
+      ref = { type: 'pr', repo: full, num: Number(m[4]) };
+    } else if (m[5]) {
+      ref = { type: 'commit', repo: full, sha: m[5].toLowerCase() };
+    } else if (!RESERVED_OWNERS.has(owner.toLowerCase())) {
+      // 只有「纯仓库」才需要对 GitHub 自身页面路径（https://github.com/orgs/...）做排除；
+      // issue/pr/commit 的第二段必然是仓库名，不受这套保留字影响。
+      ref = { type: 'repo', repo: full };
+    }
+    if (!ref) continue;
+    const key = refKey(ref);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(full);
+    out.push(ref);
     if (out.length >= MAX_PER_MESSAGE) break;
   }
   return out;
+}
+
+/** 只要仓库名（保留旧接口）：`owner/name` 列表 */
+export function extractRepos(text: string): string[] {
+  return extractGithub(text)
+    .filter((r) => r.type === 'repo')
+    .map((r) => r.repo);
 }
 
 /** 1234 → 1.2k；12345 → 12k（与参考实现同一套口径） */

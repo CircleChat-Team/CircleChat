@@ -251,3 +251,98 @@ export function repoDetail(full: string): Promise<RepoResult<RepoDetail>> {
     };
   });
 }
+
+/* ---------- Issue / Pull Request / Commit 卡片 ---------- */
+
+/** 一条 Issue 或 PR 的卡片信息（GitHub 里两者编号互通，靠 isPr 区分） */
+export interface IssueInfo {
+  repo: string;
+  number: number;
+  title: string;
+  state: 'open' | 'closed';
+  /** 这个编号实际是 PR（/issues/N 接口对 PR 也会返回，且带 pull_request 标记） */
+  isPr: boolean;
+  /** PR 是否已合并 */
+  merged: boolean;
+  author: string;
+  comments: number;
+  labels: { name: string; color: string }[];
+  /** 仅 PR 有：增删行数与变更文件数 */
+  additions: number | null;
+  deletions: number | null;
+  changedFiles: number | null;
+  createdAt: string | null;
+  closedAt: string | null;
+  html: string;
+}
+
+/** 单条提交的卡片信息 */
+export interface CommitInfo {
+  repo: string;
+  sha: string;
+  shortSha: string;
+  message: string;
+  author: string;
+  avatar: string | null;
+  date: string;
+  html: string;
+}
+
+function toIssue(raw: any, pull: any, full: string): IssueInfo {
+  const isPr = !!(raw && raw.pull_request) || !!pull;
+  return {
+    repo: full,
+    number: Number((raw && raw.number) || 0),
+    title: String((raw && raw.title) || ''),
+    state: raw && raw.state === 'closed' ? 'closed' : 'open',
+    isPr,
+    merged: !!(pull && pull.merged),
+    author: String((raw && raw.user && raw.user.login) || ''),
+    comments: Number((raw && raw.comments) || 0),
+    labels: Array.isArray(raw && raw.labels)
+      ? raw.labels.map((l: any) => ({ name: String(l.name || ''), color: String(l.color || '8b949e') }))
+      : [],
+    additions: pull ? Number(pull.additions) || 0 : null,
+    deletions: pull ? Number(pull.deletions) || 0 : null,
+    changedFiles: pull ? Number(pull.changed_files) || 0 : null,
+    createdAt: raw && raw.created_at ? String(raw.created_at) : null,
+    closedAt: raw && raw.closed_at ? String(raw.closed_at) : null,
+    html: String((raw && raw.html_url) || '')
+  };
+}
+
+/**
+ * Issue / PR：统一走 issues 端点（PR 也在其中）。若带 pull_request 标记说明它其实是 PR，
+ * 再补取一次 pulls 端点拿「合并状态 / 增删行数 / 变更文件数」——拿不到就只显示基础信息。
+ */
+export function githubIssue(full: string, num: number): Promise<RepoResult<IssueInfo>> {
+  const key = 'issue:' + full.toLowerCase() + '#' + num;
+  return withCache<IssueInfo>(key, async () => {
+    const issue = await ghGet('/repos/' + full + '/issues/' + num);
+    let pull: any = null;
+    if (issue && issue.pull_request) {
+      pull = await ghGet('/repos/' + full + '/pulls/' + num).catch(() => null);
+    }
+    return toIssue(issue, pull, full);
+  });
+}
+
+/** 单条提交：/repos/{owner}/{name}/commits/{sha}（sha 可以是短哈希） */
+export function githubCommit(full: string, sha: string): Promise<RepoResult<CommitInfo>> {
+  const key = 'commit:' + full.toLowerCase() + '@' + sha.toLowerCase();
+  return withCache<CommitInfo>(key, async () => {
+    const raw = await ghGet('/repos/' + full + '/commits/' + sha);
+    const c = (raw && raw.commit) || {};
+    const realSha = String((raw && raw.sha) || sha);
+    return {
+      repo: full,
+      sha: realSha,
+      shortSha: realSha.slice(0, 7),
+      message: String((c.message || '').split('\n')[0] || ''),
+      author: String((raw && raw.author && raw.author.login) || (c.author && c.author.name) || ''),
+      avatar: (raw && raw.author && raw.author.avatar_url) || null,
+      date: String((c.author && c.author.date) || ''),
+      html: String((raw && raw.html_url) || HTTP + '/' + full + '/commit/' + realSha)
+    };
+  });
+}

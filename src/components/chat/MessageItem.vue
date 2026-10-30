@@ -39,6 +39,14 @@ const isSelected = computed(() => props.msg.idx != null && chatState.selected.in
 // 音/视频渲染：消息类型优先，type='file' 时按扩展名兜底（兼容历史上传的 .mkv 等）
 const kind = computed(() => mediaKind(props.msg.type, props.msg.name));
 
+/** 过期占位文案：图片 / 音频 / 视频 / 其它文件分别说清楚，别一律「文件已过期」 */
+const expiredText = computed(() => {
+  if (props.msg.type === 'image') return tr('chat.file.imageExpired');
+  if (kind.value === 'audio') return tr('chat.file.audioExpired');
+  if (kind.value === 'video') return tr('chat.file.videoExpired');
+  return tr('chat.file.fileExpired');
+});
+
 const recallTip = computed(() => {
   const by = props.msg.recalled_by || '';
   const adminRecall = by && by !== props.msg.from;
@@ -235,7 +243,7 @@ watch(
         <div class="merge-sub">{{ tr('chat.merge.summary', { n: mergeCount }) }}</div>
       </div>
       <div v-else class="expired">
-        {{ msg.type === 'image' ? tr('chat.file.imageExpired') : tr('chat.file.fileExpired') }}
+        {{ expiredText }}
         <template v-if="msg.name"> · {{ msg.name }}</template>
       </div>
 

@@ -17,6 +17,7 @@ import type { RepoBasic, RepoDetail } from '../types';
 // 这里转出去，组件统一从 core/github 引入即可。
 export {
   extractRepos,
+  extractGithub,
   formatCount,
   formatSizeKb,
   langColor,
@@ -24,6 +25,7 @@ export {
   LANG_COLORS,
   MAX_PER_MESSAGE
 } from './repolink';
+export type { GithubRef, GithubType } from './repolink';
 
 /** 客户端缓存时长：60 秒内不重复请求（服务端还有 10 分钟缓存兜着） */
 const CACHE_TTL = 60 * 1000;
@@ -120,4 +122,108 @@ export function timeAgoText(iso?: string | null): string {
   if (l.key === 'common.lastSeen.now') return tr('common.lastSeen.now');
   if (l.key === 'common.lastSeen.date') return tr('common.lastSeen.date', { date: l.date });
   return trn(l.key, l.n);
+}
+
+/* ============================================================
+ * Issue / PR / Commit 卡片数据
+ * 与仓库卡片同样的策略：按「仓库 + 编号/哈希」共享响应式缓存，60 秒内不重复请求；
+ * 服务端还有 10 分钟缓存兜底。
+ * ============================================================ */
+
+export interface IssueInfo {
+  repo: string;
+  number: number;
+  title: string;
+  state: 'open' | 'closed';
+  isPr: boolean;
+  merged: boolean;
+  author: string;
+  comments: number;
+  labels: { name: string; color: string }[];
+  additions: number | null;
+  deletions: number | null;
+  changedFiles: number | null;
+  createdAt: string | null;
+  closedAt: string | null;
+  html: string;
+}
+
+export interface CommitInfo {
+  repo: string;
+  sha: string;
+  shortSha: string;
+  message: string;
+  author: string;
+  avatar: string | null;
+  date: string;
+  html: string;
+}
+
+const issueCache = reactive<Record<string, RepoEntry<IssueInfo>>>({});
+const commitCache = reactive<Record<string, RepoEntry<CommitInfo>>>({});
+
+/** Issue / PR 信息（PR 由服务端按 isPr 一并给出） */
+export function issueInfo(full: string, num: number): RepoEntry<IssueInfo> {
+  const key = String(full || '').toLowerCase() + '#' + num;
+  const cur = issueCache[key];
+  if (cur) {
+    if (cur.loading || (cur.data && Date.now() - cur.at < CACHE_TTL)) return cur;
+    if (cur.data) {
+      void fetchIssue(key, full, num);
+      return cur;
+    }
+    return cur;
+  }
+  issueCache[key] = emptyEntry<IssueInfo>();
+  void fetchIssue(key, full, num);
+  return issueCache[key];
+}
+
+/** 单条 commit 信息 */
+export function commitInfo(full: string, sha: string): RepoEntry<CommitInfo> {
+  const key = String(full || '').toLowerCase() + '@' + String(sha || '').toLowerCase();
+  const cur = commitCache[key];
+  if (cur) {
+    if (cur.loading || (cur.data && Date.now() - cur.at < CACHE_TTL)) return cur;
+    if (cur.data) {
+      void fetchCommit(key, full, sha);
+      return cur;
+    }
+    return cur;
+  }
+  commitCache[key] = emptyEntry<CommitInfo>();
+  void fetchCommit(key, full, sha);
+  return commitCache[key];
+}
+
+async function fetchIssue(key: string, full: string, num: number): Promise<void> {
+  const slot = issueCache[key];
+  slot.loading = true;
+  try {
+    const j = await get('/api/github/issue?repo=' + encodeURIComponent(full) + '&num=' + encodeURIComponent(String(num)));
+    slot.data = (j.issue as IssueInfo) || null;
+    slot.code = j.ok ? '' : String(j.error || 'github.failed');
+    slot.stale = !!j.stale;
+    slot.at = Number(j.at) || Date.now();
+  } catch {
+    slot.data = null;
+    slot.code = 'github.failed';
+  }
+  slot.loading = false;
+}
+
+async function fetchCommit(key: string, full: string, sha: string): Promise<void> {
+  const slot = commitCache[key];
+  slot.loading = true;
+  try {
+    const j = await get('/api/github/commit?repo=' + encodeURIComponent(full) + '&sha=' + encodeURIComponent(sha));
+    slot.data = (j.commit as CommitInfo) || null;
+    slot.code = j.ok ? '' : String(j.error || 'github.failed');
+    slot.stale = !!j.stale;
+    slot.at = Number(j.at) || Date.now();
+  } catch {
+    slot.data = null;
+    slot.code = 'github.failed';
+  }
+  slot.loading = false;
 }

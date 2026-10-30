@@ -3910,6 +3910,48 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
+  // GET /api/github/issue?repo=owner/name&num=123 —— 消息里 Issue / PR 链接的卡片
+  // （GitHub 的 issue 与 PR 编号互通：PR 在 issues 接口里带 pull_request 标记，
+  //  服务端据此补取 pulls 端点，前端按 isPr 决定画 Issue 卡还是 PR 卡）
+  if (pathname === '/api/github/issue' && req.method === 'GET') {
+    const full = (urlObj.searchParams.get('repo') || '').trim();
+    const numStr = (urlObj.searchParams.get('num') || '').trim();
+    if (!github.isValidFull(full) || !/^\d{1,12}$/.test(numStr)) {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    github.githubIssue(full, Number(numStr)).then((r) => {
+      const body: Record<string, unknown> = { ok: !!r.data, issue: r.data, stale: r.stale, at: r.at };
+      if (!r.data) body.error = githubErrorKey(r.error);
+      sendJSON(res, 200, body);
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch(() => {
+      sendJSON(res, 200, { ok: false, error: 'github.failed' });
+    });
+    return;
+  }
+
+  // GET /api/github/commit?repo=owner/name&sha=abc1234 —— 消息里 commit 链接的卡片
+  if (pathname === '/api/github/commit' && req.method === 'GET') {
+    const full = (urlObj.searchParams.get('repo') || '').trim();
+    const sha = (urlObj.searchParams.get('sha') || '').trim();
+    if (!github.isValidFull(full) || !/^[0-9a-f]{7,40}$/i.test(sha)) {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    github.githubCommit(full, sha).then((r) => {
+      const body: Record<string, unknown> = { ok: !!r.data, commit: r.data, stale: r.stale, at: r.at };
+      if (!r.data) body.error = githubErrorKey(r.error);
+      sendJSON(res, 200, body);
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch(() => {
+      sendJSON(res, 200, { ok: false, error: 'github.failed' });
+    });
+    return;
+  }
+
   // POST /api/upload —— 小文件单次上传（≤ CHUNK_SIZE）；大文件走下面的分片接口
   if (pathname === '/api/upload' && req.method === 'POST') {
     const ctype = req.headers['content-type'] || '';

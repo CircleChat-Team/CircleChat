@@ -1,8 +1,13 @@
 /* ============================================================
  * 文件类型归类（管理面板的文件列表 / 文件卡片展示用）
  *
- * 按扩展名把上传文件归到更细的类别：图片 / 代码 / 音频 / 视频 / 字体 /
+ * 按扩展名把上传文件归到更细的类别：图片 / 设计 / 代码 / 音频 / 视频 / 字体 /
  * 文档 / 电子书 / 压缩包 / 磁盘镜像 / 可执行文件。
+ *
+ * 除了常规扩展名，还处理两类「没有正常扩展名」的文件：
+ *   - 点文件：.gitignore / .gitattributes / .env.local / .editorconfig …
+ *   - 无扩展名：Dockerfile / Makefile / README / LICENSE …
+ * 这些以前一律落进「其他」，在文件管理里很难一眼认出。
  *
  * 注意：这里**只负责展示分类**，与安全策略无关。上传类型判定与静态资源能否
  * 内联（IMAGE_EXTS / VIDEO_EXTS / AUDIO_EXTS、inline 判定）仍在 runtime.ts。
@@ -10,6 +15,7 @@
 
 export type FileKind =
   | 'image'
+  | 'design'
   | 'code'
   | 'audio'
   | 'video'
@@ -28,43 +34,74 @@ export type FileKind =
  *   .pdf   → 文档（而不是电子书）
  *   .iso/.dmg → 磁盘镜像（而不是压缩包 / 可执行文件）
  *   .jar/.apk → 压缩包
+ *   .psd/.ai → 设计（而不是普通图片：浏览器没法直接渲染，不该按缩略图处理）
  */
 const TABLE: { kind: FileKind; exts: string[] }[] = [
   {
     kind: 'image',
     exts: [
       '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico', '.tiff', '.tif',
-      '.psd', '.ai', '.eps', '.raw', '.cr2', '.nef', '.heic', '.avif',
+      '.raw', '.cr2', '.nef', '.heic', '.avif',
       '.exr', '.hdr', '.pic', '.pcx', '.tga', '.dds', '.dng', '.orf', '.sr2',
       '.arw', '.rw2', '.raf', '.pef', '.x3f', '.3fr', '.iiq', '.mrw', '.kdc',
       '.cur', '.icns', '.jxl', '.emf', '.wmf', '.ppm', '.pgm', '.pbm', '.pnm'
     ]
   },
   {
+    // 设计 / 3D 源文件：浏览器无法直接预览，单独成类，避免被当成可渲染图片
+    kind: 'design',
+    exts: [
+      '.psd', '.psb', '.ai', '.eps', '.indd', '.indt', '.idml',
+      '.sketch', '.fig', '.xd', '.xcf', '.kra', '.krz',
+      '.afdesign', '.afphoto', '.afpub', '.cdr', '.cdrx', '.clip', '.sai', '.sai2',
+      '.procreate', '.ase', '.aseprite',
+      '.blend', '.blend1', '.c4d', '.max', '.3ds', '.fbx', '.obj', '.stl',
+      '.gltf', '.glb', '.dae', '.ma', '.mb'
+    ]
+  },
+  {
     kind: 'code',
     exts: [
-      '.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.c', '.cpp', '.cc', '.cxx',
-      '.h', '.hpp', '.cs', '.go', '.rs', '.php', '.rb', '.swift', '.kt', '.kts',
-      '.scala', '.clj', '.hs', '.lua', '.pl', '.sh', '.bash', '.zsh', '.fish',
-      '.bat', '.cmd', '.ps1', '.html', '.htm', '.css', '.scss', '.sass', '.less',
-      '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.sql',
-      '.r', '.dart', '.vue', '.svelte', '.gradle', '.make', '.cmake',
+      '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.mts', '.cts',
+      '.py', '.pyi', '.pyw', '.pyx', '.pxd',
+      '.java', '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hh', '.hxx', '.h++',
+      '.inl', '.ipp', '.tpp', '.ixx', '.cp',
+      '.cs', '.go', '.rs', '.php', '.rb', '.swift', '.kt', '.kts',
+      '.scala', '.sc', '.clj', '.cljs', '.cljc', '.edn', '.hs', '.lua', '.pl', '.pm',
+      '.sh', '.bash', '.zsh', '.fish', '.nu',
+      '.bat', '.cmd', '.ps1', '.psm1', '.psd1', '.bats',
+      '.html', '.htm', '.css', '.scss', '.sass', '.less',
+      '.json', '.jsonc', '.json5', '.jsonl', '.ndjson', '.hjson',
+      '.xml', '.xsd', '.dtd', '.xslt', '.xpath',
+      '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.properties', '.sql',
+      '.r', '.rmd', '.qmd', '.dart', '.vue', '.svelte', '.astro',
+      '.gradle', '.make', '.mk', '.mak', '.cmake', '.ninja',
+      '.bazel', '.bzl', '.star', '.rego', '.cue', '.dhall',
       '.m', '.mm', '.vb', '.vbs', '.fs', '.fsx',
-      '.erl', '.hrl', '.el', '.scm', '.rkt', '.lisp', '.lsp',
+      '.erl', '.hrl', '.ex', '.exs', '.heex', '.eex', '.leex',
+      '.el', '.lisp', '.lsp', '.cl', '.scm', '.rkt', '.ss', '.sls', '.sld',
       '.ml', '.mli', '.nim', '.cr', '.zig', '.odin', '.v', '.gleam',
       '.jl', '.mat', '.d', '.di', '.vala', '.vapi',
-      '.proto', '.thrift', '.graphql', '.gql', '.sol',
+      '.proto', '.thrift', '.graphql', '.gql', '.sol', '.vy', '.move',
       '.tf', '.hcl', '.dockerfile', '.containerfile',
-      '.nix', '.elm', '.purs',
+      '.nix', '.elm', '.purs', '.agda', '.idr', '.lean', '.thy', '.pony',
+      '.raku', '.p6', '.pm6', '.awk', '.sed',
       '.asm', '.s', '.nasm', '.cu', '.cuh',
       '.wasm', '.wat',
       '.tex', '.latex', '.bib', '.sty', '.cls', '.dtx',
-      '.vim', '.vimrc',
+      '.vim', '.vimrc', '.emacs',
       '.ahk', '.au3',
       '.tcl', '.tk', '.expect',
       '.abap', '.cob', '.cbl', '.cobol',
       '.f', '.f90', '.f95', '.f03', '.f08',
       '.ada', '.adb', '.ads',
+      '.sas', '.do', '.ado',
+      '.sparql', '.rq', '.ttl', '.n3', '.nt', '.owl',
+      '.ipynb', '.diff', '.patch',
+      '.csproj', '.vbproj', '.fsproj', '.sln', '.vcxproj', '.xcodeproj', '.plist',
+      '.gd', '.gdshader', '.godot', '.tscn', '.tres',
+      '.hlsl', '.glsl', '.vert', '.frag', '.geom', '.comp', '.wgsl', '.metal', '.shader',
+      '.fnl', '.janet', '.wren', '.re', '.resi',
       '.flutter'
     ]
   },
@@ -148,10 +185,51 @@ for (const row of TABLE) {
   }
 }
 
-/** 按文件名（或原始名）的扩展名判定归类；认不出时为 'other' */
+/** 无扩展名 / 特殊文件名（小写）→ 类别 */
+const NAME_MAP: Record<string, FileKind> = {
+  dockerfile: 'code', containerfile: 'code',
+  makefile: 'code', gnumakefile: 'code', 'makefile.am': 'code', 'makefile.in': 'code',
+  'cmakelists.txt': 'code', 'meson.build': 'code', 'meson_options.txt': 'code',
+  jenkinsfile: 'code', vagrantfile: 'code', gemfile: 'code', rakefile: 'code',
+  brewfile: 'code', procfile: 'code', justfile: 'code', taskfile: 'code',
+  pkgbuild: 'code', apkbuild: 'code', configure: 'code', sconstruct: 'code', sconscript: 'code',
+  build: 'code', workspace: 'code', 'build.bazel': 'code', 'workspace.bazel': 'code', 'module.bazel': 'code',
+  readme: 'document', license: 'document', licence: 'document', changelog: 'document',
+  authors: 'document', contributors: 'document', notice: 'document', copying: 'document',
+  '.gitignore': 'code', '.gitattributes': 'code', '.gitmodules': 'code', '.gitkeep': 'code',
+  '.gitconfig': 'code', '.mailmap': 'document', '.editorconfig': 'code', '.dockerignore': 'code',
+  '.npmrc': 'code', '.nvmrc': 'code', '.yarnrc': 'code', '.prettierrc': 'code', '.prettierignore': 'code',
+  '.eslintrc': 'code', '.eslintignore': 'code', '.babelrc': 'code', '.stylelintrc': 'code',
+  '.htaccess': 'code', '.htpasswd': 'code', '.env': 'code', '.flaskenv': 'code', '.vimrc': 'code',
+  '.bashrc': 'code', '.bash_profile': 'code', '.bash_aliases': 'code',
+  '.zshrc': 'code', '.zprofile': 'code', '.profile': 'code',
+  '.clang-format': 'code', '.clang-tidy': 'code', '.clangd': 'code'
+};
+
+/** 点文件前缀：覆盖 .env.local / .git-blame-ignore-revs 这类多变体 */
+const DOT_CODE_PREFIX = [
+  '.env', '.git', '.eslintrc', '.prettierrc', '.babelrc', '.stylelintrc',
+  '.editorconfig', '.npmrc', '.nvmrc', '.yarnrc', '.dockerignore',
+  '.htaccess', '.htpasswd', '.clang-format', '.clang-tidy', '.clangd',
+  '.bashrc', '.bash_profile', '.bash_aliases', '.zshrc', '.zprofile',
+  '.profile', '.vimrc', '.mailmap'
+];
+
+/** 无扩展名但带后缀变体的构建文件：Dockerfile.dev / Makefile.am … */
+const NAMED_CODE_PREFIX = ['dockerfile', 'containerfile', 'makefile', 'gnumakefile', 'jenkinsfile', 'vagrantfile'];
+
+/** 按文件名（或原始名）判定归类；认不出时为 'other' */
 export function fileKindOf(name: string): FileKind {
   const s = String(name || '').toLowerCase();
-  const i = s.lastIndexOf('.');
-  if (i < 0) return 'other';
-  return MAP.get(s.slice(i)) || 'other';
+  const base = s.split(/[\\/]/).pop() || ''; // 只取文件名，忽略路径
+  if (!base) return 'other';
+
+  const named = NAME_MAP[base];
+  if (named) return named;
+  if (NAMED_CODE_PREFIX.some((p) => base === p || base.startsWith(p + '.'))) return 'code';
+  if (DOT_CODE_PREFIX.some((p) => base.startsWith(p))) return 'code';
+
+  const i = base.lastIndexOf('.');
+  if (i <= 0) return 'other'; // 无扩展名，或未识别的纯点文件
+  return MAP.get(base.slice(i)) || 'other';
 }

@@ -74,6 +74,35 @@ function kindLabel(f: FileItem): string {
   return tr('file.type.' + f.kind);
 }
 
+/** 浏览器能直接当缩略图渲染的图片格式；PSD/AI/RAW 等只显示扩展名徽标，避免裂图 */
+const THUMB_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico', 'avif', 'jxl']);
+
+function extOf(f: FileItem): string {
+  const base = String(f.origin || f.name || '').toLowerCase().split('/').pop() || '';
+  const i = base.lastIndexOf('.');
+  return i > 0 ? base.slice(i + 1) : '';
+}
+
+function canThumb(f: FileItem): boolean {
+  return f.kind === 'image' && THUMB_EXTS.has(extOf(f));
+}
+
+/** 列表里的类型徽标文字：优先展示真实扩展名；点文件 / 无扩展名做特判 */
+function extBadge(f: FileItem): string {
+  const base = String(f.origin || f.name || '').toLowerCase().split('/').pop() || '';
+  if (!base) return 'FILE';
+  if (base === 'dockerfile' || base === 'containerfile') return 'DOCK';
+  if (base === 'makefile' || base === 'gnumakefile') return 'MAKE';
+  if (base === 'cmakelists.txt') return 'CMAKE';
+  if (base.startsWith('.git')) return 'GIT';
+  if (base.startsWith('.env')) return 'ENV';
+  if (base.startsWith('.eslint')) return 'ESL';
+  if (base.startsWith('.prettier')) return 'PRET';
+  const i = base.lastIndexOf('.');
+  if (i > 0 && i < base.length - 1) return base.slice(i + 1, i + 5).toUpperCase();
+  return (base.replace(/^\./, '').slice(0, 4) || 'FILE').toUpperCase();
+}
+
 function remove(f: FileItem): void {
   // 用户/群头像受保护：不能在文件管理中删除，提示改用头像移除功能
   if (f.avatar) {
@@ -169,7 +198,7 @@ onMounted(load);
       <div class="ml-auto flex items-center gap-1.5">
         <select
           v-model="filterKind"
-          class="h-[30px] rounded-lg border border-line bg-fill px-2 text-xs outline-none transition-colors focus:border-primary"
+          class="h-7.5 rounded-lg border border-line bg-fill px-2 text-xs outline-none transition-colors focus:border-primary"
         >
           <option value="">{{ tr('admin.files.filterAll') }}</option>
           <option v-for="k in kindOptions" :key="k" :value="k">{{ tr('file.type.' + k) }}</option>
@@ -189,7 +218,7 @@ onMounted(load);
           v-model="keyword"
           type="text"
           maxlength="64"
-          class="files-search h-[30px] w-32 rounded-lg border border-line bg-fill px-2.5 text-xs outline-none transition-colors focus:border-primary"
+          class="files-search h-7.5 w-32 rounded-lg border border-line bg-fill px-2.5 text-xs outline-none transition-colors focus:border-primary"
           :placeholder="tr('admin.files.searchPlaceholder')"
           @keydown.enter.prevent="load"
         >
@@ -241,11 +270,9 @@ onMounted(load);
           :aria-label="f.origin || f.name"
           @change="toggleOne(f.name)"
         >
-        <span class="flex h-[34px] w-[34px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-panel text-muted">
-          <img v-if="f.kind === 'image'" :src="fileUrl(f.name)" alt="" loading="lazy" class="h-full w-full object-cover">
-          <svg v-else class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z" />
-          </svg>
+        <span class="flex h-8.5 w-8.5 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-panel text-muted">
+          <img v-if="canThumb(f)" :src="fileUrl(f.name)" alt="" loading="lazy" class="h-full w-full object-cover">
+          <b v-else class="text-[10px] font-semibold leading-none tracking-tight">{{ extBadge(f) }}</b>
         </span>
 
         <span class="min-w-0 flex-1 truncate font-medium" :title="titleOf(f)">{{ f.origin || f.name }}</span>

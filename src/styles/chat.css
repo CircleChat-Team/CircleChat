@@ -3163,6 +3163,75 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 .rc-skel-line.w70 { width: 70%; }
 .rc-skel-line.w40 { width: 40%; }
 
+/* ---------- 消息里的 GitHub Issue / PR / Commit 卡片 ----------
+   复用 .repo-card 的容器外观，只补内部的类型徽标、状态、标签、增删行数等。 */
+.gh-type {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.gh-state {
+  flex-shrink: 0;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 600;
+}
+.gh-state.is-open { color: #1a7f37; background: rgba(26, 127, 55, .12); border-color: rgba(26, 127, 55, .35); }
+.gh-state.is-closed { color: #cf222e; background: rgba(207, 34, 46, .12); border-color: rgba(207, 34, 46, .35); }
+.gh-state.is-merged { color: #8250df; background: rgba(130, 80, 223, .12); border-color: rgba(130, 80, 223, .35); }
+[data-theme="dark"] .gh-state.is-open { color: #3fb950; background: rgba(63, 185, 80, .16); border-color: rgba(63, 185, 80, .4); }
+[data-theme="dark"] .gh-state.is-closed { color: #f85149; background: rgba(248, 81, 73, .16); border-color: rgba(248, 81, 73, .4); }
+[data-theme="dark"] .gh-state.is-merged { color: #a371f7; background: rgba(163, 113, 247, .16); border-color: rgba(163, 113, 247, .4); }
+
+.gh-title {
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.gh-labels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.gh-label {
+  padding: 0 6px;
+  border: 1px solid;
+  border-radius: var(--r-pill);
+  font-size: 10.5px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.gh-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 9px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.gh-avatar { width: 15px; height: 15px; border-radius: 50%; }
+.gh-author { color: var(--text); opacity: .8; }
+.gh-time { opacity: .85; }
+.gh-diff { display: inline-flex; align-items: center; gap: 6px; }
+.gh-add { color: #1a7f37; font-weight: 600; }
+.gh-del { color: #cf222e; font-weight: 600; }
+[data-theme="dark"] .gh-add { color: #3fb950; }
+[data-theme="dark"] .gh-del { color: #f85149; }
+.gh-files { opacity: .9; }
+.gh-sha {
+  padding: 1px 4px;
+  border-radius: var(--r-xs);
+  background: var(--fill);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
 /* ---------- GitHub 仓库详情弹窗 ---------- */
 .repo-mask {
   position: fixed;

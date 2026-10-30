@@ -33,7 +33,7 @@ export interface ApprovalItem {
 
 /** 文件归类（GET /api/admin/files；由服务端按扩展名判定，见 server/lib/filetypes.ts） */
 export type FileKind =
-  | 'image' | 'code' | 'audio' | 'video' | 'font'
+  | 'image' | 'design' | 'code' | 'audio' | 'video' | 'font'
   | 'document' | 'ebook' | 'archive' | 'disk' | 'executable' | 'other';
 
 /** 上传文件（GET /api/admin/files） */

@@ -103,7 +103,7 @@ function migrateFromJson(): void {
 function referencedFiles(): Set<string> {
   const set = new Set<string>();
   const rows = open().prepare(
-    "SELECT content, type FROM messages WHERE type IN ('image', 'file')" +
+    "SELECT content, type FROM messages WHERE type IN ('image', 'file', 'audio', 'video')" +
     " AND (recalled IS NULL OR recalled = 0) AND (file_expired IS NULL OR file_expired = 0)"
   ).all() as { content: string | null; type: string }[];
   for (const r of rows) {
@@ -133,7 +133,7 @@ function cleanupFiles(removedRows: { type: string; content: string | null }[]): 
   const keep = referencedFiles();
   const prot = protectedFiles();
   for (const m of removedRows) {
-    if ((m.type === 'image' || m.type === 'file') && m.content) {
+    if ((m.type === 'image' || m.type === 'file' || m.type === 'audio' || m.type === 'video') && m.content) {
       const base = path.basename(String(m.content));
       if (keep.has(base) || prot.has(base)) continue;
       const fp = path.join(UPLOAD_DIR, base);
@@ -377,7 +377,12 @@ function rowToMsg(r: MsgRow): StoredMessage {
 function replySnippet(m: StoredMessage): string {
   if (!m) return '原消息已不存在';
   if (m.recalled) return '（已撤回）';
-  if (m.file_expired) return m.type === 'image' ? '图片已过期' : '文件已过期';
+  if (m.file_expired) {
+    if (m.type === 'image') return '图片已过期';
+    if (m.type === 'audio') return '音频已过期';
+    if (m.type === 'video') return '视频已过期';
+    return '文件已过期';
+  }
   if (m.type === 'image') return '[图片]';
   if (m.type === 'video') return '[视频]';
   if (m.type === 'audio') return '[音频]';
@@ -542,8 +547,10 @@ export function recall(idx: number, by: string): boolean {
 }
 
 /**
- * 文件过期清理：超过 ttlDays 天的图片 / 文件删除硬盘文件，但**消息记录保留**并
- * 标记 file_expired，聊天列表据此显示「图片/文件已过期」。
+ * 文件过期清理：超过 ttlDays 天的图片 / 文件 / 音频 / 视频删除硬盘文件，但**消息记录保留**并
+ * 标记 file_expired，聊天列表据此显示「图片/文件/音频/视频已过期」。
+ * 注意：音频与视频同样是上传文件，必须一起参与清理，否则它们的文件永远不会过期，
+ * 聊天里会一直显示一个打不开的播放器。
  * @param ttlDays 保留天数（默认 15）
  * @returns 本次处理（置为过期）的消息条数
  */
@@ -552,7 +559,7 @@ export function cleanupExpired(ttlDays: number, protect?: Set<string>): number {
   const days = Number(ttlDays) > 0 ? Number(ttlDays) : 15;
   const cutoff = Date.now() - days * 24 * 3600 * 1000;
   const rows = d.prepare(
-    "SELECT idx, content, type FROM messages WHERE type IN ('image', 'file')" +
+    "SELECT idx, content, type FROM messages WHERE type IN ('image', 'file', 'audio', 'video')" +
     " AND (recalled IS NULL OR recalled = 0) AND (file_expired IS NULL OR file_expired = 0) AND ts < ?"
   ).all(cutoff) as { idx: number; content: string | null; type: string }[];
   if (!rows.length) return 0;

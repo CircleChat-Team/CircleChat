@@ -8,8 +8,9 @@ import { chatState, tr, copyToClipboard } from '../../core/chat';
 import { renderMath, mathReady } from '../../core/math';
 import { renderMermaid } from '../../core/mermaid';
 import { theme } from '../../core/theme';
-import { extractRepos } from '../../core/github';
+import { extractGithub } from '../../core/github';
 import RepoCard from './RepoCard.vue';
+import GitHubRefCard from './GitHubRefCard.vue';
 
 interface Token {
   t: 'text' | 'mention' | 'link' | 'code';
@@ -92,7 +93,10 @@ const props = defineProps<{ text: string; md?: boolean; hideRepos?: boolean }>()
  * 所以没传 repos 时拿到的是 false 而不是 undefined —— 用 `=== false` 判断会
  * 让所有消息都走「关闭」分支，卡片永远不渲染。默认不传=开启，才符合直觉。
  */
-const repos = computed(() => (props.hideRepos ? [] : extractRepos(props.text || '')));
+const refs = computed(() => (props.hideRepos ? [] : extractGithub(props.text || '')));
+/** 纯仓库链接 → 仓库卡片；issue / PR / commit 链接 → 各自的详细信息卡片 */
+const repoRefs = computed(() => refs.value.filter((r) => r.type === 'repo').map((r) => r.repo));
+const otherRefs = computed(() => refs.value.filter((r) => r.type !== 'repo'));
 
 const blocks = computed<Block[]>(() => {
   const out: Block[] = [];
@@ -531,7 +535,12 @@ function onMdClick(e: Event): void {
       </template>
     </template>
 
-    <!-- GitHub 仓库卡片：基础信息只走一次接口（见 core/github.ts 的共享缓存） -->
-    <RepoCard v-for="r in repos" :key="r" :repo="r" />
+    <!-- GitHub 卡片：仓库 / Issue / PR / commit 按链接类型分别展示（数据共享缓存） -->
+    <RepoCard v-for="r in repoRefs" :key="'repo:' + r" :repo="r" />
+    <GitHubRefCard
+      v-for="r in otherRefs"
+      :key="'gh:' + r.type + ':' + r.repo + ':' + (r.num != null ? r.num : r.sha)"
+      :ref-data="r"
+    />
   </div>
 </template>
