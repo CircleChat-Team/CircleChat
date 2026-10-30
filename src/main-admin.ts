@@ -6,6 +6,8 @@ import { initTheme } from './core/theme';
 import { i18n } from './i18n';
 import './styles/tailwind.css';
 import './styles/fileview.css';
+// OAuth 卡片等使用 .btn-*（与聊天/资料页共用同一份按钮样式）
+import './styles/buttons.css';
 
 initTheme(); // 尽早应用主题，避免首屏闪白
 

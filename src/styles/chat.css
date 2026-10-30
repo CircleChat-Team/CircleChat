@@ -2783,8 +2783,8 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 .sidebar-scroll::-webkit-scrollbar { width: 6px; }
 .sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--r-md); }
 
-/* 个人资料弹窗里的成功色文字（按钮已并入 buttons.css 的「弹窗与表单」块） */
-.text-success { color: #10b981; }
+/* .text-success 已改由 Tailwind 的 --color-success 令牌生成（见 tailwind.css），
+   这样只加载 tailwind.css 的个人资料页也能用。 */
 
 /* 侧边栏底部账户行（里面的按钮见 buttons.css 的「侧边栏」块） */
 .sidebar-foot { padding: 4px; }

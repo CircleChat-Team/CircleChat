@@ -19,29 +19,39 @@ function viewFile(f: FileItem): void {
   fileView.value = { url: fileUrl(f.name), name: f.origin || f.name, size: f.size };
 }
 
+/** 每页条数：服务端分页，避免上传目录超过一页后剩下的文件永远看不到 */
+const PAGE = 100;
+
 const items = ref<FileItem[]>([]);
 const total = ref(0);
 const totalSize = ref(0);
 const keyword = ref('');
 const failed = ref('');
+const page = ref(0);
+/** 请求序号：快速翻页 / 连续搜索时丢弃先发后到的旧响应 */
+let reqSeq = 0;
 
-// 按文件类型筛选（列表已在内存中，前端过滤即可）
+// 按文件类型筛选交给服务端做，这样筛的是全部文件，而不是只筛当前页
 const filterKind = ref('');
-const kindOptions = computed<string[]>(() => {
-  const set = new Set<string>();
-  for (const f of items.value) set.add(f.kind);
-  return Array.from(set).sort();
-});
-const view = computed<FileItem[]>(() =>
-  filterKind.value ? items.value.filter((f) => f.kind === filterKind.value) : items.value
-);
+/** 类型下拉候选（服务端按当前搜索词统计后返回） */
+const kindOptions = ref<string[]>([]);
 
-function load(): void {
-  let path = '/api/admin/files?limit=200';
+const pages = computed(() => Math.max(1, Math.ceil(total.value / PAGE)));
+/** 服务端已按类型 / 搜索过滤，页面直接展示当前页 */
+const view = computed<FileItem[]>(() => items.value);
+
+function load(reset = false): void {
+  if (reset) page.value = 0;
+  const maxPage = Math.max(0, Math.ceil(total.value / PAGE) - 1);
+  if (page.value > maxPage) page.value = maxPage;
+  let path = '/api/admin/files?limit=' + PAGE + '&offset=' + page.value * PAGE;
   const kw = keyword.value.trim();
   if (kw) path += '&q=' + encodeURIComponent(kw);
+  if (filterKind.value) path += '&kind=' + encodeURIComponent(filterKind.value);
+  const seq = ++reqSeq;
   get(path)
     .then((j) => {
+      if (seq !== reqSeq) return; // 已有更新的请求发出，丢弃本次旧响应
       if (!j.ok) {
         failed.value = j.error || 'common.loadFailed';
         items.value = [];
@@ -51,14 +61,34 @@ function load(): void {
       items.value = (j.files as FileItem[]) || [];
       total.value = Number(j.total) || 0;
       totalSize.value = Number(j.totalSize) || 0;
-      // 列表变了（搜索 / 刷新 / 删除）之后，勾选里不该留下已经不存在的文件
+      kindOptions.value = (j.kinds as string[]) || [];
+      // 删除 / 筛选后当前页可能已越界：回到最后一页再取一次，避免停在空白页
+      const maxPage = Math.max(0, Math.ceil(total.value / PAGE) - 1);
+      if (page.value > maxPage) {
+        page.value = maxPage;
+        load();
+        return;
+      }
+      // 列表变了（搜索 / 筛选 / 刷新 / 删除）之后，勾选里不该留下已经不存在的文件
       const alive = items.value.map((f) => f.name);
       selected.value = selected.value.filter((n) => alive.indexOf(n) !== -1);
     })
     .catch(() => {
+      if (seq !== reqSeq) return;
       failed.value = 'common.loadFailed';
       items.value = [];
     });
+}
+
+function onKindChange(): void {
+  load(true);
+}
+
+function go(delta: number): void {
+  const next = page.value + delta;
+  if (next < 0 || next >= pages.value) return;
+  page.value = next;
+  load();
 }
 
 function fileUrl(name: string): string {
@@ -118,16 +148,22 @@ function remove(f: FileItem): void {
     okText: tr('admin.files.delBtn')
   }).then((ok) => {
     if (!ok) return;
-    post('/api/admin/file/del', { name: f.name }).then((j) => {
-      toast(j.ok ? tr('admin.files.deleted', { name: label }) : tr(j.error || 'common.opFailed'));
-      if (j.ok) load();
-    });
+    post('/api/admin/file/del', { name: f.name })
+      .then((j) => {
+        toast(j.ok ? tr('admin.files.deleted', { name: label }) : tr(j.error || 'common.opFailed'));
+        if (j.ok) load();
+      })
+      .catch(() => toast(tr('common.opFailed')));
   });
 }
 
 const selected = ref<string[]>([]);
 
-const allChecked = computed(() => view.value.length > 0 && selected.value.length === view.value.length);
+/** 可勾选条目（头像文件受保护，不参与全选） */
+const selectable = computed(() => view.value.filter((f) => !f.avatar));
+const allChecked = computed(
+  () => selectable.value.length > 0 && selectable.value.every((f) => selected.value.indexOf(f.name) !== -1)
+);
 
 function isChecked(name: string): boolean {
   return selected.value.indexOf(name) !== -1;
@@ -140,8 +176,15 @@ function toggleOne(name: string): void {
 }
 
 function toggleAll(): void {
-  // 受保护的头像文件不参与勾选
-  selected.value = allChecked.value ? [] : view.value.filter((f) => !f.avatar).map((f) => f.name);
+  // 受保护的头像文件不参与勾选；已勾选其它项时按「补齐/移除可选项」处理，避免误清空
+  if (allChecked.value) {
+    const names = selectable.value.map((f) => f.name);
+    selected.value = selected.value.filter((n) => names.indexOf(n) === -1);
+  } else {
+    const set = new Set(selected.value);
+    for (const f of selectable.value) set.add(f.name);
+    selected.value = Array.from(set);
+  }
 }
 
 function clearSelection(): void {
@@ -165,20 +208,22 @@ function batchRemove(): void {
     okText: tr('admin.files.delBtn')
   }).then((ok) => {
     if (!ok) return;
-    post('/api/admin/files/del-batch', { names }).then((j) => {
-      if (!j.ok) {
-        toast(tr(j.error || 'common.opFailed'));
-        return;
-      }
-      const failed = (j.failed as string[]) || [];
-      toast(
-        failed.length
-          ? tr('admin.files.batchDeletedPartial', { n: Number(j.deleted) || 0, failed: failed.length })
-          : tr('admin.files.batchDeleted', { n: Number(j.deleted) || 0 })
-      );
-      clearSelection();
-      load();
-    });
+    post('/api/admin/files/del-batch', { names })
+      .then((j) => {
+        if (!j.ok) {
+          toast(tr(j.error || 'common.opFailed'));
+          return;
+        }
+        const failed = (j.failed as string[]) || [];
+        toast(
+          failed.length
+            ? tr('admin.files.batchDeletedPartial', { n: Number(j.deleted) || 0, failed: failed.length })
+            : tr('admin.files.batchDeleted', { n: Number(j.deleted) || 0 })
+        );
+        clearSelection();
+        load();
+      })
+      .catch(() => toast(tr('common.opFailed')));
   });
 }
 
@@ -199,6 +244,7 @@ onMounted(load);
         <select
           v-model="filterKind"
           class="h-7.5 rounded-lg border border-line bg-fill px-2 text-xs outline-none transition-colors focus:border-primary"
+          @change="onKindChange"
         >
           <option value="">{{ tr('admin.files.filterAll') }}</option>
           <option v-for="k in kindOptions" :key="k" :value="k">{{ tr('file.type.' + k) }}</option>
@@ -220,12 +266,12 @@ onMounted(load);
           maxlength="64"
           class="files-search h-7.5 w-32 rounded-lg border border-line bg-fill px-2.5 text-xs outline-none transition-colors focus:border-primary"
           :placeholder="tr('admin.files.searchPlaceholder')"
-          @keydown.enter.prevent="load"
+          @keydown.enter.prevent="load(true)"
         >
         <button
           type="button"
           class="shrink-0 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs transition-colors hover:border-primary hover:text-primary"
-          @click="load"
+          @click="load(true)"
         >
           {{ tr('common.refresh') }}
         </button>
@@ -310,6 +356,26 @@ onMounted(load);
         </button>
         <span v-else class="shrink-0 text-[11px] text-muted">{{ tr('admin.files.avatar') }}</span>
       </div>
+    </div>
+
+    <div v-if="pages > 1" class="mt-3 flex items-center justify-center gap-2 text-xs">
+      <button
+        type="button"
+        class="rounded-lg border border-line bg-panel px-2.5 py-1 transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line disabled:hover:text-ink"
+        :disabled="page <= 0"
+        @click="go(-1)"
+      >
+        {{ tr('admin.files.prev') }}
+      </button>
+      <span class="text-muted tabular-nums">{{ tr('admin.files.page', { p: page + 1, n: pages }) }}</span>
+      <button
+        type="button"
+        class="rounded-lg border border-line bg-panel px-2.5 py-1 transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line disabled:hover:text-ink"
+        :disabled="page >= pages - 1"
+        @click="go(1)"
+      >
+        {{ tr('admin.files.next') }}
+      </button>
     </div>
 
     <FileViewer v-model="fileView" />

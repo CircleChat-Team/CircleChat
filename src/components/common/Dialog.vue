@@ -14,14 +14,12 @@ const canOk = computed(() => {
 });
 
 watch(
-  () => dialogState.open,
-  (open) => {
-    if (open) {
-      inputVal.value = dialogState.input?.value ?? '';
-      requestAnimationFrame(() => {
-        if (dialogState.input) inputEl.value?.focus();
-      });
-    }
+  () => dialogState.token,
+  () => {
+    inputVal.value = dialogState.input?.value ?? '';
+    requestAnimationFrame(() => {
+      if (dialogState.input) inputEl.value?.focus();
+    });
   }
 );
 
@@ -50,6 +48,9 @@ function onMask(e: MouseEvent): void {
 }
 
 function onKey(e: KeyboardEvent): void {
+  // 弹窗没开时绝不能拦：监听挂在 document 的捕获阶段，无条件 stopPropagation
+  // 会把全站的 Esc（关闭其它弹层）全部吞掉。
+  if (!dialogState.open) return;
   if (e.key === 'Escape') {
     e.stopPropagation();
     onCancel();

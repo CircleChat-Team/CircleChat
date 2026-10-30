@@ -33,6 +33,8 @@
   --color-line: var(--border);
 
   --color-danger: #e5484d;
+  /* 成功色：个人资料页等只加载 tailwind.css 的页面也能用 text-success */
+  --color-success: #10b981;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;

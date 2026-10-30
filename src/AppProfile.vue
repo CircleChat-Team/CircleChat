@@ -17,6 +17,7 @@ import ProfileTwofa from './components/chat/profile/ProfileTwofa.vue';
 import ProfileOauth from './components/chat/profile/ProfileOauth.vue';
 import ProfileApiKeys from './components/chat/profile/ProfileApiKeys.vue';
 import ProfilePenalty from './components/chat/profile/ProfilePenalty.vue';
+import Dialog from './components/common/Dialog.vue';
 import type { PenaltyItem } from './types';
 
 type TabKey = 'profile' | 'security' | 'apikey' | 'penalty';
@@ -125,7 +126,7 @@ onMounted(() => {
       </button>
     </nav>
 
-    <main class="mx-auto w-full max-w-190 px-4 py-5 pb-10 lg:max-w-[1120px] xl:max-w-[1400px]">
+    <main class="mx-auto w-full max-w-190 px-4 py-5 pb-10 lg:max-w-280 xl:max-w-350">
       <div v-if="active === 'profile'" class="space-y-4">
         <section class="rounded-card border border-line bg-panel p-4">
           <ProfileHeader :penalty-summary="penaltySummary" :penalty-bad="penaltyBad" />
@@ -155,5 +156,8 @@ onMounted(() => {
         <ProfilePenalty :penalties="penalties" :loading="penaltyLoading" />
       </section>
     </main>
+
+    <!-- 全局确认/输入弹窗：ProfileApiKeys 的吊销/删除等操作依赖它 -->
+    <Dialog />
   </div>
 </template>

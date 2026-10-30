@@ -30,6 +30,8 @@ const actor = ref('');
 const actions = ref<string[]>([]);
 const failed = ref('');
 const page = ref(0);
+/** 请求序号：快速翻页/连按回车时，丢弃先发后到的旧响应 */
+let reqSeq = 0;
 
 /** 总页数（至少 1 页，便于显示"第 1 / 1 页"） */
 const pages = computed(() => Math.max(1, Math.ceil(total.value / PAGE)));
@@ -46,8 +48,10 @@ function load(reset = false): void {
   const a = actor.value.trim();
   if (a) path += '&actor=' + encodeURIComponent(a);
   if (actions.value.length) path += '&actions=' + encodeURIComponent(actions.value.join(','));
+  const seq = ++reqSeq;
   get(path)
     .then((j) => {
+      if (seq !== reqSeq) return; // 已有更新的请求发出，丢弃本次旧响应
       if (!j.ok) {
         failed.value = j.error || 'common.loadFailed';
         items.value = [];
@@ -56,8 +60,16 @@ function load(reset = false): void {
       failed.value = '';
       items.value = (j.logs as LogItem[]) || [];
       total.value = Number(j.total) || 0;
+      // 清空 / 筛选后当前页可能已越界：回到最后一页再取一次，避免停在空白页
+      const maxPage = Math.max(0, Math.ceil(total.value / PAGE) - 1);
+      if (page.value > maxPage) {
+        page.value = maxPage;
+        load();
+        return;
+      }
     })
     .catch(() => {
+      if (seq !== reqSeq) return;
       failed.value = 'common.loadFailed';
       items.value = [];
     });

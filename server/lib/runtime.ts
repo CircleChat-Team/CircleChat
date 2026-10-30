@@ -3050,6 +3050,10 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       const kw = (urlObj.searchParams.get('q') || '').trim().toLowerCase();
       const limit = Math.min(Math.max(parseInt(urlObj.searchParams.get('limit') as string, 10) || 200, 1), 1000);
       const offset = Math.max(parseInt(urlObj.searchParams.get('offset') as string, 10) || 0, 0);
+      // 类型筛选放在服务端：前端分页后只筛当前页会漏掉其它页的同类文件
+      const kindParam = (urlObj.searchParams.get('kind') || '').trim();
+      const KIND_SET = new Set(['image', 'design', 'code', 'audio', 'video', 'font', 'document', 'ebook', 'archive', 'disk', 'executable', 'other']);
+      const kind = KIND_SET.has(kindParam) ? kindParam : '';
       let names: string[] = [];
       try { names = fs.readdirSync(UPLOAD_DIR); } catch (e) { names = []; } // 目录不存在时按空列表处理
       const usage = store.fileUsage();
@@ -3073,10 +3077,13 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
           avatar: isAvatar
         });
       }
-      const matched = kw
+      const kwMatched = kw
         ? all.filter((f) => f.name.toLowerCase().indexOf(kw) !== -1 || String(f.origin).toLowerCase().indexOf(kw) !== -1)
         : all;
-      matched.sort((a: any, b: any) => b.ts - a.ts);
+      kwMatched.sort((a: any, b: any) => b.ts - a.ts);
+      // 类型下拉的候选按「当前搜索词」统计（不含类型条件），切换类型时选项不会自己消失
+      const kinds = Array.from(new Set(kwMatched.map((f: any) => String(f.kind)))).sort();
+      const matched = kind ? kwMatched.filter((f: any) => f.kind === kind) : kwMatched;
       let totalSize = 0;
       let usedCount = 0;
       for (const f of matched) { totalSize += f.size; if (f.used > 0) usedCount++; }
@@ -3086,6 +3093,7 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         files: matched.slice(offset, offset + limit),
         totalSize,
         usedCount,
+        kinds,
         limit,
         offset
       });
@@ -3192,6 +3200,53 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
         logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
       }).catch((e) => {
         sendJSON(res, e.message === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'api.badRequest' });
+      });
+      return;
+    }
+
+    // GET /api/admin/mini —— 索引源配置与上次加载状态（管理员）
+    // 必须放在管理员块的兜底 404 之前，否则会被提前拦截（历史上写在块外导致该页签一直 404）
+    if (pathname === '/api/admin/mini' && req.method === 'GET') {
+      mini.getIndex().then((idx) => {
+        miniDone(res, 200, {
+          ok: true,
+          sources: mini.getSources(),
+          status: idx.sources,
+          updatedAt: idx.updatedAt,
+          appCount: idx.apps.length,
+          installCount: mini.listInstalls({}).length
+        }, req, pathname, ip, t0);
+      }).catch(() => {
+        miniDone(res, 200, { ok: true, sources: mini.getSources(), status: [], updatedAt: 0, appCount: 0, installCount: 0 }, req, pathname, ip, t0);
+      });
+      return;
+    }
+
+    // POST /api/admin/mini {sources?: [...]} 或 {refresh: true}
+    if (pathname === '/api/admin/mini' && req.method === 'POST') {
+      miniReadBody(req, res, 16384, (o) => {
+        if (Array.isArray(o.sources) || o.sources !== undefined) {
+          mini.setSources((Array.isArray(o.sources) ? o.sources : []) as mini.MiniSource[]);
+          audit.add({
+            actor: me.username,
+            action: 'mini.sourceConfig',
+            target: 'mini_sources',
+            detail: auditDetail('log.detail.mini.sourceConfig', { count: (Array.isArray(o.sources) ? o.sources : []).length }),
+            ip
+          });
+        }
+        const after = o.refresh ? mini.refreshIndex() : mini.getIndex(true);
+        after.then((idx) => {
+          miniDone(res, 200, {
+            ok: true,
+            sources: mini.getSources(),
+            status: idx.sources,
+            updatedAt: idx.updatedAt,
+            appCount: idx.apps.length
+          }, req, pathname, ip, t0);
+        }).catch(() => {
+          miniDone(res, 200, { ok: true, sources: mini.getSources(), status: [], updatedAt: 0, appCount: 0 }, req, pathname, ip, t0);
+        });
       });
       return;
     }
@@ -4538,51 +4593,8 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
     return;
   }
 
-  // GET /api/admin/mini —— 索引源配置与上次加载状态（管理员）
-  if (pathname === '/api/admin/mini' && req.method === 'GET') {
-    mini.getIndex().then((idx) => {
-      miniDone(res, 200, {
-        ok: true,
-        sources: mini.getSources(),
-        status: idx.sources,
-        updatedAt: idx.updatedAt,
-        appCount: idx.apps.length,
-        installCount: mini.listInstalls({}).length
-      }, req, pathname, ip, t0);
-    }).catch(() => {
-      miniDone(res, 200, { ok: true, sources: mini.getSources(), status: [], updatedAt: 0, appCount: 0, installCount: 0 }, req, pathname, ip, t0);
-    });
-    return;
-  }
-
-  // POST /api/admin/mini {sources?: [...]} 或 {refresh: true}
-  if (pathname === '/api/admin/mini' && req.method === 'POST') {
-    miniReadBody(req, res, 16384, (o) => {
-      if (Array.isArray(o.sources) || o.sources !== undefined) {
-        mini.setSources((Array.isArray(o.sources) ? o.sources : []) as mini.MiniSource[]);
-        audit.add({
-          actor: me.username,
-          action: 'mini.sourceConfig',
-          target: 'mini_sources',
-          detail: auditDetail('log.detail.mini.sourceConfig', { count: (Array.isArray(o.sources) ? o.sources : []).length }),
-          ip
-        });
-      }
-      const after = o.refresh ? mini.refreshIndex() : mini.getIndex(true);
-      after.then((idx) => {
-        miniDone(res, 200, {
-          ok: true,
-          sources: mini.getSources(),
-          status: idx.sources,
-          updatedAt: idx.updatedAt,
-          appCount: idx.apps.length
-        }, req, pathname, ip, t0);
-      }).catch(() => {
-        miniDone(res, 200, { ok: true, sources: mini.getSources(), status: [], updatedAt: 0, appCount: 0 }, req, pathname, ip, t0);
-      });
-    });
-    return;
-  }
+  // 注：/api/admin/mini 的 GET / POST 已移入上面的管理员接口块，
+  // 否则会被该块的兜底 404 提前拦截。
 
   // GET /api/health
   sendJSON(res, 404, { ok: false, error: 'api.notFound' });

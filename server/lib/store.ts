@@ -344,8 +344,11 @@ function trimRoom(gid: string | null, dm: string | null): void {
   const over = cnt - MAX_MESSAGES;
   const removed = d.prepare('SELECT * FROM messages' + clause + 'ORDER BY idx ASC LIMIT ?').all(...params, over) as unknown as MsgRow[];
   const maxRemoved = removed[removed.length - 1].idx;
-  d.prepare('DELETE FROM messages WHERE idx <= ?').run(maxRemoved);
+  // ⚠️ 必须带上房间条件：idx 是全表自增、三个房间交错分布，
+  // 只按 idx 删会把其它房间更早的消息一起删掉（数据丢失）。
+  d.prepare('DELETE FROM messages' + clause + ' AND idx <= ?').run(...params, maxRemoved);
   cleanupFiles(removed);
+  pruneReactions();
 }
 
 /** 数据库行 -> 消息对象；已撤回 / 已过期的消息不回传原内容 */

@@ -5,6 +5,8 @@ import { bootProfilePage } from './core/chat';
 import { initTheme } from './core/theme';
 import { i18n } from './i18n';
 import './styles/tailwind.css';
+// 资料页的保存/启用/危险操作按钮使用 .btn-*（与管理面板共用同一份样式）
+import './styles/buttons.css';
 
 initTheme(); // 尽早应用主题，避免首屏闪白
 

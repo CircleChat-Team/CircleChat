@@ -31,11 +31,14 @@ export interface DialogOptions {
 
 interface DialogState extends DialogOptions {
   open: boolean;
+  /** 每次打开自增：同一时间重复打开时用来触发视图重置输入框 */
+  token: number;
   resolve: ((value: string | boolean | null) => void) | null;
 }
 
 export const dialogState = reactive<DialogState>({
   open: false,
+  token: 0,
   title: '',
   text: '',
   okText: '',
@@ -46,8 +49,15 @@ export const dialogState = reactive<DialogState>({
 });
 
 function open(opts: DialogOptions): Promise<string | boolean | null> {
+  // 上一个弹窗还没结算（连点按钮）→ 先按取消结算，避免旧 Promise 永久挂起
+  if (dialogState.resolve) {
+    const prev = dialogState.resolve;
+    dialogState.resolve = null;
+    prev(null);
+  }
   return new Promise((resolve) => {
     dialogState.open = true;
+    dialogState.token++;
     dialogState.title = opts.title || '';
     dialogState.text = opts.text || '';
     dialogState.okText = opts.okText || '';
