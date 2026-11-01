@@ -32,6 +32,13 @@ import {
   type PreviewKind
 } from '../../core/preview';
 import { parseEml } from '../../core/eml';
+import ArchiveViewer from './ArchiveViewer.vue';
+import {
+  MAX_ARCHIVE_BYTES,
+  archiveSupported,
+  detectArchive,
+  type ArchiveKind
+} from '../../core/archive';
 import {
   HIGHLIGHT_LANGS,
   MAX_VIEW_BYTES,
@@ -54,7 +61,7 @@ import {
   type MediaKind
 } from '../../core/fileview';
 
-type Phase = 'loading' | 'text' | 'hex' | 'too-large' | 'error' | 'pdf' | MediaKind;
+type Phase = 'loading' | 'text' | 'hex' | 'too-large' | 'error' | 'pdf' | 'archive' | 'archive-too-large' | MediaKind;
 
 /** 要查看的文件；为 null 即关闭 */
 const view = defineModel<FileViewTarget | null>({ default: null });
@@ -87,6 +94,9 @@ const svgBroken = ref(false);
 const previewTooLarge = ref(false);
 /** 媒体预览失败（服务端没按媒体类型下发、或浏览器不支持该编码） */
 const mediaFailed = ref(false);
+/** 压缩包：格式 + 原始字节（受 MAX_ARCHIVE_BYTES 限制，超出不下载） */
+const archiveKind = ref<ArchiveKind | null>(null);
+const archiveBytes = shallowRef<Uint8Array | null>(null);
 
 const url = computed(() => (view.value ? asset(view.value.url) : ''));
 
@@ -229,6 +239,9 @@ const tag = computed(() => {
   }
   if (phase.value === 'hex') return tr('fileview.hex');
   if (phase.value === 'pdf') return 'PDF';
+  if (phase.value === 'archive' || phase.value === 'archive-too-large') {
+    return archiveKind.value ? archiveKind.value.toUpperCase() : 'ARCHIVE';
+  }
   if (phase.value === 'image') return tr('fileview.image');
   if (phase.value === 'audio') return tr('fileview.audio');
   if (phase.value === 'video') return tr('fileview.video');
@@ -462,6 +475,53 @@ async function fetchAll(u: string): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer());
 }
 
+/**
+ * 带体积上限的读取：边读边计数，超过 limit 立即取消。
+ * 压缩包走这里（不依赖 size 元数据，避免未知大小的大文件被整块读进内存）。
+ */
+async function fetchCapped(u: string, limit: number): Promise<Uint8Array | null> {
+  const res = await fetch(u, { credentials: 'same-origin' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const reader = res.body ? res.body.getReader() : null;
+  if (!reader) {
+    const all = new Uint8Array(await res.arrayBuffer());
+    return all.length > limit ? null : all;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const step = await reader.read();
+      if (step.done) break;
+      const v = step.value;
+      if (!v) continue;
+      total += v.length;
+      if (total > limit) {
+        try {
+          await reader.cancel();
+        } catch {
+          /* ignore */
+        }
+        return null;
+      }
+      chunks.push(v);
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      /* ignore */
+    }
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
+}
+
 async function load(): Promise<void> {
   const v = view.value;
   if (!v) return;
@@ -479,6 +539,8 @@ async function load(): Promise<void> {
   previewDoc.value = '';
   svgBroken.value = false;
   previewTooLarge.value = false;
+  archiveKind.value = null;
+  archiveBytes.value = null;
   revokeSvg();
   viewMode.value = 'text';
   try {
@@ -494,6 +556,29 @@ async function load(): Promise<void> {
     // PDF：交给浏览器自带阅读器，不把全文读进内存（服务端对 .pdf 支持 Range）
     if (looksLikePdf(head)) {
       phase.value = 'pdf';
+      return;
+    }
+    // 压缩包：先在文件头识别；RAR/7Z 等不在线解压，只提示下载，不下载整包
+    const ark = detectArchive(head, v.name);
+    if (ark) {
+      archiveKind.value = ark;
+      if (!archiveSupported(ark)) {
+        phase.value = 'archive';
+        return;
+      }
+      const size = Number(v.size || 0);
+      if (size > MAX_ARCHIVE_BYTES) {
+        phase.value = 'archive-too-large';
+        return;
+      }
+      const buf = await fetchCapped(url.value, MAX_ARCHIVE_BYTES);
+      if (view.value !== v) return;
+      if (!buf) {
+        phase.value = 'archive-too-large';
+        return;
+      }
+      archiveBytes.value = buf;
+      phase.value = 'archive';
       return;
     }
     // 2) 文本 / hex 需要完整内容；超过 2MB 不给看（先按元数据拦一道，省一次下载）
@@ -557,7 +642,9 @@ watch(view, (v) => {
     void load();
     return;
   }
-  revokeSvg(); 
+  revokeSvg();
+  archiveKind.value = null;
+  archiveBytes.value = null;
 }, { immediate: true });
 
 // 主题变了要重建文档：markdown 预览的配色是写进文档里的
@@ -665,6 +752,19 @@ useOverlay({
         <div v-else-if="phase === 'pdf'" class="pv-wrap pv-wrap-frame">
           <iframe class="pv-frame" :src="url" referrerpolicy="no-referrer" :title="view.name || 'PDF'"></iframe>
         </div>
+
+        <!-- 压缩包超过大小上限：只提供下载，避免浏览器卡死 -->
+        <div v-else-if="phase === 'archive-too-large'" class="fileview-msg">
+          <p>{{ tr('fileview.archiveTooLarge', { size: fmtSize(MAX_ARCHIVE_BYTES) }) }}</p>
+          <a class="fv-btn fv-btn-primary" :href="url" :download="view.name || ''">{{ tr('fileview.download') }}</a>
+        </div>
+        <!-- 压缩包在线浏览（ZIP / TAR / TAR.GZ） -->
+        <ArchiveViewer
+          v-else-if="phase === 'archive'"
+          :bytes="archiveBytes"
+          :kind="archiveKind"
+          :name="view.name"
+        />
 
         <!-- Hex：三列（偏移 | 十六进制 | 文本），逐字节单元格 + 只渲染可视区 -->
         <div v-else-if="phase === 'hex'" class="hx-wrap">
