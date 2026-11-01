@@ -3339,6 +3339,86 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
 .steam-skel-line.w80 { width: 80%; }
 .steam-skel-line.w50 { width: 50%; }
 
+/* ---------- 消息里的 Discord 服务器卡片 ---------- */
+.discord-card {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  max-width: 420px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.dc-icon {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--fill);
+}
+.dc-icon img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.dc-icon-skel { color: var(--muted); font-size: 18px; font-weight: 700; }
+.dc-body { flex: 1; min-width: 0; }
+.dc-head { display: flex; align-items: center; gap: 6px; }
+.dc-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  background: #5865f2;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: .02em;
+}
+.dc-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.dc-name:hover { color: var(--primary); }
+.dc-stale { flex-shrink: 0; font-size: 10.5px; opacity: .75; }
+.dc-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--muted);
+}
+.dc-channel { margin-top: 3px; color: var(--muted); font-size: 11.5px; }
+.dc-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 5px; color: var(--muted); font-size: 11.5px; }
+.dc-online { display: inline-flex; align-items: center; gap: 4px; }
+.dc-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #23a55a; }
+.dc-err { margin-top: 4px; color: var(--muted); }
+.dc-actions { margin-top: 6px; }
+.dc-join {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background: #5865f2;
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.dc-join:hover { filter: brightness(1.08); }
+
 /* ---------- GitHub 仓库详情弹窗 ---------- */
 .repo-mask {
   position: fixed;

@@ -27,6 +27,7 @@ import * as mailbox from './mailbox';
 import * as appconfig from './appconfig';
 import * as github from './github';
 import * as steam from './steam';
+import * as discord from './discord';
 import * as captcha from './captcha';
 import * as mini from './mini';
 import { fileKindOf } from './filetypes';
@@ -4067,6 +4068,29 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch(() => {
       sendJSON(res, 200, { ok: false, error: 'steam.failed' });
+    });
+    return;
+  }
+
+  // GET /api/discord/invite?code=xxx —— 消息里 Discord 服务器邀请的卡片
+  //   服务端代理 Discord API，并把服务器图标转成 data URL 一起返回
+  if (pathname === '/api/discord/invite' && req.method === 'GET') {
+    const code = (urlObj.searchParams.get('code') || '').trim();
+    if (!discord.isValidCode(code)) {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    discord.discordInvite(code).then((r) => {
+      const body: Record<string, unknown> = { ok: !!r.data, invite: r.data, stale: r.stale, at: r.at };
+      if (!r.data) {
+        const map: Record<string, string> = { not_found: 'discord.notFound', not_guild: 'discord.notGuild' };
+        body.error = map[r.error] || 'discord.failed';
+      }
+      sendJSON(res, 200, body);
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch(() => {
+      sendJSON(res, 200, { ok: false, error: 'discord.failed' });
     });
     return;
   }
