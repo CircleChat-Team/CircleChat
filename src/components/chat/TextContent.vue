@@ -9,8 +9,10 @@ import { renderMath, mathReady } from '../../core/math';
 import { renderMermaid } from '../../core/mermaid';
 import { theme } from '../../core/theme';
 import { extractGithub } from '../../core/github';
+import { extractSteam } from '../../core/steam';
 import RepoCard from './RepoCard.vue';
 import GitHubRefCard from './GitHubRefCard.vue';
+import SteamCard from './SteamCard.vue';
 
 interface Token {
   t: 'text' | 'mention' | 'link' | 'code';
@@ -97,6 +99,8 @@ const refs = computed(() => (props.hideRepos ? [] : extractGithub(props.text || 
 /** 纯仓库链接 → 仓库卡片；issue / PR / commit 链接 → 各自的详细信息卡片 */
 const repoRefs = computed(() => refs.value.filter((r) => r.type === 'repo').map((r) => r.repo));
 const otherRefs = computed(() => refs.value.filter((r) => r.type !== 'repo'));
+/** Steam 商店链接 → 游戏卡片（一条消息最多 3 张） */
+const steamApps = computed(() => (props.hideRepos ? [] : extractSteam(props.text || '')));
 
 const blocks = computed<Block[]>(() => {
   const out: Block[] = [];
@@ -542,5 +546,6 @@ function onMdClick(e: Event): void {
       :key="'gh:' + r.type + ':' + r.repo + ':' + (r.num != null ? r.num : r.sha)"
       :ref-data="r"
     />
+    <SteamCard v-for="id in steamApps" :key="'steam:' + id" :appid="id" />
   </div>
 </template>

@@ -3258,6 +3258,87 @@ mjx-container[jax="SVG"][display="true"] { display: block; margin: 4px 0; }
   font-size: 10.5px;
 }
 
+/* ---------- 消息里的 Steam 商店卡片 ---------- */
+.steam-card {
+  margin-top: 8px;
+  max-width: 420px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.steam-cover {
+  display: block;
+  aspect-ratio: 460 / 215;
+  overflow: hidden;
+  background: var(--fill);
+}
+.steam-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.steam-cover-skel { display: block; width: 100%; height: 100%; background: rgba(128, 128, 128, .16); }
+.steam-body { padding: 9px 11px 10px; }
+.steam-head { display: flex; align-items: center; gap: 6px; }
+.steam-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  background: #1b2838;
+  color: #c7d5e0;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: .02em;
+}
+[data-theme="dark"] .steam-badge { background: #2a475e; }
+.steam-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.steam-name:hover { color: var(--primary); }
+.steam-stale { flex-shrink: 0; font-size: 10.5px; opacity: .75; }
+.steam-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 5px;
+  color: var(--muted);
+}
+.steam-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; margin-top: 6px; }
+.steam-price { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.steam-price.is-free { color: #1a7f37; }
+[data-theme="dark"] .steam-price.is-free { color: #3fb950; }
+.steam-discount {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #4c6b22;
+  color: #beee11;
+  font-size: 11px;
+  font-weight: 700;
+}
+.steam-initial { color: var(--muted); font-weight: 400; font-size: 11px; }
+.steam-date, .steam-score { color: var(--muted); font-size: 11px; }
+.steam-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; color: var(--muted); font-size: 11px; }
+.steam-platforms { display: inline-flex; flex-shrink: 0; gap: 6px; }
+.steam-genres { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.steam-err { margin-top: 5px; color: var(--muted); }
+.steam-link { display: inline-block; margin-top: 4px; color: var(--primary); font-size: 11.5px; text-decoration: none; }
+.steam-link:hover { text-decoration: underline; }
+.steam-skel { display: flex; flex-direction: column; gap: 6px; margin-top: 7px; }
+.steam-skel-line { height: 9px; border-radius: var(--r-xs); background: rgba(128, 128, 128, .22); }
+.steam-skel-line.w80 { width: 80%; }
+.steam-skel-line.w50 { width: 50%; }
+
 /* ---------- GitHub 仓库详情弹窗 ---------- */
 .repo-mask {
   position: fixed;

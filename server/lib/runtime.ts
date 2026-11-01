@@ -26,6 +26,7 @@ import * as moderate from './moderate';
 import * as mailbox from './mailbox';
 import * as appconfig from './appconfig';
 import * as github from './github';
+import * as steam from './steam';
 import * as captcha from './captcha';
 import * as mini from './mini';
 import { fileKindOf } from './filetypes';
@@ -4046,6 +4047,26 @@ function handleApi(req: any, res: any, urlObj: any, pathname: string, ip: string
       logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
     }).catch(() => {
       sendJSON(res, 200, { ok: false, error: 'github.failed' });
+    });
+    return;
+  }
+
+  // GET /api/steam/app?appid=123&lang=schinese —— 消息里 Steam 商店链接的卡片
+  if (pathname === '/api/steam/app' && req.method === 'GET') {
+    const idStr = (urlObj.searchParams.get('appid') || '').trim();
+    if (!/^\d{1,10}$/.test(idStr)) {
+      sendJSON(res, 400, { ok: false, error: 'api.badRequest' });
+      logger.write({ ip, method: req.method, url: pathname, status: 400, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+      return;
+    }
+    const lang = steam.normalizeSteamLang(urlObj.searchParams.get('lang') || '');
+    steam.steamApp(Number(idStr), lang).then((r) => {
+      const body: Record<string, unknown> = { ok: !!r.data, app: r.data, stale: r.stale, at: r.at };
+      if (!r.data) body.error = r.error === 'not_found' ? 'steam.notFound' : 'steam.failed';
+      sendJSON(res, 200, body);
+      logger.write({ ip, method: req.method, url: pathname, status: 200, ms: Date.now() - t0, ua: req.headers['user-agent'] });
+    }).catch(() => {
+      sendJSON(res, 200, { ok: false, error: 'steam.failed' });
     });
     return;
   }
