@@ -5,6 +5,7 @@ import { chatState, setVolume, toggleMuteVolume } from '../../core/chat';
 import { tr } from '../../core/i18n';
 import { fmtSize } from '../../core/format';
 import { extOf, fmtDur } from '../../core/media';
+import { loadId3Meta, type Id3Meta } from '../../core/id3';
 
 const props = defineProps<{ src: string; name?: string; size?: number | null }>();
 
@@ -17,6 +18,44 @@ const seekEl = ref<HTMLElement | null>(null);
 /** 是否正在拖动进度（拖动期间忽略 timeupdate，避免进度条被播放位置顶回） */
 let seeking = false;
 let resumeAfterSeek = false;
+
+/** ID3：标题 / 艺术家 / 专辑 / 封面；没有就退回文件名 */
+const meta = ref<Id3Meta | null>(null);
+const coverUrl = ref('');
+let metaSeq = 0;
+
+function revokeCover(): void {
+  if (!coverUrl.value) return;
+  try {
+    URL.revokeObjectURL(coverUrl.value);
+  } catch {
+    /* ignore */
+  }
+  coverUrl.value = '';
+}
+
+async function loadMeta(): Promise<void> {
+  const my = ++metaSeq;
+  revokeCover();
+  meta.value = null;
+  const m = await loadId3Meta(props.src, props.size);
+  if (my !== metaSeq) return;
+  meta.value = m;
+  if (m?.cover) {
+    try {
+      // new Uint8Array(...) 复制到独立 ArrayBuffer，满足 BlobPart 类型
+      coverUrl.value = URL.createObjectURL(new Blob([new Uint8Array(m.cover.data)], { type: m.cover.mime }));
+    } catch {
+      coverUrl.value = '';
+    }
+  }
+}
+
+const displayTitle = computed(() => meta.value?.title || props.name || tr('chat.file.defaultName'));
+const subline = computed(() => {
+  const m = meta.value;
+  return m ? [m.artist, m.album].filter(Boolean).join(' · ') : '';
+});
 
 const BARS = 28;
 
@@ -226,11 +265,16 @@ function onLoaded(): void {
   if (a && isFinite(a.duration) && a.duration > 0) duration.value = a.duration;
 }
 
+watch(() => props.src, () => { void loadMeta(); });
+
 onMounted(() => {
   draw();        // 关键：首帧就画出音谱条，别等播放才出现
   applyVolume(); // 挂载时套用当前音量（设置是异步载入的，watch 会补后续变化）
+  void loadMeta();
 });
 onBeforeUnmount(() => {
+  metaSeq++;
+  revokeCover();
   if (raf) cancelAnimationFrame(raf);
   if (actx) { try { void actx.close(); } catch {  } }
   window.removeEventListener('pointermove', onVolMove);
@@ -240,6 +284,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="audio-msg bubble" :class="{ playing }" @click.stop="toggle">
+    <img v-if="coverUrl" class="audio-cover" :src="coverUrl" alt="" />
     <button
       type="button"
       class="audio-btn"
@@ -266,7 +311,10 @@ onBeforeUnmount(() => {
             <path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
           </svg>
         </button>
-        <span class="media-name" :title="name || ''">{{ name || tr('chat.file.defaultName') }}</span>
+        <span class="media-title">
+          <span class="media-name" :title="name || ''">{{ displayTitle }}</span>
+          <span v-if="subline" class="media-artist" :title="subline">{{ subline }}</span>
+        </span>
         <span v-if="tag" class="media-tag">{{ tag }}</span>
       </div>
       <canvas ref="canvas" class="audio-bars" width="240" height="30"></canvas>
