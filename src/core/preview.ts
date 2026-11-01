@@ -22,8 +22,10 @@
  * iframe 的 srcdoc / img 的 src。
  * ============================================================ */
 import { detectLanguage } from './fileview';
+import { fmtSize } from './format';
+import { looksLikeEml, type EmlPreview } from './eml';
 
-export type PreviewKind = 'svg' | 'html' | 'markdown';
+export type PreviewKind = 'svg' | 'html' | 'markdown' | 'eml';
 
 /**
  * 预览的体积上限。
@@ -115,9 +117,12 @@ export function proseOf(text: string): string {
  * 判断这个文本文件能不能渲染预览。认不出来就返回 null（照旧按文本/Hex 看）。
  * 顺序有意义：SVG → HTML → Markdown。markdown 的判断最宽松，必须放最后。
  */
-export function detectPreview(text: string): PreviewKind | null {
+export function detectPreview(text: string, name?: string | null): PreviewKind | null {
   const raw = String(text || '');
   if (!raw.trim()) return null;
+  // 邮件：优先看后缀，再用内容兜底（有些导出工具起的名字不是 .eml）。
+  // 必须在 markdown 之前判断：邮件正文里常见的列表/引用/链接很容易被当成 markdown。
+  if (/\.emlx?$/i.test(String(name || '')) || looksLikeEml(raw)) return 'eml';
   const t = rootMarkup(raw);
   if (!t) return null;
 
@@ -487,4 +492,111 @@ export function buildMarkdownDoc(bodyHtml: string, opts: PreviewDocOpts): string
   const head = cspMeta() + (opts.base ? '<base href="' + esc(opts.base) + '">' : '');
   return '<!DOCTYPE html><html><head><meta charset="utf-8">' + head + mdStyles(theme) + hljsStyles(theme) +
     '</head><body>' + bodyHtml + '</body></html>';
+}
+
+/* ---------- EML（邮件）预览 ---------- */
+
+/** 邮件预览里用到的文案（由组件传入，避免 core 依赖 i18n） */
+export interface EmlLabels {
+  from: string;
+  to: string;
+  cc: string;
+  date: string;
+  subject: string;
+  /** 已格式化好的附件标题（含数量） */
+  attachments: string;
+  noBody: string;
+}
+
+/** 邮件正文里的 <head> 样式尽量保留，其余文档外壳去掉（样式在沙箱里仍受 CSP 约束） */
+function stripEmailDoc(html: string): string {
+  // 与 HTML 预览一致：先去掉 meta refresh / <base>，避免邮件正文把 iframe 导航到外站
+  const src = stripAutoNav(String(html || ''));
+  const styles = (src.match(/<style\b[\s\S]*?<\/style>/gi) || []).join('');
+  const bodyOnly = src
+    .replace(/<!doctype[^>]*>/gi, '')
+    .replace(/<head\b[\s\S]*?<\/head>/gi, '')
+    .replace(/<\/?(?:html|body)\b[^>]*>/gi, '')
+    .replace(/<title\b[\s\S]*?<\/title>/gi, '');
+  return styles + bodyOnly;
+}
+
+function emlStyles(theme: PreviewTheme): string {
+  const dark = theme === 'dark';
+  const fg = dark ? '#e6e6e6' : '#1f2328';
+  const muted = dark ? '#a8a8aa' : '#59636e';
+  const line = dark ? '#333' : '#e5e7eb';
+  const panel = dark ? '#252527' : '#f6f7f9';
+  return `<style>
+:root { color-scheme: ${dark ? 'dark' : 'light'}; }
+html, body { margin: 0; }
+body {
+  padding: 0 0 32px;
+  background: ${dark ? '#1c1c1e' : '#ffffff'};
+  color: ${fg};
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+.eml-head { width: calc(100% - 36px); margin: 16px 18px 0; border-collapse: collapse; }
+.eml-head th {
+  width: 4.5em; padding: 3px 10px 3px 0; text-align: left; vertical-align: top;
+  font-weight: 600; color: ${muted}; white-space: nowrap;
+}
+.eml-head td { padding: 3px 0; vertical-align: top; word-break: break-word; }
+.eml-atts { margin: 12px 18px 0; padding: 9px 11px; border: 1px solid ${line}; border-radius: 8px; }
+.eml-atts-t { margin-bottom: 5px; font-weight: 600; }
+.eml-atts ul { margin: 0; padding-left: 18px; }
+.eml-atts li { margin: 2px 0; }
+.eml-atts li span { color: ${muted}; font-size: 12px; }
+.eml-text {
+  margin: 14px 18px 0; padding: 12px 14px; border-radius: 8px; background: ${panel};
+  white-space: pre-wrap; word-break: break-word;
+  font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.eml-html { padding: 14px 18px 0; }
+.eml-html img { max-width: 100%; height: auto; }
+.eml-empty { margin: 20px 18px; color: ${muted}; }
+</style>`;
+}
+
+/**
+ * 把解析后的邮件组装成沙箱 iframe 文档。
+ * 正文 HTML 原样放进来是安全的：外层 sandbox="" 没有 allow-scripts / allow-same-origin，
+ * 文档内 CSP 又是 default-src 'none'，脚本和外部请求都发不出去。
+ */
+export function buildEmlDoc(eml: EmlPreview, opts: PreviewDocOpts, labels: EmlLabels): string {
+  const theme = opts.theme === 'dark' ? 'dark' : 'light';
+  const rows: string[] = [];
+  const row = (label: string, value: string): void => {
+    if (!value) return;
+    rows.push('<tr><th>' + esc(label) + '</th><td>' + esc(value) + '</td></tr>');
+  };
+  row(labels.from, eml.from);
+  row(labels.to, eml.to);
+  row(labels.cc, eml.cc);
+  row(labels.date, eml.date);
+  row(labels.subject, eml.subject);
+  const header = rows.length ? '<table class="eml-head">' + rows.join('') + '</table>' : '';
+
+  const atts = eml.attachments.length
+    ? '<div class="eml-atts"><div class="eml-atts-t">' +
+      esc(labels.attachments) +
+      '</div><ul>' +
+      eml.attachments
+        .map((a) => '<li>' + esc(a.name) + ' <span>' + esc(fmtSize(a.size)) + '</span></li>')
+        .join('') +
+      '</ul></div>'
+    : '';
+
+  let body: string;
+  if (eml.text && eml.text.trim()) {
+    body = '<pre class="eml-text">' + esc(eml.text.replace(/\n+$/, '')) + '</pre>';
+  } else if (eml.html && eml.html.trim()) {
+    body = '<div class="eml-html">' + stripEmailDoc(eml.html) + '</div>';
+  } else {
+    body = '<p class="eml-empty">' + esc(labels.noBody) + '</p>';
+  }
+
+  const head = cspMeta() + (opts.base ? '<base href="' + esc(opts.base) + '">' : '');
+  return '<!DOCTYPE html><html><head><meta charset="utf-8">' + head + emlStyles(theme) +
+    '</head><body>' + header + atts + body + '</body></html>';
 }

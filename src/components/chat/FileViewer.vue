@@ -22,6 +22,7 @@ import { tr } from '../../core/i18n';
 import { useOverlay } from '../../core/useOverlay';
 import { theme } from '../../core/theme';
 import {
+  buildEmlDoc,
   buildHtmlDoc,
   buildMarkdownDoc,
   detectPreview,
@@ -30,6 +31,7 @@ import {
   sanitizeSvg,
   type PreviewKind
 } from '../../core/preview';
+import { parseEml } from '../../core/eml';
 import {
   HIGHLIGHT_LANGS,
   MAX_VIEW_BYTES,
@@ -41,6 +43,7 @@ import {
   hexOffset,
   hexRowCount,
   isPrintableByte,
+  looksLikePdf,
   plainTextLines,
   rowWindow,
   shouldHighlight,
@@ -51,7 +54,7 @@ import {
   type MediaKind
 } from '../../core/fileview';
 
-type Phase = 'loading' | 'text' | 'hex' | 'too-large' | 'error' | MediaKind;
+type Phase = 'loading' | 'text' | 'hex' | 'too-large' | 'error' | 'pdf' | MediaKind;
 
 /** 要查看的文件；为 null 即关闭 */
 const view = defineModel<FileViewTarget | null>({ default: null });
@@ -225,6 +228,7 @@ const tag = computed(() => {
     return previewKind.value === 'markdown' ? 'Markdown' : previewKind.value.toUpperCase();
   }
   if (phase.value === 'hex') return tr('fileview.hex');
+  if (phase.value === 'pdf') return 'PDF';
   if (phase.value === 'image') return tr('fileview.image');
   if (phase.value === 'audio') return tr('fileview.audio');
   if (phase.value === 'video') return tr('fileview.video');
@@ -418,6 +422,19 @@ async function buildPreview(): Promise<void> {
   // base 指向文件所在目录，文档里的相对路径按文件自身位置解析
   const dir = url.value.replace(/[^/]*$/, '');
   const opts = { base: dir, theme: theme.value === 'dark' ? ('dark' as const) : ('light' as const) };
+  if (kind === 'eml') {
+    const eml = parseEml(text.value);
+    previewDoc.value = buildEmlDoc(eml, opts, {
+      from: tr('fileview.emlFrom'),
+      to: tr('fileview.emlTo'),
+      cc: tr('fileview.emlCc'),
+      date: tr('fileview.emlDate'),
+      subject: tr('fileview.emlSubject'),
+      attachments: tr('fileview.emlAttachments', { n: eml.attachments.length }),
+      noBody: tr('fileview.emlNoBody')
+    });
+    return;
+  }
   if (kind === 'html') {
     previewDoc.value = buildHtmlDoc(text.value, opts);
     return;
@@ -474,6 +491,11 @@ async function load(): Promise<void> {
       phase.value = media;
       return;
     }
+    // PDF：交给浏览器自带阅读器，不把全文读进内存（服务端对 .pdf 支持 Range）
+    if (looksLikePdf(head)) {
+      phase.value = 'pdf';
+      return;
+    }
     // 2) 文本 / hex 需要完整内容；超过 2MB 不给看（先按元数据拦一道，省一次下载）
     if (!canView(v.size)) {
       phase.value = 'too-large';
@@ -497,7 +519,7 @@ async function load(): Promise<void> {
     phase.value = 'text'; // 先按纯文本显示，高亮器到位后自动升级，不用一直等
     // 能渲染预览的（SVG / HTML / Markdown）默认给预览。
     // 类型判定与体积上限分开：超过了就只给文本/Hex，并在工具栏里说明原因
-    previewKind.value = detectPreview(text.value);
+    previewKind.value = detectPreview(text.value, v.name);
     if (previewKind.value) {
       const limit = previewLimitFor(previewKind.value);
       previewTooLarge.value = buf.length > limit;
@@ -637,6 +659,11 @@ useOverlay({
             <p class="media-note">{{ view.name }}</p>
           </template>
           <p v-else class="media-fail">{{ tr('fileview.previewFailed') }}</p>
+        </div>
+
+        <!-- PDF：直接交给浏览器自带阅读器（服务端以 application/pdf inline + Range 提供） -->
+        <div v-else-if="phase === 'pdf'" class="pv-wrap pv-wrap-frame">
+          <iframe class="pv-frame" :src="url" referrerpolicy="no-referrer" :title="view.name || 'PDF'"></iframe>
         </div>
 
         <!-- Hex：三列（偏移 | 十六进制 | 文本），逐字节单元格 + 只渲染可视区 -->

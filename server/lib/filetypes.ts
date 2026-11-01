@@ -141,6 +141,7 @@ const TABLE: { kind: FileKind; exts: string[] }[] = [
       '.odg', '.odb', '.odf',
       '.hwp', '.hwpx',
       '.fd', '.wpd', '.wp', '.wp5',
+      '.eml', '.emlx',
       '.man', '.info', '.rst', '.adoc', '.asciidoc', '.wiki', '.mediawiki'
     ]
   },

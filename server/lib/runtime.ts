@@ -270,9 +270,14 @@ function serveStatic(req: any, res: any, pathname: string): void {
     }
     const ext = path.extname(filePath).toLowerCase();
     let type = MIME[ext] || 'application/octet-stream';
-    // 上传目录防存储型 XSS：仅图片(png/jpeg/gif/webp)与视频/音频可内联，其余一律作为附件下载，
-    // 避免 .html / .svg / .xml 等被浏览器以本站同源页面身份渲染并执行脚本。
-    const inlineOk = /^image\/(png|jpeg|gif|webp)$/.test(type) || /^(video|audio)\//.test(type);
+    // 上传目录防存储型 XSS：仅图片(png/jpeg/gif/webp)、视频/音频与 PDF 可内联，
+    // 其余一律作为附件下载，避免 .html / .svg / .xml 等被浏览器以本站同源页面身份渲染并执行脚本。
+    // PDF 是有意放行的例外：以 application/pdf + nosniff 返回，由浏览器自带的
+    // PDF 阅读器（独立上下文）渲染，不会被当成站点 HTML 执行脚本。
+    const inlineOk =
+      /^image\/(png|jpeg|gif|webp)$/.test(type) ||
+      /^(video|audio)\//.test(type) ||
+      type === 'application/pdf';
     let attachment = false;
     if (filePath.startsWith(UPLOAD_DIR + path.sep) && !inlineOk) {
       type = 'application/octet-stream';
@@ -284,10 +289,11 @@ function serveStatic(req: any, res: any, pathname: string): void {
     const cache = isVendor
       ? 'public, max-age=604800'
       : (/\.(png|jpg|jpeg|gif|webp|ico|svg)$/.test(ext) ? 'public, max-age=86400' : 'no-cache');
-    // 媒体（视频/音频）走流式 + Range 响应：
+    // 媒体（视频/音频）与 PDF 走流式 + Range 响应：
     // 之前整文件 fs.readFile 读入内存再切片，大文件开播前要等整个文件读完，导致“等待开始慢 / 音频卡顿”。
-    // 改成分段 createReadStream，按需只读需要的字节，开始播放与拖动进度都立即响应。
-    if (!attachment && /^(video|audio)\//.test(type)) {
+    // 改成分段 createReadStream，按需只读需要的字节，开始播放与拖动进度都立即响应；
+    // PDF 阅读器同样靠 Range 按页取数，不能整文件读进内存。
+    if (!attachment && (/^(video|audio)\//.test(type) || type === 'application/pdf')) {
       const total = st.size;
       const h: Record<string, string> = {
         'Content-Type': type,

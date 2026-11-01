@@ -277,9 +277,9 @@
   overflow-wrap: anywhere;
 }
 
-/* ---------- 渲染预览（SVG / HTML / Markdown） ----------
-   内容要么在沙箱 iframe 里（HTML / Markdown），要么是清理后的 SVG 图片，
-   都是独立文档/资源，所以这里只管「摆好位置」，不参与它们的样式。 */
+/* ---------- 渲染预览（SVG / HTML / Markdown / EML / PDF） ----------
+   内容要么在沙箱 iframe 里（HTML / Markdown / EML），要么是清理后的 SVG 图片，
+   要么交给浏览器 PDF 阅读器；都是独立文档/资源，所以这里只管「摆好位置」。 */
 .pv-wrap {
   display: flex;
   align-items: center;

@@ -165,6 +165,16 @@ export function sniffMedia(head: Uint8Array): MediaKind | null {
   return null;
 }
 
+/**
+ * PDF 文件头：`%PDF-`。
+ * 识别出来后交给浏览器自带的 PDF 阅读器（iframe 直接加载 URL），
+ * 不把整个文件读进内存、也不按二进制走 Hex。
+ */
+export function looksLikePdf(head: Uint8Array): boolean {
+  if (!head || head.length < 5) return false;
+  return head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46 && head[4] === 0x2d;
+}
+
 /** 按字节解码为字符串（识别 BOM；非法字节退化为替换字符，不抛错） */
 export function decodeBytes(bytes: Uint8Array): string {
   const bom = bomOf(bytes);
